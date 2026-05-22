@@ -16,17 +16,52 @@ Usage:
 """
 
 import argparse
+import asyncio
+import logging
 import multiprocessing
+import os
+import platform
+import socket
+import sys
 import time
 import traceback
+import urllib.error
+import urllib.request
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Tuple
 
 import numpy as np
+
+# Python 3.8 compatibility:
+# viser's HTTP static-file path check relies on Path.is_relative_to(), which is
+# available in Python 3.9+. On Python 3.8 this causes HTTP 500 at "/" while
+# websocket handshake still works. Provide a backport shim before importing viser.
+if not hasattr(Path, "is_relative_to"):
+    def _is_relative_to(self: Path, *other: Path) -> bool:
+        try:
+            self.relative_to(*other)
+            return True
+        except ValueError:
+            return False
+
+    Path.is_relative_to = _is_relative_to  # type: ignore[attr-defined]
+
 import viser
 from viser.extras import ViserUrdf
 
+from dextoolbench.eval_env_config import (
+    CUBE_FIXED_SIZE,
+    ISAAC_ROBOT_BASE_POS,
+    ISAAC_TABLE_CENTER_POS,
+    build_eval_env_overrides,
+    eval_viser_default_arm_dof,
+    is_cube_eval,
+    load_trajectory,
+    table_urdf_rel_for_eval,
+)
+from dextoolbench.viser_colored_cube import add_colored_cube_viser
+from dextoolbench.reward_episode_plotter import RewardEpisodePlotter
 from dextoolbench.metadata import DEXTOOLBENCH_DATA_STRUCTURE, OBJECT_NAME_TO_CATEGORY
 
 # Pre-load the sidebar overview image as a numpy array (once, at import time)
@@ -41,31 +76,117 @@ if _SIDEBAR_IMG_PATH.exists():
 # ═══════════════════════════════════════════════════════════════════
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-TABLE_Z = 0.38
 Z_OFFSET = 0.03
 
-# Default joint positions matching IsaacGym reset
-# Arm: sharpa variant with startArmHigher=True
-_ARM_DEFAULT = np.array([-1.571, 1.571, 0.0, 1.376, 0.0, 1.485, 1.308])
-_ARM_DEFAULT[1] -= np.deg2rad(10)  # startArmHigher
-_ARM_DEFAULT[3] += np.deg2rad(10)  # startArmHigher
-DEFAULT_DOF_POS = np.zeros(29)
-DEFAULT_DOF_POS[:7] = _ARM_DEFAULT
+DEFAULT_DOF_POS = np.zeros(26)
+DEFAULT_DOF_POS[:6] = eval_viser_default_arm_dof()
 
 # ── Per-task environment URDFs ─────────────────────────────────────
 
 ENV_DIR = REPO_ROOT / "assets" / "urdf" / "dextoolbench" / "environments"
 
 
+def _setup_network_debug_logging():
+    """Enable verbose logs from websockets/viser internals."""
+    logging.basicConfig(
+        level=logging.INFO,
+        format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
+    )
+    logging.getLogger("websockets").setLevel(logging.DEBUG)
+    logging.getLogger("websockets.server").setLevel(logging.DEBUG)
+    logging.getLogger("viser").setLevel(logging.DEBUG)
+
+
+def _http_probe(port: int):
+    url = f"http://127.0.0.1:{port}/"
+    try:
+        req = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(req, timeout=2.0) as resp:
+            body = resp.read(160).decode("utf-8", errors="replace")
+            body = " ".join(body.splitlines())[:160]
+            print(f"[net-debug] HTTP probe OK: status={resp.status} body='{body}'")
+    except urllib.error.HTTPError as err:
+        body = err.read(160).decode("utf-8", errors="replace")
+        body = " ".join(body.splitlines())[:160]
+        print(
+            f"[net-debug] HTTP probe HTTPError: status={err.code} body='{body}'"
+        )
+    except Exception as err:
+        print(f"[net-debug] HTTP probe failed: {type(err).__name__}: {err}")
+
+
+def _ws_probe(port: int):
+    async def _run():
+        import websockets
+
+        url = f"ws://127.0.0.1:{port}"
+        try:
+            async with websockets.connect(url, open_timeout=2.0):
+                print(f"[net-debug] WS probe OK: {url}")
+        except Exception as err:
+            print(f"[net-debug] WS probe failed: {type(err).__name__}: {err}")
+
+    try:
+        asyncio.run(_run())
+    except RuntimeError:
+        # Fallback for environments where an event loop is already running.
+        loop = asyncio.new_event_loop()
+        try:
+            loop.run_until_complete(_run())
+        finally:
+            loop.close()
+    except Exception as err:
+        print(f"[net-debug] WS probe launcher failed: {type(err).__name__}: {err}")
+
+
+def _print_network_debug(port: int):
+    """Print environment + local connectivity diagnostics."""
+    print("[net-debug] ---- environment ----")
+    print(f"[net-debug] python={sys.version.split()[0]} platform={platform.platform()}")
+    print(f"[net-debug] host={socket.gethostname()} port={port}")
+    print(
+        "[net-debug] proxy env: "
+        f"HTTP_PROXY={os.getenv('HTTP_PROXY')} "
+        f"HTTPS_PROXY={os.getenv('HTTPS_PROXY')} "
+        f"NO_PROXY={os.getenv('NO_PROXY')} "
+        f"no_proxy={os.getenv('no_proxy')}"
+    )
+    try:
+        import websockets
+
+        print(f"[net-debug] websockets={websockets.__version__}")
+    except Exception as err:
+        print(f"[net-debug] websockets import failed: {type(err).__name__}: {err}")
+    print(f"[net-debug] viser={viser.__version__}")
+    print("[net-debug] ---- probes ----")
+    _http_probe(port)
+    _ws_probe(port)
+    print("[net-debug] -----------------")
+
+
 def _get_task_table_urdf(category, object_name, task_name):
     # type: (str, str, str) -> str
     """Return the URDF path relative to the assets/ dir (for IsaacGym)."""
-    return "urdf/dextoolbench/environments/" + category + "/" + object_name + "/" + task_name + ".urdf"
+    if is_cube_eval(category, object_name):
+        return table_urdf_rel_for_eval(category, object_name, task_name)
+    return (
+        "urdf/dextoolbench/environments/"
+        + category
+        + "/"
+        + object_name
+        + "/"
+        + task_name
+        + ".urdf"
+    )
 
 
 def _get_task_table_urdf_abs(category, object_name, task_name):
     # type: (str, str, str) -> str
     """Return the absolute URDF path (for viser parsing)."""
+    if is_cube_eval(category, object_name):
+        return str(REPO_ROOT / "assets" / table_urdf_rel_for_eval(
+            category, object_name, task_name
+        ))
     return str(ENV_DIR / category / object_name / (task_name + ".urdf"))
 
 
@@ -126,6 +247,7 @@ CATEGORY_DESCRIPTIONS = {
     "screwdriver": "Drive a screw from the top or side.",
     "marker": "Write shapes on a whiteboard.",
     "brush": "Sweep debris forward across the table.",
+    "cube": "Pick up a training cube and follow a short lift-and-move trajectory.",
 }
 
 
@@ -159,7 +281,20 @@ def _sim_reset(env, n_act, device):
     return obs["obs"]
 
 
-def _sim_episode(conn, env, policy, joint_lower, joint_upper, n_act, device):
+def _sim_episode(
+    conn,
+    env,
+    policy,
+    joint_lower,
+    joint_upper,
+    n_act,
+    device,
+    *,
+    plot_rewards: bool = False,
+    reward_plot_dir: Optional[Path] = None,
+    plot_live_every: int = 5,
+    episode_slug: str = "episode",
+):
     """Run one episode, streaming state to the parent via *conn*."""
     import time, torch  # noqa: E401
 
@@ -168,7 +303,27 @@ def _sim_episode(conn, env, policy, joint_lower, joint_upper, n_act, device):
     policy.reset()
     obs = _sim_reset(env, n_act, device)
 
+    reward_plotter: Optional[RewardEpisodePlotter] = None
+    if plot_rewards and reward_plot_dir is not None:
+        reward_plotter = RewardEpisodePlotter(
+            reward_plot_dir,
+            live=False,
+            live_every=plot_live_every,
+        )
+        reward_plotter.start_episode(episode_slug)
+        print(f"[reward-plot] Logging reward terms → {reward_plot_dir}", flush=True)
+
     step, done, paused = 0, False, False
+
+    def _finish(reason: str):
+        paths = {}
+        if reward_plotter is not None:
+            paths = reward_plotter.finalize(reason)
+            if paths:
+                print("[reward-plot] Saved:", flush=True)
+                for k, p in paths.items():
+                    print(f"  {k}: {p}", flush=True)
+        return paths
 
     while not done:
         # Drain commands (non-blocking)
@@ -179,7 +334,8 @@ def _sim_episode(conn, env, policy, joint_lower, joint_upper, n_act, device):
             elif cmd == "resume":
                 paused = False
             elif cmd == "stop":
-                conn.send(("stopped",))
+                plot_paths = _finish("stopped")
+                conn.send(("stopped", plot_paths))
                 return obs
 
         if paused:
@@ -189,11 +345,16 @@ def _sim_episode(conn, env, policy, joint_lower, joint_upper, n_act, device):
         t0 = time.time()
 
         state = _sim_get_state(env, obs, joint_lower, joint_upper, n_act)
+        #print(f"obs: {obs}", flush=True)
         action = policy.get_normalized_action(obs, deterministic_actions=True)
-        obs_dict, _, done_tensor, _ = env.step(action)
+        #print(f"action: {action}", flush=True)
+        #time.sleep(1)
+        obs_dict, _, done_tensor, extras = env.step(action)
         obs = obs_dict["obs"]
         done = done_tensor[0].item()
         step += 1
+        if reward_plotter is not None:
+            reward_plotter.record(extras, step)
 
         conn.send((
             "state",
@@ -208,12 +369,23 @@ def _sim_episode(conn, env, policy, joint_lower, joint_upper, n_act, device):
             time.sleep(sleep)
 
     goal_pct = 100 * int(env.successes[0].item()) / env.max_consecutive_successes
-    conn.send(("done", goal_pct, step))
+    plot_paths = _finish("done")
+    conn.send(("done", goal_pct, step, plot_paths))
     return obs
 
 
-def sim_worker(conn, category, object_name, task_name, table_urdf,
-               config_path, checkpoint_path):
+def sim_worker(
+    conn,
+    category,
+    object_name,
+    task_name,
+    table_urdf,
+    config_path,
+    checkpoint_path,
+    plot_rewards: bool = False,
+    reward_plot_dir: Optional[str] = None,
+    plot_live_every: int = 5,
+):
     """Child process entry-point.  Creates the env, then waits for commands."""
     # ── Heavy imports (only in the subprocess) ────────────────
     try:
@@ -224,88 +396,33 @@ def sim_worker(conn, category, object_name, task_name, table_urdf,
                    "from https://developer.nvidia.com/isaac-gym-preview-4 and "
                    "install with: cd isaacgym/python && uv pip install -e ."))
         return
-    import json, torch  # noqa: E401
-    from isaacgymenvs.utils.utils import get_repo_root_dir
+    import torch  # noqa: E401
     from deployment.rl_player import RlPlayer
     from deployment.isaac.isaac_env import create_env
 
-    n_act = 29
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
     try:
-        # Load trajectory
-        traj_path = (
-            get_repo_root_dir() / "dextoolbench" / "trajectories"
-            / category / object_name / f"{task_name}.json"
-        )
-        with open(traj_path) as f:
-            traj_data = json.load(f)
-        traj_data["start_pose"][2] += Z_OFFSET
+        traj_data = load_trajectory(category, object_name, task_name, z_offset=Z_OFFSET)
 
-        # Create environment
         env = create_env(
-            config_path=str(config_path), headless=True, device=device,
-            overrides={
-                # Turn off randomization noise
-                "task.env.resetPositionNoiseX": 0.0,
-                "task.env.resetPositionNoiseY": 0.0,
-                "task.env.resetPositionNoiseZ": 0.0,
-                "task.env.randomizeObjectRotation": False,
-                "task.env.resetDofPosRandomIntervalFingers": 0.0,
-                "task.env.resetDofPosRandomIntervalArm": 0.0,
-                "task.env.resetDofVelRandomInterval": 0.0,
-                "task.env.tableResetZRange": 0.0,
-                # Object
-                "task.env.objectName": object_name,
-                # Set up environment parameters
-                "task.env.numEnvs": 1,
-                "task.env.envSpacing": 0.4,
-                "task.env.capture_video": False,
-                # Goal settings
-                "task.env.useFixedGoalStates": True,
-                "task.env.fixedGoalStates": traj_data["goals"],
-                # Delays and noise
-                "task.env.useActionDelay": False,
-                "task.env.useObsDelay": False,
-                "task.env.useObjectStateDelayNoise": False,
-                "task.env.objectScaleNoiseMultiplierRange": [1.0, 1.0],
-                # Reset
-                "task.env.resetWhenDropped": False,
-                # Moving average
-                "task.env.armMovingAverage": 0.1,
-                # Success criteria
-                "task.env.evalSuccessTolerance": 0.01,
-                "task.env.successSteps": 1,
-                "task.env.fixedSizeKeypointReward": True,
-                # Table
-                "task.env.asset.table": str(table_urdf),
-                "task.env.tableResetZ": TABLE_Z,
-                # Initialization
-                "task.env.useFixedInitObjectPose": True,
-                "task.env.objectStartPose": traj_data["start_pose"],
-                "task.env.startArmHigher": True,
-                # Forces/torques (all zero for eval)
-                "task.env.forceScale": 0.0,
-                "task.env.torqueScale": 0.0,
-                "task.env.linVelImpulseScale": 0.0,
-                "task.env.angVelImpulseScale": 0.0,
-                "task.env.forceOnlyWhenLifted": True,
-                "task.env.torqueOnlyWhenLifted": True,
-                "task.env.linVelImpulseOnlyWhenLifted": True,
-                "task.env.angVelImpulseOnlyWhenLifted": True,
-                "task.env.forceProbRange": [0.0001, 0.0001],
-                "task.env.torqueProbRange": [0.0001, 0.0001],
-                "task.env.linVelImpulseProbRange": [0.0001, 0.0001],
-                "task.env.angVelImpulseProbRange": [0.0001, 0.0001],
-            },
+            config_path=str(config_path),
+            headless=True,
+            device=device,
+            overrides=build_eval_env_overrides(
+                category, object_name, table_urdf, traj_data, z_offset=0.0
+            ),
         )
+        n_act = int(env.num_acts)
 
         joint_lower = env.arm_hand_dof_lower_limits[:n_act].cpu().numpy()
         joint_upper = env.arm_hand_dof_upper_limits[:n_act].cpu().numpy()
 
         # Load policy
         env.set_env_state(torch.load(checkpoint_path)[0]["env_state"])
-        policy = RlPlayer(140, n_act, config_path, checkpoint_path, device, env.num_envs)
+        policy = RlPlayer(
+            int(env.num_obs), n_act, config_path, checkpoint_path, device, env.num_envs
+        )
 
         # Initial reset
         obs = _sim_reset(env, n_act, device)
@@ -317,8 +434,21 @@ def sim_worker(conn, category, object_name, task_name, table_urdf,
         while True:
             cmd = conn.recv()
             if cmd == "run":
+                slug = f"{category}_{object_name}_{task_name}"
                 obs = _sim_episode(
-                    conn, env, policy, joint_lower, joint_upper, n_act, device,
+                    conn,
+                    env,
+                    policy,
+                    joint_lower,
+                    joint_upper,
+                    n_act,
+                    device,
+                    plot_rewards=plot_rewards,
+                    reward_plot_dir=(
+                        Path(reward_plot_dir) if reward_plot_dir else None
+                    ),
+                    plot_live_every=plot_live_every,
+                    episode_slug=slug,
                 )
             elif cmd == "quit":
                 break
@@ -335,11 +465,32 @@ def sim_worker(conn, category, object_name, task_name, table_urdf,
 
 class InteractiveDemo:
 
-    def __init__(self, config_path: str, checkpoint_path: str, port: int = 8080):
+    def __init__(
+        self,
+        config_path: str,
+        checkpoint_path: str,
+        port: int = 8080,
+        debug_network: bool = False,
+        plot_rewards: bool = False,
+        reward_plot_dir: Optional[str] = None,
+        plot_live_every: int = 5,
+    ):
         self.port = port
         self.config_path = config_path
         self.checkpoint_path = checkpoint_path
+        self.debug_network = debug_network
+        self.plot_rewards = plot_rewards
+        self.reward_plot_dir = (
+            Path(reward_plot_dir)
+            if reward_plot_dir
+            else REPO_ROOT / "eval_reward_plots"
+        )
+        self.plot_live_every = plot_live_every
+        if self.debug_network:
+            _setup_network_debug_logging()
         self.server = viser.ViserServer(host="0.0.0.0", port=port)
+        # Viser may auto-select a different free port if requested one is busy.
+        self.port = int(self.server.get_port())
 
         # Subprocess
         self._proc = None  # type: Optional[multiprocessing.Process]
@@ -350,6 +501,7 @@ class InteractiveDemo:
 
         # Pending config (set in _load_env, consumed in _handle_ready)
         self._pending_obj_name: str = ""
+        self._pending_cat_key: str = ""
 
         # Stats
         self.ep_count = 0
@@ -427,11 +579,17 @@ class InteractiveDemo:
         self.server.scene.add_grid("/ground", width=2, height=2, cell_size=0.1)
 
         robot_urdf = (
-            REPO_ROOT / "assets" / "urdf" / "kuka_sharpa_description"
-            / "iiwa14_left_sharpa_adjusted_restricted.urdf"
+            REPO_ROOT
+            / "assets"
+            / "urdf"
+            / "ur5e_delto_description"
+            / "ur5e_left_dg5f.urdf"
         )
         self.server.scene.add_frame(
-            "/robot", position=(0, 0.8, 0), wxyz=(1, 0, 0, 0), show_axes=False,
+            "/robot",
+            position=ISAAC_ROBOT_BASE_POS,
+            wxyz=(1, 0, 0, 0),
+            show_axes=False,
         )
         self.robot = ViserUrdf(self.server, robot_urdf, root_node_name="/robot")
         self.robot.update_cfg(DEFAULT_DOF_POS)
@@ -443,7 +601,10 @@ class InteractiveDemo:
         """Show a plain wooden table before any environment is loaded."""
         self._clear_dynamic()
         t = self.server.scene.add_frame(
-            "/table", position=(0, 0, TABLE_Z), wxyz=(1, 0, 0, 0), show_axes=False,
+            "/table",
+            position=ISAAC_TABLE_CENTER_POS,
+            wxyz=(1, 0, 0, 0),
+            show_axes=False,
         )
         self._dyn.append(t)
         self._add_box(
@@ -522,7 +683,10 @@ class InteractiveDemo:
         """Parse the per-task URDF and render coloured boxes in viser."""
         self._clear_dynamic()
         t = self.server.scene.add_frame(
-            "/table", position=(0, 0, TABLE_Z), wxyz=(1, 0, 0, 0), show_axes=False,
+            "/table",
+            position=ISAAC_TABLE_CENTER_POS,
+            wxyz=(1, 0, 0, 0),
+            show_axes=False,
         )
         self._dyn.append(t)
 
@@ -586,23 +750,40 @@ class InteractiveDemo:
         # Reset robot to default pose while we wait
         self.robot.update_cfg(DEFAULT_DOF_POS)
 
-    def _setup_object_goal(self, object_name):
+    def _setup_object_goal(self, object_name, category: str):
         """Add the object + goal URDFs (called once IsaacGym reports ready)."""
-        from dextoolbench.objects import NAME_TO_OBJECT
-        obj_urdf = NAME_TO_OBJECT[object_name].urdf_path
-
         self._obj_frame = self.server.scene.add_frame(
             "/object", show_axes=True, axes_length=0.1, axes_radius=0.001,
         )
         self._dyn.append(self._obj_frame)
-        ViserUrdf(self.server, obj_urdf, root_node_name="/object")
 
         self._goal_frame = self.server.scene.add_frame(
             "/goal", show_axes=True, axes_length=0.1, axes_radius=0.001,
         )
         self._dyn.append(self._goal_frame)
-        ViserUrdf(self.server, obj_urdf, root_node_name="/goal",
-                  mesh_color_override=(0, 255, 0, 0.5))
+
+        if is_cube_eval(category, object_name):
+            add_colored_cube_viser(
+                self.server, "/object", self._dyn, scale=CUBE_FIXED_SIZE
+            )
+            add_colored_cube_viser(
+                self.server,
+                "/goal",
+                self._dyn,
+                scale=CUBE_FIXED_SIZE,
+                opacity=0.85,
+            )
+        else:
+            from dextoolbench.objects import NAME_TO_OBJECT
+
+            obj_urdf = NAME_TO_OBJECT[object_name].urdf_path
+            ViserUrdf(self.server, obj_urdf, root_node_name="/object")
+            ViserUrdf(
+                self.server,
+                obj_urdf,
+                root_node_name="/goal",
+                mesh_color_override=(0, 255, 0, 0.5),
+            )
 
     # ── Subprocess management ──────────────────────────────────
 
@@ -637,6 +818,7 @@ class InteractiveDemo:
         table_urdf_abs = _get_task_table_urdf_abs(cat_key, object_name, task_name)
 
         self._pending_obj_name = object_name
+        self._pending_cat_key = cat_key
 
         # Show table + default robot pose immediately while IsaacGym loads
         self._setup_table(table_urdf_abs)
@@ -656,8 +838,18 @@ class InteractiveDemo:
         self._conn = parent_conn
         self._proc = ctx.Process(
             target=sim_worker,
-            args=(child_conn, cat_key, object_name, task_name, table_urdf_rel,
-                  self.config_path, self.checkpoint_path),
+            args=(
+                child_conn,
+                cat_key,
+                object_name,
+                task_name,
+                table_urdf_rel,
+                self.config_path,
+                self.checkpoint_path,
+                self.plot_rewards,
+                str(self.reward_plot_dir),
+                self.plot_live_every,
+            ),
             daemon=True,
         )
         self._proc.start()
@@ -715,7 +907,7 @@ class InteractiveDemo:
 
         if tag == "ready":
             init_state = msg[1]
-            self._setup_object_goal(self._pending_obj_name)
+            self._setup_object_goal(self._pending_obj_name, self._pending_cat_key)
             self._update_viz(init_state)
             self._env_ready = True
             self._md_status.content = "**Status:** Ready -- click **Run Episode**"
@@ -736,6 +928,7 @@ class InteractiveDemo:
 
         elif tag == "done":
             goal_pct, steps = msg[1], msg[2]
+            plot_paths = msg[3] if len(msg) > 3 else {}
             self._episode_running = False
             self.ep_goals.append(goal_pct)
             self.ep_lengths.append(steps)
@@ -747,14 +940,26 @@ class InteractiveDemo:
                 f"**Avg Goal:** {avg_g:.1f}% &nbsp;|&nbsp; "
                 f"**Avg Time:** {avg_t:.1f}s"
             )
+            plot_note = ""
+            if plot_paths:
+                ep_dir = plot_paths.get("episode_dir", "")
+                if ep_dir:
+                    plot_note = f" &nbsp;|&nbsp; plots: `{ep_dir}/per_term/`"
             self._md_status.content = (
                 f"**Status:** Done -- {steps / 60.0:.1f}s, {goal_pct:.0f}% goals"
+                f"{plot_note}"
             )
             print(f"[launcher] Episode done: {goal_pct:.0f}% goals in {steps / 60.0:.1f}s")
 
         elif tag == "stopped":
+            plot_paths = msg[1] if len(msg) > 1 else {}
             self._episode_running = False
-            self._md_status.content = "**Status:** Episode stopped."
+            note = ""
+            if plot_paths:
+                ep_dir = plot_paths.get("episode_dir", "")
+                if ep_dir:
+                    note = f" (plots: {ep_dir}/per_term/)"
+            self._md_status.content = f"**Status:** Episode stopped.{note}"
 
         elif tag == "error":
             self._env_ready = False
@@ -784,8 +989,13 @@ class InteractiveDemo:
         print("  +-------------------------------------------------+")
         print("  |     DexToolBench Interactive Policy Demo         |")
         print(f"  |     http://localhost:{self.port:<26}|")
+        print(f"  |     http://127.0.0.1:{self.port:<26}|")
         print("  +-------------------------------------------------+")
         print()
+        if self.debug_network:
+            # Give the server a brief moment before probing.
+            time.sleep(0.2)
+            _print_network_debug(self.port)
 
         try:
             while True:
@@ -804,6 +1014,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--port", type=int, default=8080)
     parser.add_argument(
+        "--debug-network",
+        action="store_true",
+        help="Print extra diagnostics for HTTP/WebSocket connectivity.",
+    )
+    parser.add_argument(
         "--config-path", type=str, default="pretrained_policy/config.yaml",
         help="Path to the policy config YAML",
     )
@@ -811,9 +1026,30 @@ if __name__ == "__main__":
         "--checkpoint-path", type=str, default="pretrained_policy/model.pth",
         help="Path to the policy checkpoint",
     )
+    parser.add_argument(
+        "--plot-rewards",
+        action="store_true",
+        help="Plot reward sub-terms live during the episode and save PNG/NPZ after.",
+    )
+    parser.add_argument(
+        "--reward-plot-dir",
+        type=str,
+        default=None,
+        help="Directory for reward plots (default: <repo>/eval_reward_plots).",
+    )
+    parser.add_argument(
+        "--plot-live-every",
+        type=int,
+        default=5,
+        help="Update live matplotlib window every N sim steps (with --plot-rewards).",
+    )
     args = parser.parse_args()
     InteractiveDemo(
         config_path=args.config_path,
         checkpoint_path=args.checkpoint_path,
         port=args.port,
+        debug_network=args.debug_network,
+        plot_rewards=args.plot_rewards,
+        reward_plot_dir=args.reward_plot_dir,
+        plot_live_every=args.plot_live_every,
     ).run()

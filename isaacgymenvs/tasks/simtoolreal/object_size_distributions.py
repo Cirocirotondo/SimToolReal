@@ -13,6 +13,7 @@ class ObjectSizeDistribution:
         "spatula",
         "eraser",
         "brush",
+        "cube",
     ]
     handle_min_lengths: Union[Tuple[float, float, float], Tuple[float, float]]
     handle_max_lengths: Union[Tuple[float, float, float], Tuple[float, float]]
@@ -97,6 +98,18 @@ HIGH_DENSITY_MIN, HIGH_DENSITY_MAX = 800, 2000
 
 
 OBJECT_SIZE_DISTRIBUTIONS: List[ObjectSizeDistribution] = [
+    # Cube (single cuboid; no head — see generate_handle_head_urdf with head_scale=None)
+    ObjectSizeDistribution(
+        type="cube",
+        handle_min_lengths=(0.04, 0.04, 0.04),
+        handle_max_lengths=(0.06, 0.06, 0.06),
+        head_min_lengths=None,
+        head_max_lengths=None,
+        handle_min_density=LOW_DENSITY_MIN,
+        handle_max_density=LOW_DENSITY_MAX,
+        head_min_density=None,
+        head_max_density=None,
+    ),
     # Hammer
     # Handle: (x) Lengths are [15cm, 30cm]
     #         (y) Widths are [2cm, 4cm]
@@ -109,8 +122,8 @@ OBJECT_SIZE_DISTRIBUTIONS: List[ObjectSizeDistribution] = [
     #         (shape) box
     ObjectSizeDistribution(
         type="hammer",
-        handle_min_lengths=(0.15, 0.02, 0.015),  # Box
-        handle_max_lengths=(0.3, 0.04, 0.03),
+        handle_min_lengths=(0.07, 0.02, 0.015),  # Box — short handle (x ≈ 7–14 cm)
+        handle_max_lengths=(0.14, 0.04, 0.03),
         head_min_lengths=(0.02, 0.05, 0.02),
         head_max_lengths=(0.06, 0.12, 0.06),
         handle_min_density=LOW_DENSITY_MIN,
@@ -120,8 +133,8 @@ OBJECT_SIZE_DISTRIBUTIONS: List[ObjectSizeDistribution] = [
     ),
     ObjectSizeDistribution(
         type="hammer",
-        handle_min_lengths=(0.15, 0.015),  # Cylinder
-        handle_max_lengths=(0.3, 0.03),
+        handle_min_lengths=(0.07, 0.015),  # Cylinder — same x range as box row above
+        handle_max_lengths=(0.14, 0.03),
         head_min_lengths=(0.02, 0.05, 0.02),
         head_max_lengths=(0.06, 0.12, 0.06),
         handle_min_density=LOW_DENSITY_MIN,

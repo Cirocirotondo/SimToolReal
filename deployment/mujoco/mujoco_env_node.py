@@ -21,7 +21,7 @@ from deployment.mujoco.mujoco_sim import (
 PUBLISH_GOAL_OBJECT_POSE = False
 
 T_W_R = np.eye(4)
-T_W_R[:3, 3] = np.array([0.0, 0.8, 0.0])
+T_W_R[:3, 3] = np.array([0.0, 0.5, 0.0])
 
 T_R_W = np.linalg.inv(T_W_R)
 

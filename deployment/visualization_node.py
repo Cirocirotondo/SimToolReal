@@ -20,7 +20,7 @@ from dextoolbench.metadata import ALL_OBJECT_NAMES
 from isaacgymenvs.utils.utils import get_repo_root_dir
 
 T_W_R = np.eye(4)
-T_W_R[:3, 3] = np.array([0.0, 0.8, 0.0])
+T_W_R[:3, 3] = np.array([0.0, 0.5, 0.0])
 
 
 def warn(message: str):
@@ -217,13 +217,13 @@ class VisualizationNode:
 
         SERVER.scene.add_frame(
             "/robot/state",
-            position=(0, 0.8, 0),
+            position=(0, 0.5, 0),
             wxyz=(1, 0, 0, 0),
             show_axes=False,
         )
         SERVER.scene.add_frame(
             "/robot/cmd",
-            position=(0, 0.8, 0),
+            position=(0, 0.5, 0),
             wxyz=(1, 0, 0, 0),
             show_axes=False,
         )

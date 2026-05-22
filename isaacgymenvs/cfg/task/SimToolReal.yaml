@@ -7,7 +7,7 @@ physics_engine: ${..physics_engine}
 
 env:
   # if given, will override the device setting in gym.
-  numEnvs: ${resolve_default:8192,${...num_envs}}
+  numEnvs: ${resolve_default:12288,${...num_envs}}
 
   envSpacing: 1.2
   episodeLength: 600
@@ -26,6 +26,11 @@ env:
   dofSpeedScale: 1.5  # often set to 1.0
   handMovingAverage: 0.1  # often set to 0.1 or 1.0
   armMovingAverage: 0.1  # often set to 0.1 or 1.0
+  armDofs: 6
+  armEndEffectorLinkName: "wrist_3_link"
+  palmLinkName: "wrist_3_link"
+  palmOffset: [0.0, 0.0, 0.16]
+  defaultArmDofPos: [-1.5708, -1.571, 1, 0.5, 1.571, -1.571]
   dofSpeedScaleFinal: ${eval:"None"}  # often set to 1.0
   armMovingAverageFinal: ${eval:"None"}  # often set to 0.1
   handMovingAverageFinal: ${eval:"None"}  # often set to 0.1
@@ -36,22 +41,25 @@ env:
   resetPositionNoiseY: 0.1
   resetPositionNoiseZ: 0.02
   randomizeObjectRotation: True
-  resetDofPosRandomIntervalFingers: 0.1
-  resetDofPosRandomIntervalArm: 0.1
-  resetDofVelRandomInterval: 0.5
+  # Small reset variation (tighter than 0.1 / 0.5) so starts stay near defaultArmDofPos
+  resetDofPosRandomIntervalFingers: 0.03
+  resetDofPosRandomIntervalArm: 0.03
+  resetDofVelRandomInterval: 0.15
 
   # Table reset settings
+  robotBaseY: 0.6  # world-frame y of robot base; table center y = robotBaseY + tablePoseDy
+  tablePoseDy: -0.6  # offset from robot to table center along y (60 cm spacing)
   tableResetZ: 0.38
   tableResetZRange: 0.01
   tableObjectZOffset: 0.25
 
-  # Random forces applied to the object
-  forceScale: 20.0
+  # Random forces / torques on the object (sim2real-style). Original strong: 20; mild default below.
+  forceScale: 6.0
   forceProbRange: [0.001, 0.1]
   forceDecay: 0.0
   forceDecayInterval: 0.08
   forceOnlyWhenLifted: True
-  torqueScale: 2.0
+  torqueScale: 0.5
   torqueProbRange: [0.001, 0.1]
   torqueDecay: 0.0
   torqueDecayInterval: 0.08
@@ -68,11 +76,21 @@ env:
   liftingRewScale: 20.0
   liftingBonus: 300.0
   liftingBonusThreshold: 0.15  # when the object is lifted this distance (in meters) above the table, the agent gets the lifting bonus
-  keypointRewScale: 200.0
+  keypointRewScale: 200.0 # Rewards the agent for getting closer to the goal. Original value: 200.0
+  # Fingertip approach reward (pre-lift); raise if arm stays away from workspace / tool
   distanceDeltaRewScale: 50.0
   reachGoalBonus: 1000.0
-  kukaActionsPenaltyScale: 0.03
+  # Penalty on sum(|joint_vel|) for arm vs hand DOFs; lower = less discouragement of arm motion
+  kukaActionsPenaltyScale: 0.03  # no penalty on arm joint velocities
   handActionsPenaltyScale: 0.003
+  # Grasp shaping while object is lifted (keep scales tiny — tune up if too weak)
+  fingertipSpreadPenaltyScale: 0.25  # reward += -scale * std(distances); 0 disables
+  fingertipMultiContactBonusScale: 0.1  # reward += scale * min(1, num_close / K); 0 disables (50x vs 0.002)
+  fingertipMultiContactDistThresholdM: 0.06  # fingertip–object distance (m) counted as "close" (6 cm; looser for 5 cm cube)
+  fingertipMultiContactMinFingers: 5  # K for full bonus (all Delto fingertips)
+  fingertipThumbBonusScale: 0.05  # while lifted: bonus if thumb within multi-contact distance threshold; 0 disables
+  fingertipThumbIndex: null  # optional fingertip index; null = auto (Delto ll_dg_1_4, or link name containing "thumb")
+
   fallDistance: 0.24
   fallPenalty: 0.0
   objectLinVelPenaltyScale: 0.0  # Typically want angvel scale to be 100x smaller than linvel scale
@@ -145,7 +163,7 @@ env:
   stateList: ["joint_pos", "joint_vel", "prev_action_targets", "palm_pos", "palm_rot", "palm_vel", "object_rot", "object_vel", "fingertip_pos_rel_palm", "keypoints_rel_palm", "keypoints_rel_goal", "object_scales", "closest_keypoint_max_dist", "closest_fingertip_dist", "lifted_object", "progress", "successes", "reward"]
   obsList: ["joint_pos", "joint_vel", "prev_action_targets", "palm_pos", "palm_rot", "object_rot", "fingertip_pos_rel_palm", "keypoints_rel_palm", "keypoints_rel_goal", "object_scales"]
   fixedSizeKeypointReward: True
-  fixedSize: [0.141, 0.03025, 0.0271]
+  fixedSize: [0.05, 0.05, 0.05]  # ~5 cm cube; used when handleHeadTypes is cube
 
   startArmHigher: False  # Set to False typically for training, but for evaluation, we typically start the arm higher
 
@@ -175,7 +193,7 @@ env:
   objectStateDelayMax: 10
   objectStateXyzNoiseStd: 0.01
   objectStateRotationNoiseDegrees: 5.0
-  objectScaleNoiseMultiplierRange: [1.0, 1.0]
+  objectScaleNoiseMultiplierRange: [0.9, 1.1]
 
   jointVelocityObsNoiseStd: 0.1
 
@@ -183,17 +201,28 @@ env:
   objectStartPose: ${eval:"None"}  # If None, will use the default object start pose. Otherwise, a 7-element list of [x, y, z, qx, qy, qz, qw]
   goalObjectPose: ${eval:"None"}  # If None, does nothing. Otherwise, forces the goal object pose to be this value. Must be a 7-element list of [x, y, z, qx, qy, qz, qw]
 
-  handleHeadTypes: ["hammer", "screwdriver", "marker", "spatula", "eraser", "brush"]
+  # Procedural tools: which semantic families to include (see object_size_distributions.py).
+  # For hammer training, use handleHeadTypes: ["hammer"]. Cube = single cuboid (no head).
+  handleHeadTypes: ["cube"]
+  # Samples per geometry/density template (was hardcoded 100). Use 1 for a single randomized instance per template.
+  numObjectsPerType: 1
+  # If True, only the first matching ObjectSizeDistribution row is kept (e.g. one hammer geometry family, not box+cylinder).
+  useSingleHandleHeadTemplate: True
 
-  # asset Friction settings
+  # Rigid-shape contact materials (applied in env.set_*_asset_rigid_shape_properties)
   modifyAssetFrictions: True
   robotFriction: 0.5
   fingerTipFriction: 1.5
   objectFriction: 0.5
   tableFriction: 0.5
+  robotRestitution: 0.0
+  fingerTipRestitution: 0.0
+  objectRestitution: 0.0  # keep cube from bouncing when pinched (default URDF/PhysX can be bouncy)
+  tableRestitution: 0.0
 
   asset:
-    robot: "urdf/kuka_sharpa_description/iiwa14_left_sharpa_adjusted_restricted.urdf"
+    robot: "urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
+    flipVisualAttachments: True
 
     table: "urdf/table_narrow.urdf"
 
@@ -324,6 +353,6 @@ sim:
     contact_offset: 0.002
     rest_offset: 0.0
     bounce_threshold_velocity: 0.2
-    max_depenetration_velocity: 1000.0
+    max_depenetration_velocity: 2.0  # was 1000; high values launch objects on finger pinch
     default_buffer_size_multiplier: 25.0
     contact_collection: 0 # 0: CC_NEVER (don't collect contact info), 1: CC_LAST_SUBSTEP (collect only contacts on last substep), 2: CC_ALL_SUBSTEPS (broken - do not use!)

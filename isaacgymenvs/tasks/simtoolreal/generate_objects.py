@@ -5,8 +5,41 @@ from typing import Optional, Tuple, Union
 import trimesh
 
 
+def _cuboid_per_face_color_visuals(
+    sx: float, sy: float, sz: float, thickness: float
+) -> str:
+    """Six visual-only face plates (+/- X/Y/Z) with distinct colors."""
+    hx, hy, hz = sx / 2, sy / 2, sz / 2
+    t2 = thickness / 2
+    faces = [
+        ("face_px", hx - t2, 0, 0, thickness, sy, sz, "1.0 0.15 0.15 1.0"),
+        ("face_nx", -hx + t2, 0, 0, thickness, sy, sz, "1.0 0.5 0.0 1.0"),
+        ("face_py", 0, hy - t2, 0, sx, thickness, sz, "0.15 0.85 0.15 1.0"),
+        ("face_ny", 0, -hy + t2, 0, sx, thickness, sz, "0.1 0.55 0.45 1.0"),
+        ("face_pz", 0, 0, hz - t2, sx, sy, thickness, "0.2 0.35 1.0 1.0"),
+        ("face_nz", 0, 0, -hz + t2, sx, sy, thickness, "1.0 0.85 0.1 1.0"),
+    ]
+    blocks = []
+    for name, ox, oy, oz, bx, by, bz, rgba in faces:
+        blocks.append(
+            f"""    <visual>
+      <origin xyz="{ox} {oy} {oz}" rpy="0 0 0"/>
+      <geometry>
+        <box size="{bx} {by} {bz}"/>
+      </geometry>
+      <material name="{name}">
+        <color rgba="{rgba}"/>
+      </material>
+    </visual>"""
+        )
+    return "\n".join(blocks)
+
+
 def generate_cuboid_urdf_constant_density(
-    filepath: Path, scale: Tuple[float, float, float], density: float = 400
+    filepath: Path,
+    scale: Tuple[float, float, float],
+    density: float = 400,
+    per_face_colors: bool = False,
 ) -> Path:
     """
     Generate a URDF file for a cuboid with uniform density.
@@ -19,6 +52,9 @@ def generate_cuboid_urdf_constant_density(
         Dimensions of the cuboid along x, y, z axes.
     density : float, default=400
         Material density in kg/m^3.
+    per_face_colors : bool, default=False
+        If True, render each face in a distinct color (visual only). Collision stays
+        a single box. Useful for cube orientation cues in the viewer / cameras.
 
     Returns
     -------
@@ -27,26 +63,33 @@ def generate_cuboid_urdf_constant_density(
 
     Notes
     -----
-    The cuboid's origin is at its center. Visual and collision geometries are identical.
+    The cuboid's origin is at its center. Collision is always a single box; when
+    per_face_colors is True, visuals are six thin face plates instead of one solid color.
     """
-    urdf = f"""<?xml version="1.0"?>
-<robot name="cuboid">
-
-  <link name="cuboid">
-    <!-- Handle -->
-    <visual>
+    sx, sy, sz = scale
+    if per_face_colors:
+        thickness = max(1e-4, min(sx, sy, sz) * 0.02)
+        visuals = _cuboid_per_face_color_visuals(sx, sy, sz, thickness)
+    else:
+        visuals = f"""    <visual>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="{scale[0]} {scale[1]} {scale[2]}"/>
+        <box size="{sx} {sy} {sz}"/>
       </geometry>
       <material name="brown">
         <color rgba="0.55 0.27 0.07 1.0"/>
       </material>
-    </visual>
+    </visual>"""
+
+    urdf = f"""<?xml version="1.0"?>
+<robot name="cuboid">
+
+  <link name="cuboid">
+{visuals}
     <collision>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <geometry>
-        <box size="{scale[0]} {scale[1]} {scale[2]}"/>
+        <box size="{sx} {sy} {sz}"/>
       </geometry>
     </collision>
 
@@ -59,7 +102,6 @@ def generate_cuboid_urdf_constant_density(
 """
     with open(filepath, "w") as f:
         f.write(urdf)
-    # print(f"✅ URDF written to {filepath}")
     return filepath
 
 
@@ -656,6 +698,7 @@ def generate_handle_urdf(
     filepath: Path,
     handle_scale: Union[Tuple[float, float, float], Tuple[float, float]],
     handle_density: float = 400,
+    per_face_colors: bool = False,
 ):
     """
     Generate a URDF for a single handle (cuboid or cylinder) with specified density.
@@ -676,7 +719,10 @@ def generate_handle_urdf(
     """
     if len(handle_scale) == 3:
         return generate_cuboid_urdf_constant_density(
-            filepath=filepath, scale=handle_scale, density=handle_density
+            filepath=filepath,
+            scale=handle_scale,
+            density=handle_density,
+            per_face_colors=per_face_colors,
         )
     elif len(handle_scale) == 2:
         return generate_cylinder_urdf_constant_density(
@@ -695,6 +741,7 @@ def generate_handle_head_urdf(
     head_scale: Union[Tuple[float, float, float], Tuple[float, float], None],
     handle_density: float = 400,
     head_density: Optional[float] = 800,
+    per_face_colors: bool = False,
 ):
     """
     Generate a URDF for a handle or a composite handle-head object.
@@ -728,7 +775,10 @@ def generate_handle_head_urdf(
     """
     if head_scale is None and head_density is None:
         return generate_handle_urdf(
-            filepath=filepath, handle_scale=handle_scale, handle_density=handle_density
+            filepath=filepath,
+            handle_scale=handle_scale,
+            handle_density=handle_density,
+            per_face_colors=per_face_colors,
         )
     elif head_scale is not None and head_density is not None:
         # For some reason, the 2-link approach is not working well, causing physics instability

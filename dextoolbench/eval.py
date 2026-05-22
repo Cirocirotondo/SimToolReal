@@ -22,10 +22,18 @@ from viser.extras import ViserUrdf
 
 from deployment.isaac.isaac_env import create_env
 from deployment.rl_player import RlPlayer
+from dextoolbench.eval_env_config import (
+    CUBE_FIXED_SIZE,
+    ISAAC_ROBOT_BASE_POS,
+    ISAAC_TABLE_CENTER_POS,
+    build_eval_env_overrides,
+    is_cube_eval,
+    load_trajectory,
+    table_urdf_rel_for_eval,
+)
+from dextoolbench.viser_colored_cube import add_colored_cube_viser
 from dextoolbench.objects import NAME_TO_OBJECT
 from isaacgymenvs.utils.utils import get_repo_root_dir
-
-TABLE_Z = 0.38
 
 
 def quat_xyzw_to_wxyz(q):
@@ -55,6 +63,7 @@ class ViserServer:
         num_keypoints: int,
         table_urdf: str,
         policy_name: str,
+        object_category: str = "",
         port: int = 8080,
     ):
         self.port = port
@@ -67,9 +76,16 @@ class ViserServer:
             object_name=object_name,
             task_name=task_name,
             policy_name=policy_name,
+            object_category=object_category,
         )
 
-    def _setup_scene(self, object_name: str, task_name: str, policy_name: str):
+    def _setup_scene(
+        self,
+        object_name: str,
+        task_name: str,
+        policy_name: str,
+        object_category: str = "",
+    ):
         """Initialize the 3D scene with robot, table, object, and GUI elements."""
 
         @self.server.on_client_connect
@@ -83,18 +99,24 @@ class ViserServer:
         # Robot
         robot_urdf = (
             get_repo_root_dir()
-            / "assets/urdf/kuka_sharpa_description/iiwa14_left_sharpa_adjusted_restricted.urdf"
+            / "assets/urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
         )
         self.server.scene.add_frame(
-            "/robot", position=(0, 0.8, 0), wxyz=(1, 0, 0, 0), show_axes=False
+            "/robot",
+            position=ISAAC_ROBOT_BASE_POS,
+            wxyz=(1, 0, 0, 0),
+            show_axes=False,
         )
         self.robot = ViserUrdf(self.server, robot_urdf, root_node_name="/robot")
-        self.robot.update_cfg(np.zeros(29))
+        self.robot.update_cfg(np.zeros(26))
 
         # Table
         table_urdf = get_repo_root_dir() / "assets" / self.table_urdf
         self.server.scene.add_frame(
-            "/table", position=(0, 0, TABLE_Z), wxyz=(1, 0, 0, 0), show_axes=False
+            "/table",
+            position=ISAAC_TABLE_CENTER_POS,
+            wxyz=(1, 0, 0, 0),
+            show_axes=False,
         )
         # ViserUrdf(self.server, table_urdf, root_node_name="/table", mesh_color_override=(0, 0, 0, 0.5))
         ViserUrdf(
@@ -105,20 +127,33 @@ class ViserServer:
         )
 
         # Object and goal
-        object_urdf = NAME_TO_OBJECT[object_name].urdf_path
         self.object_frame = self.server.scene.add_frame(
             "/object", show_axes=True, axes_length=0.1, axes_radius=0.001
         )
-        ViserUrdf(self.server, object_urdf, root_node_name="/object")
         self.goal_frame = self.server.scene.add_frame(
             "/goal", show_axes=True, axes_length=0.1, axes_radius=0.001
         )
-        ViserUrdf(
-            self.server,
-            object_urdf,
-            root_node_name="/goal",
-            mesh_color_override=(0, 255, 0, 0.5),
-        )
+        self._viser_dyn = []
+        if is_cube_eval(object_category, object_name):
+            add_colored_cube_viser(
+                self.server, "/object", self._viser_dyn, scale=CUBE_FIXED_SIZE
+            )
+            add_colored_cube_viser(
+                self.server,
+                "/goal",
+                self._viser_dyn,
+                scale=CUBE_FIXED_SIZE,
+                opacity=0.85,
+            )
+        else:
+            object_urdf = NAME_TO_OBJECT[object_name].urdf_path
+            ViserUrdf(self.server, object_urdf, root_node_name="/object")
+            ViserUrdf(
+                self.server,
+                object_urdf,
+                root_node_name="/goal",
+                mesh_color_override=(0, 255, 0, 0.5),
+            )
 
         # Keypoint spheres (red for object, green for goal)
         self.obj_keypoint_spheres = []
@@ -270,13 +305,14 @@ class EvalRunner:
         object_name: str,
         task_name: str,
         table_urdf: str,
+        object_category: str = "",
         output_dir: Optional[Path] = None,
         record_video: bool = False,
         policy_name: str = None,
     ):
         self.env = env
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.n_act = 29
+        self.n_act = int(env.num_acts)
         self.control_hz = 60.0
         self.control_dt = 1.0 / self.control_hz
         self.record_fps = 10
@@ -289,7 +325,12 @@ class EvalRunner:
         # Load policy
         self.env.set_env_state(torch.load(checkpoint_path)[0]["env_state"])
         self.policy = RlPlayer(
-            140, self.n_act, config_path, checkpoint_path, self.device, env.num_envs
+            int(env.num_obs),
+            self.n_act,
+            config_path,
+            checkpoint_path,
+            self.device,
+            env.num_envs,
         )
 
         self.output_dir = output_dir
@@ -319,6 +360,7 @@ class EvalRunner:
             num_keypoints=env.num_keypoints,
             table_urdf=table_urdf,
             policy_name=policy_name,
+            object_category=object_category,
         )
         self.obs = self._reset()
 
@@ -340,7 +382,7 @@ class EvalRunner:
         """Extract current state for visualization."""
         obs_np = self.obs[0].cpu().numpy()
         joint_pos = (
-            0.5 * (obs_np[:29] + 1.0) * (self.joint_upper - self.joint_lower)
+            0.5 * (obs_np[: self.n_act] + 1.0) * (self.joint_upper - self.joint_lower)
             + self.joint_lower
         )
         return (
@@ -532,87 +574,32 @@ OBJECT_CATEGORY_TO_TABLE_URDF = {
 def main():
     args: EvalArgs = tyro.cli(EvalArgs)
 
-    if args.force_table_urdf:
-        selected_table_urdf = TABLE_URDF
-    else:
-        selected_table_urdf = OBJECT_CATEGORY_TO_TABLE_URDF[args.object_category]
-
-    # Load trajectory
-    trajectory_path = (
-        get_repo_root_dir()
-        / "dextoolbench/trajectories"
-        / args.object_category
-        / args.object_name
-        / f"{args.task_name}.json"
+    selected_table_urdf = table_urdf_rel_for_eval(
+        args.object_category,
+        args.object_name,
+        args.task_name,
+        force_default_table=args.force_table_urdf,
     )
-    assert trajectory_path.exists(), f"Trajectory file not found: {trajectory_path}"
-    with open(trajectory_path) as f:
-        traj_data = json.load(f)
 
-    # Raise the start pose by z_offset to avoid the table
-    traj_data["start_pose"][2] += args.z_offset
-
-    # Downsample goals
+    traj_data = load_trajectory(
+        args.object_category,
+        args.object_name,
+        args.task_name,
+        z_offset=args.z_offset,
+    )
     traj_data["goals"] = traj_data["goals"][:: args.downsample_factor]
 
-    # Create environment
     env = create_env(
         config_path=str(args.config_path),
         headless=True,  # Set to False to see the isaacgym viewer
         device="cuda" if torch.cuda.is_available() else "cpu",
-        overrides={
-            # Turn off randomization noise
-            "task.env.resetPositionNoiseX": 0.0,
-            "task.env.resetPositionNoiseY": 0.0,
-            "task.env.resetPositionNoiseZ": 0.0,
-            "task.env.randomizeObjectRotation": False,
-            "task.env.resetDofPosRandomIntervalFingers": 0.0,
-            "task.env.resetDofPosRandomIntervalArm": 0.0,
-            "task.env.resetDofVelRandomInterval": 0.0,
-            "task.env.tableResetZRange": 0.0,
-            # Object
-            "task.env.objectName": args.object_name,
-            # Set up environment parameters
-            "task.env.numEnvs": 1,
-            "task.env.envSpacing": 0.4,
-            "task.env.capture_video": False,
-            # Goal settings
-            "task.env.useFixedGoalStates": True,
-            "task.env.fixedGoalStates": traj_data["goals"],
-            # Delays and noise
-            "task.env.useActionDelay": False,
-            "task.env.useObsDelay": False,
-            "task.env.useObjectStateDelayNoise": False,
-            "task.env.objectScaleNoiseMultiplierRange": [1.0, 1.0],
-            # Reset
-            "task.env.resetWhenDropped": False,
-            # Moving average
-            "task.env.armMovingAverage": 0.1,
-            # Success criteria
-            "task.env.evalSuccessTolerance": 0.01,
-            "task.env.successSteps": 1,
-            "task.env.fixedSizeKeypointReward": True,
-            # Table
-            "task.env.asset.table": str(selected_table_urdf),
-            "task.env.tableResetZ": TABLE_Z,
-            # Initialization
-            "task.env.useFixedInitObjectPose": True,
-            "task.env.objectStartPose": traj_data["start_pose"],
-            "task.env.startArmHigher": True,
-            # Forces/torques (all zero for eval)
-            "task.env.forceScale": 0.0,
-            "task.env.torqueScale": 0.0,
-            "task.env.linVelImpulseScale": 0.0,
-            "task.env.angVelImpulseScale": 0.0,
-            "task.env.forceOnlyWhenLifted": True,
-            "task.env.torqueOnlyWhenLifted": True,
-            "task.env.linVelImpulseOnlyWhenLifted": True,
-            "task.env.angVelImpulseOnlyWhenLifted": True,
-            "task.env.forceProbRange": [0.0001, 0.0001],
-            "task.env.torqueProbRange": [0.0001, 0.0001],
-            "task.env.linVelImpulseProbRange": [0.0001, 0.0001],
-            "task.env.angVelImpulseProbRange": [0.0001, 0.0001],
-        },
+        overrides=build_eval_env_overrides(
+            args.object_category,
+            args.object_name,
+            selected_table_urdf,
+            traj_data,
+            z_offset=0.0,
+        ),
     )
 
     runner = EvalRunner(
@@ -622,6 +609,7 @@ def main():
         object_name=args.object_name,
         task_name=args.task_name,
         table_urdf=selected_table_urdf,
+        object_category=args.object_category,
         output_dir=args.output_dir,
         policy_name=args.policy_name,
     )

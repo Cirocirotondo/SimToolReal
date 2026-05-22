@@ -1,0 +1,46 @@
+# Training preset: no sim2real disturbances (delays, obs noise, pushes on lifted object),
+# mild domain randomization (table height, reset poses, procedural cube size/mass).
+# PhysX DR (task.randomize) stays OFF — same as SimToolReal default.
+defaults:
+  - SimToolReal
+  - _self_
+
+env:
+  # --- Disturbi sim2real: OFF ---
+  useObsDelay: False
+  obsDelayMax: 0
+  useActionDelay: False
+  actionDelayMax: 0
+  useObjectStateDelayNoise: False
+  objectStateDelayMax: 0
+  objectStateXyzNoiseStd: 0.0
+  objectStateRotationNoiseDegrees: 0.0
+  jointVelocityObsNoiseStd: 0.0
+  objectScaleNoiseMultiplierRange: [1.0, 1.0]
+
+  forceScale: 0.0
+  torqueScale: 0.0
+  linVelImpulseScale: 0.0
+  angVelImpulseScale: 0.0
+  forceProbRange: [0.0001, 0.0001]
+  torqueProbRange: [0.0001, 0.0001]
+  linVelImpulseProbRange: [0.0001, 0.0001]
+  angVelImpulseProbRange: [0.0001, 0.0001]
+
+  # --- Domain randomization: ON (leggera) ---
+  tableResetZRange: 0.03
+  randomizeObjectRotation: True
+  resetPositionNoiseX: 0.05
+  resetPositionNoiseY: 0.05
+  resetPositionNoiseZ: 0.02
+
+  # Reward keypoint usa la scala reale del cubo (non fixed 5 cm)
+  fixedSizeKeypointReward: False
+
+  # Pool di cubi procedurali (dimensioni 4–6 cm, densità 300–600 kg/m³)
+  handleHeadTypes: ["cube"]
+  useSingleHandleHeadTemplate: True
+  numObjectsPerType: 20
+
+task:
+  randomize: False

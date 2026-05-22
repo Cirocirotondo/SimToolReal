@@ -1,0 +1,7 @@
+defaults:
+  - SimToolRealLSTMAsymmetricPPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:SimToolRealLSTMAsymmetricCleanDRPPO,${....experiment}}

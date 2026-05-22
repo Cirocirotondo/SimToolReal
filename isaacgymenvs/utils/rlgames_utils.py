@@ -130,6 +130,11 @@ def get_rlgames_env_creator(
     return create_rlgpu_env
 
 
+def _is_raw_reward_term(key: str) -> bool:
+    """Pre-scale terms; not logged to TensorBoard / WandB."""
+    return key.startswith("raw_")
+
+
 class RLGPUAlgoObserver(AlgoObserver):
     """Allows us to log stats from the env along with the algorithm running stats. """
 
@@ -163,6 +168,8 @@ class RLGPUAlgoObserver(AlgoObserver):
 
         if 'episode_cumulative' in infos:
             for key, value in infos['episode_cumulative'].items():
+                if _is_raw_reward_term(key):
+                    continue
                 if key not in self.episode_cumulative:
                     self.episode_cumulative[key] = torch.zeros_like(value)
                 self.episode_cumulative[key] += value
@@ -172,6 +179,8 @@ class RLGPUAlgoObserver(AlgoObserver):
                 done_idx = done_idx.item()
 
                 for key, value in infos['episode_cumulative'].items():
+                    if _is_raw_reward_term(key):
+                        continue
                     if key not in self.episode_cumulative_avg:
                         self.episode_cumulative_avg[key] = deque([], maxlen=self.algo.games_to_track)
 
@@ -195,7 +204,17 @@ class RLGPUAlgoObserver(AlgoObserver):
                 for key in infos:
                     if key.startswith(f'{tag}_per_block'):
                         self.direct_info[key] = torch.mean(infos[key]).item()
-        
+
+        # Per-step reward breakdown (SimToolReal: infos['episode_cumulative'] holds *current step*
+        # components, shape (num_envs,); see env.py compute_kuka_reward). Mean over envs → smooth
+        # TensorBoard / WandB curves alongside episode_cumulative/* at episode end.
+        if "episode_cumulative" in infos:
+            for key, value in infos["episode_cumulative"].items():
+                if _is_raw_reward_term(key):
+                    continue
+                if isinstance(value, torch.Tensor) and value.dim() == 1:
+                    self.direct_info[f"reward_step/{key}"] = value.mean()
+
         if 'true_objective' in infos:
             self.direct_info['true_objective_mean'] = infos['true_objective'].mean()
             self.direct_info['true_objective_max'] = infos['true_objective'].max()
@@ -248,11 +267,14 @@ class RLGPUAlgoObserver(AlgoObserver):
             print(f"  {k:<50}: {v_str}")
         print()
 
-        # Log
+        # Log (reward_step: single tag each; other direct_info keeps RL-Games /frame /iter /time)
         for k, v in self.direct_info.items():
-            self.writer.add_scalar(f'{k}/frame', v, frame)
-            self.writer.add_scalar(f'{k}/iter', v, frame)
-            self.writer.add_scalar(f'{k}/time', v, frame)
+            if k.startswith("reward_step/"):
+                self.writer.add_scalar(k, v, frame)
+            else:
+                self.writer.add_scalar(f'{k}/frame', v, frame)
+                self.writer.add_scalar(f'{k}/iter', v, frame)
+                self.writer.add_scalar(f'{k}/time', v, frame)
 
 
 class MultiObserver(AlgoObserver):

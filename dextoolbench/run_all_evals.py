@@ -23,6 +23,7 @@ object_category_to_object_names = {
     "screwdriver": ["long_screwdriver", "short_screwdriver"],
     "marker": ["sharpie_marker", "staples_marker"],
     "brush": ["blue_brush", "red_brush"],
+    "cube": ["training_cube"],
 }
 
 object_category_to_task_names = {
@@ -32,6 +33,7 @@ object_category_to_task_names = {
     "screwdriver": ["spin_vertical", "spin_horizontal"],
     "marker": ["draw_smile", "write_c"],
     "brush": ["sweep_forward", "sweep_right"],
+    "cube": ["lift_delta"],
 }
 
 POLICY_NAME_TO_PATH = {

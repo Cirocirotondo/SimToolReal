@@ -1,0 +1,1177 @@
+<?xml version='1.0' encoding='utf-8'?>
+<robot name="ur5e_robot">
+  <transmission name="shoulder_pan_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="shoulder_pan_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="shoulder_pan_motor">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="shoulder_lift_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="shoulder_lift_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="shoulder_lift_motor">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="elbow_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="elbow_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="elbow_motor">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="wrist_1_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="wrist_1_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="wrist_1_motor">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="wrist_2_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="wrist_2_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="wrist_2_motor">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <transmission name="wrist_3_trans">
+    <type>transmission_interface/SimpleTransmission</type>
+    <joint name="wrist_3_joint">
+      <hardwareInterface>hardware_interface/PositionJointInterface</hardwareInterface>
+    </joint>
+    <actuator name="wrist_3_motor">
+      <mechanicalReduction>1</mechanicalReduction>
+    </actuator>
+  </transmission>
+  <link name="base_link" />
+  <link name="base_link_inertia">
+    <visual>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/visual/base.dae" />
+      </geometry>
+      <material name="LightGrey">
+        <color rgba="0.7 0.7 0.7 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/collision/base.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="4.0" />
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <inertia ixx="0.00443333156" ixy="0.0" ixz="0.0" iyy="0.00443333156" iyz="0.0" izz="0.0072" />
+    </inertial>
+  </link>
+  <link name="shoulder_link">
+    <visual>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/visual/shoulder.dae" />
+      </geometry>
+      <material name="LightGrey">
+        <color rgba="0.7 0.7 0.7 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0 0 3.141592653589793" xyz="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/collision/shoulder.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="3.761" />
+      <origin rpy="1.570796326794897 0 0" xyz="0.0 -0.00193 -0.02561" />
+      <inertia ixx="0.0070021" ixy="7.3e-07" ixz="-1.053e-05" iyy="0.00648091" iyz="0.00049994" izz="0.00657286" />
+    </inertial>
+  </link>
+  <link name="upper_arm_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.138" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/visual/upperarm.dae" />
+      </geometry>
+      <material name="LightGrey">
+        <color rgba="0.7 0.7 0.7 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.138" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/collision/upperarm.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="8.058" />
+      <origin rpy="0 0 0" xyz="-0.2125 0.0 0.11336" />
+      <inertia ixx="0.01505885" ixy="-5.4e-05" ixz="5.63e-06" iyy="0.33388086" iyz="-1.81e-06" izz="0.33247207" />
+    </inertial>
+  </link>
+  <link name="forearm_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.007" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/visual/forearm.dae" />
+      </geometry>
+      <material name="LightGrey">
+        <color rgba="0.7 0.7 0.7 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="1.5707963267948966 0 -1.5707963267948966" xyz="0 0 0.007" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/collision/forearm.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="2.846" />
+      <origin rpy="0 0 0" xyz="-0.2422 0.0 0.0265" />
+      <inertia ixx="0.00399632" ixy="-1.365e-05" ixz="0.00137272" iyy="0.07879254" iyz="-6.6e-06" izz="0.0784851" />
+    </inertial>
+  </link>
+  <link name="wrist_1_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.127" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/visual/wrist1.dae" />
+      </geometry>
+      <material name="LightGrey">
+        <color rgba="0.7 0.7 0.7 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.127" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/collision/wrist1.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.37" />
+      <origin rpy="1.570796326794897 0 0" xyz="0.0 -0.01634 -0.0018" />
+      <inertia ixx="0.00165491" ixy="-2.82e-06" ixz="-4.38e-06" iyy="0.00135962" iyz="0.00010157" izz="0.00126279" />
+    </inertial>
+  </link>
+  <link name="wrist_2_link">
+    <visual>
+      <origin rpy="0 0 0" xyz="0 0 -0.0997" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/visual/wrist2.dae" />
+      </geometry>
+      <material name="LightGrey">
+        <color rgba="0.7 0.7 0.7 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="0 0 0" xyz="0 0 -0.0997" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/collision/wrist2.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.3" />
+      <origin rpy="-1.570796326794897 0 0" xyz="0.0 0.01634 -0.0018" />
+      <inertia ixx="0.00135617" ixy="-2.74e-06" ixz="4.44e-06" iyy="0.00127827" iyz="-5.048e-05" izz="0.00096614" />
+    </inertial>
+  </link>
+  <link name="wrist_3_link">
+    <visual>
+      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.0989" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/visual/wrist3.dae" />
+      </geometry>
+      <material name="LightGrey">
+        <color rgba="0.7 0.7 0.7 1.0" />
+      </material>
+    </visual>
+    <collision>
+      <origin rpy="1.5707963267948966 0 0" xyz="0 0 -0.0989" />
+      <geometry>
+        <mesh filename="urdf/universal_robot/ur_description/meshes/ur5e/collision/wrist3.stl" />
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.365" />
+      <origin rpy="0 0 0" xyz="0.0 0.0 -0.001159" />
+      <inertia ixx="0.00018694" ixy="6e-08" ixz="-1.7e-07" iyy="0.00018908" iyz="-9.2e-07" izz="0.00025756" />
+    </inertial>
+  </link>
+  <joint name="base_link-base_link_inertia" type="fixed">
+    <parent link="base_link" />
+    <child link="base_link_inertia" />
+    <origin rpy="0 0 3.141592653589793" xyz="0 0 0" />
+  </joint>
+  <joint name="shoulder_pan_joint" type="revolute">
+    <parent link="base_link_inertia" />
+    <child link="shoulder_link" />
+    <origin rpy="0 0 0" xyz="0 0 0.1625" />
+    <axis xyz="0 0 1" />
+    <limit effort="150.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793" />
+    <dynamics damping="0" friction="0" />
+  </joint>
+  <joint name="shoulder_lift_joint" type="revolute">
+    <parent link="shoulder_link" />
+    <child link="upper_arm_link" />
+    <origin rpy="1.570796327 0 0" xyz="0 0 0" />
+    <axis xyz="0 0 1" />
+    <limit effort="150.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793" />
+    <dynamics damping="0" friction="0" />
+  </joint>
+  <joint name="elbow_joint" type="revolute">
+    <parent link="upper_arm_link" />
+    <child link="forearm_link" />
+    <origin rpy="0 0 0" xyz="-0.425 0 0" />
+    <axis xyz="0 0 1" />
+    <limit effort="150.0" lower="-3.141592653589793" upper="3.141592653589793" velocity="3.141592653589793" />
+    <dynamics damping="0" friction="0" />
+  </joint>
+  <joint name="wrist_1_joint" type="revolute">
+    <parent link="forearm_link" />
+    <child link="wrist_1_link" />
+    <origin rpy="0 0 0" xyz="-0.3922 0 0.1333" />
+    <axis xyz="0 0 1" />
+    <limit effort="28.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793" />
+    <dynamics damping="0" friction="0" />
+  </joint>
+  <joint name="wrist_2_joint" type="revolute">
+    <parent link="wrist_1_link" />
+    <child link="wrist_2_link" />
+    <origin rpy="1.570796327 0 0" xyz="0 -0.0997 -2.044881182297852e-11" />
+    <axis xyz="0 0 1" />
+    <limit effort="28.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793" />
+    <dynamics damping="0" friction="0" />
+  </joint>
+  <joint name="wrist_3_joint" type="revolute">
+    <parent link="wrist_2_link" />
+    <child link="wrist_3_link" />
+    <origin rpy="1.570796326589793 3.141592653589793 3.141592653589793" xyz="0 0.0996 -2.042830148012698e-11" />
+    <axis xyz="0 0 1" />
+    <limit effort="28.0" lower="-6.283185307179586" upper="6.283185307179586" velocity="3.141592653589793" />
+    <dynamics damping="0" friction="0" />
+  </joint>
+  <link name="base" />
+  <joint name="base_link-base_fixed_joint" type="fixed">
+    <origin rpy="0 0 3.141592653589793" xyz="0 0 0" />
+    <parent link="base_link" />
+    <child link="base" />
+  </joint>
+  <link name="flange" />
+  <joint name="wrist_3-flange" type="fixed">
+    <parent link="wrist_3_link" />
+    <child link="flange" />
+    <origin rpy="0 -1.5707963267948966 -1.5707963267948966" xyz="0 0 0" />
+  </joint>
+  <link name="tool0" />
+  <joint name="flange-tool0" type="fixed">
+    <origin rpy="1.5707963267948966 0 1.5707963267948966" xyz="0 0 0" />
+    <parent link="flange" />
+    <child link="tool0" />
+  </joint>
+  <material name="Black">
+    <color rgba="0.0 0.0 0.0 1.0" />
+  </material>
+  <material name="Blue">
+    <color rgba="0.0 0.0 0.8 1.0" />
+  </material>
+  <material name="Green">
+    <color rgba="0.0 0.8 0.0 1.0" />
+  </material>
+  <material name="Grey">
+    <color rgba="0.4 0.4 0.4 1.0" />
+  </material>
+  <material name="Orange">
+    <color rgba="1.0 0.4235 0.0392 1.0" />
+  </material>
+  <material name="Brown">
+    <color rgba="0.8706 0.8118 0.7647 1.0" />
+  </material>
+  <material name="Red">
+    <color rgba="0.8 0.0 0.0 1.0" />
+  </material>
+  <material name="White">
+    <color rgba="1.0 1.0 1.0 1.0" />
+  </material>
+  <link name="sharpa_mount">
+    <inertial>
+      <mass value="0.05" />
+      <origin rpy="0 0 0" xyz="0 0 0" />
+      <inertia ixx="1e-4" ixy="0" ixz="0" iyy="1e-4" iyz="0" izz="1e-4" />
+    </inertial>
+  </link>
+  <link name="left_hand_C_MC">
+    <inertial>
+      <origin xyz="-0.00162819 -0.00610534 0.0404193" rpy="0 0 0" />
+      <mass value="0.72045" />
+      <inertia ixx="0.000674245" ixy="-9.22298E-06" ixz="5.25317E-06" iyy="0.000526298" iyz="9.94281E-05" izz="0.000354144" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_hand_C_MC_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_hand_C_MC.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_thumb_CMC_VL">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_CMC_VL.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+  </link>
+  <link name="left_thumb_MC">
+    <inertial>
+      <origin xyz="0.0385056 -0.0105846 -0.00991873" rpy="0 0 0" />
+      <mass value="0.116" />
+      <inertia ixx="1.65891E-05" ixy="-1.79455E-06" ixz="-4.03315E-07" iyy="3.45657E-05" iyz="2.16989E-06" izz="3.70102E-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_MC_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_MC.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_thumb_MCP_VL">
+    <inertial>
+      <origin xyz="4.8E-09 0.000869809 -3.6E-09" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_MCP_VL_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+  </link>
+  <link name="left_thumb_PP">
+    <inertial>
+      <origin xyz="0.0219483 -0.00015581 0.00149446" rpy="0 0 0" />
+      <mass value="0.04955" />
+      <inertia ixx="2.59665E-06" ixy="3.6507E-09" ixz="-1.84385E-07" iyy="4.6E-06" iyz="-3.29002E-10" izz="4.33744E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_PP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_PP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_thumb_DP">
+    <inertial>
+      <origin xyz="0.0151804 -0.00463639 8.34861E-07" rpy="0 0 0" />
+      <mass value="0.003886" />
+      <inertia ixx="1.32801E-07" ixy="4.59297E-08" ixz="-3.77372E-13" iyy="1.5797E-07" iyz="3.48732E-13" izz="1.50341E-07" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_DP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_thumb_DP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_thumb_elastomer">
+    <inertial>
+      <origin xyz="1.37353E-07 -0.0202873 0.00127072" rpy="0 0 0" />
+      <mass value="0.002100" />
+      <inertia ixx="6.4357E-08" ixy="-6.5027E-12" ixz="5.04872E-12" iyy="5.72112E-08" iyz="1.72427E-08" izz="7.47205E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/thumb_elastomer_surface.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.2 1 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/thumb_elastomer.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_thumb_fingertip">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+  </link>
+  <link name="left_index_MCP_VL">
+    <inertial>
+      <origin xyz="4.8E-09 0.00086981 -3.6E-09" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MCP_VL_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/MCP_VL.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_index_PP">
+    <inertial>
+      <origin xyz="0.0243772 -1.00263E-06 0.000755901" rpy="0 0 0" />
+      <mass value="0.04138" />
+      <inertia ixx="2.19643E-06" ixy="-5.66246E-11" ixz="-3.54371E-07" iyy="6.82371E-06" iyz="4.72597E-11" izz="6.51207E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_index_MP">
+    <inertial>
+      <origin xyz="0.015316 -0.00138561 6.27987E-08" rpy="0 0 0" />
+      <mass value="0.02509" />
+      <inertia ixx="1.00375E-06" ixy="-7.00446E-08" ixz="7.42125E-12" iyy="2.2637E-06" iyz="-2.26606E-12" izz="2.28516E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_index_DP">
+    <inertial>
+      <origin xyz="0.0127205 -0.00380991 -9.52663E-07" rpy="0 0 0" />
+      <mass value="0.003002" />
+      <inertia ixx="7.65598E-08" ixy="2.47622E-08" ixz="1.23922E-11" iyy="9.99792E-08" iyz="-4.16105E-12" izz="9.38245E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_index_elastomer">
+    <inertial>
+      <origin xyz="-4.34641E-07 -0.0183002 0.000412898" rpy="0 0 0" />
+      <mass value="0.00110" />
+      <inertia ixx="2.54635E-08" ixy="1.30327E-12" ixz="-2.13894E-13" iyy="2.14666E-08" iyz="5.39858E-09" izz="2.96037E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer_surface.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.2 1 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_index_fingertip">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+  </link>
+  <link name="left_middle_MCP_VL">
+    <inertial>
+      <origin xyz="4.8E-09 0.00086981 -3.6E-09" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MCP_VL_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/MCP_VL.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_middle_PP">
+    <inertial>
+      <origin xyz="0.0243772 -1.00263E-06 0.000755901" rpy="0 0 0" />
+      <mass value="0.04138" />
+      <inertia ixx="2.19643E-06" ixy="-5.66246E-11" ixz="-3.54371E-07" iyy="6.82371E-06" iyz="4.72597E-11" izz="6.51207E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_middle_MP">
+    <inertial>
+      <origin xyz="0.015316 -0.00138561 6.27987E-08" rpy="0 0 0" />
+      <mass value="0.02509" />
+      <inertia ixx="1.00375E-06" ixy="-7.00446E-08" ixz="7.42125E-12" iyy="2.2637E-06" iyz="-2.26606E-12" izz="2.28516E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_middle_DP">
+    <inertial>
+      <origin xyz="0.0127205 -0.00380991 -9.52663E-07" rpy="0 0 0" />
+      <mass value="0.003002" />
+      <inertia ixx="7.65598E-08" ixy="2.47622E-08" ixz="1.23922E-11" iyy="9.99792E-08" iyz="-4.16105E-12" izz="9.38245E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_middle_elastomer">
+    <inertial>
+      <origin xyz="-4.34641E-07 -0.0183002 0.000412898" rpy="0 0 0" />
+      <mass value="0.00110" />
+      <inertia ixx="2.54635E-08" ixy="1.30327E-12" ixz="-2.13894E-13" iyy="2.14666E-08" iyz="5.39858E-09" izz="2.96037E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer_surface.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.2 1 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_middle_fingertip">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+  </link>
+  <link name="left_ring_MCP_VL">
+    <inertial>
+      <origin xyz="4.8E-09 0.00086981 3.6E-09" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MCP_VL_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/MCP_VL.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_ring_PP">
+    <inertial>
+      <origin xyz="0.0243772 -1.00263E-06 0.000755901" rpy="0 0 0" />
+      <mass value="0.04138" />
+      <inertia ixx="2.19643E-06" ixy="-5.66246E-11" ixz="-3.54371E-07" iyy="6.82371E-06" iyz="4.72597E-11" izz="6.51207E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_ring_MP">
+    <inertial>
+      <origin xyz="0.015316 -0.00138561 6.27987E-08" rpy="0 0 0" />
+      <mass value="0.02509" />
+      <inertia ixx="1.00375E-06" ixy="-7.00446E-08" ixz="7.42125E-12" iyy="2.2637E-06" iyz="-2.26606E-12" izz="2.28516E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_ring_DP">
+    <inertial>
+      <origin xyz="0.0127205 -0.00380991 -9.52663E-07" rpy="0 0 0" />
+      <mass value="0.003002" />
+      <inertia ixx="7.65598E-08" ixy="2.47622E-08" ixz="1.23922E-11" iyy="9.99792E-08" iyz="-4.16105E-12" izz="9.38245E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_ring_elastomer">
+    <inertial>
+      <origin xyz="-4.34641E-07 -0.0183002 0.000412898" rpy="0 0 0" />
+      <mass value="0.00110" />
+      <inertia ixx="2.54635E-08" ixy="1.30327E-12" ixz="-2.13894E-13" iyy="2.14666E-08" iyz="5.39858E-09" izz="2.96037E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer_surface.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.2 1 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_ring_fingertip">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+  </link>
+  <link name="left_pinky_MC">
+    <inertial>
+      <origin xyz="0.0107985 0.00598801 0.0335125" rpy="0 0 0" />
+      <mass value="0.12541" />
+      <inertia ixx="2.44379E-05" ixy="3.62784E-07" ixz="-8.00221E-07" iyy="3.57429E-05" iyz="4.68085E-07" izz="2.16786E-05" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_pinky_MC_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_pinky_MC.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_pinky_MCP_VL">
+    <inertial>
+      <origin xyz="4.8E-09 0.00086981 -3.6E-09" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MCP_VL_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/MCP_VL.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_pinky_PP">
+    <inertial>
+      <origin xyz="0.0243772 -1.00263E-06 0.000755901" rpy="0 0 0" />
+      <mass value="0.04138" />
+      <inertia ixx="2.19643E-06" ixy="-5.66246E-11" ixz="-3.54371E-07" iyy="6.82371E-06" iyz="4.72597E-11" izz="6.51207E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_PP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_pinky_MP">
+    <inertial>
+      <origin xyz="0.015316 -0.00138561 6.27987E-08" rpy="0 0 0" />
+      <mass value="0.02509" />
+      <inertia ixx="1.00375E-06" ixy="-7.00446E-08" ixz="7.42125E-12" iyy="2.2637E-06" iyz="-2.26606E-12" izz="2.28516E-06" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_MP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_pinky_DP">
+    <inertial>
+      <origin xyz="0.0127205 -0.00380991 -9.52663E-07" rpy="0 0 0" />
+      <mass value="0.003002" />
+      <inertia ixx="7.65598E-08" ixy="2.47622E-08" ixz="1.23922E-11" iyy="9.99792E-08" iyz="-4.16105E-12" izz="9.38245E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP_visual.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.79216 0.81961 0.93333 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/left_DP.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_pinky_elastomer">
+    <inertial>
+      <origin xyz="-4.34641E-07 -0.0183002 0.000412898" rpy="0 0 0" />
+      <mass value="0.00110" />
+      <inertia ixx="2.54635E-08" ixy="1.30327E-12" ixz="-2.13894E-13" iyy="2.14666E-08" iyz="5.39858E-09" izz="2.96037E-08" />
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer_surface.STL" />
+      </geometry>
+      <material name="">
+        <color rgba="0.2 1 0.2 1" />
+      </material>
+    </visual>
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0" />
+      <geometry>
+        <mesh filename="urdf/kuka_sharpa_description/left_sharpa_meshes/elastomer.STL" />
+      </geometry>
+    </collision>
+  </link>
+  <link name="left_pinky_fingertip">
+    <inertial>
+      <origin xyz="0.0 0.0 0.0" rpy="0 0 0" />
+      <mass value="1.0E-06" />
+      <inertia ixx="2.0E-12" ixy="0" ixz="0" iyy="2.0E-12" iyz="0" izz="2.0E-12" />
+    </inertial>
+  </link>
+  <joint name="sharpa_mount_joint" type="fixed">
+    <origin rpy="0 0 -1.5708" xyz="0.0 0.0 0.05" />
+    <parent link="sharpa_mount" />
+    <child link="left_hand_C_MC" />
+  </joint>
+  <joint name="left_1_thumb_CMC_FE" type="revolute">
+    <origin xyz="0.01 -0.026 0.0212" rpy="0 0 -1.5708" />
+    <parent link="left_hand_C_MC" />
+    <child link="left_thumb_CMC_VL" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.1745" upper="1.9199" effort="3.3" velocity="11.84076833" />
+  </joint>
+  <joint name="left_thumb_CMC_AA" type="revolute">
+    <origin xyz="0 -0.005 0" rpy="1.5708 -0.7854 0" />
+    <parent link="left_thumb_CMC_VL" />
+    <child link="left_thumb_MC" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.3491" upper="0.1309" effort="3.3" velocity="11.84076833" />
+  </joint>
+  <joint name="left_thumb_MCP_FE" type="revolute">
+    <origin xyz="0.065 -0.006 -0.010392" rpy="-0.5236 0 0" />
+    <parent link="left_thumb_MC" />
+    <child link="left_thumb_MCP_VL" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.5236" upper="1.3963" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_thumb_MCP_AA" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="left_thumb_MCP_VL" />
+    <child link="left_thumb_PP" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.3491" upper="0.3491" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_thumb_IP" type="revolute">
+    <origin xyz="0.039 0 0" rpy="-1.5708 0 0" />
+    <parent link="left_thumb_PP" />
+    <child link="left_thumb_DP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.7453" effort="0.638" velocity="11.61831603" />
+  </joint>
+  <joint name="left_thumb_elastomer_fix_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="1.5707963267949 -1.5707963267949 0" />
+    <parent link="left_thumb_DP" />
+    <child link="left_thumb_elastomer" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_thumb_fingertip_fix_joint" type="fixed">
+    <origin xyz="0 -0.0276109346321216 0" rpy="1.5707963267949 1.5707963267949 0" />
+    <parent link="left_thumb_elastomer" />
+    <child link="left_thumb_fingertip" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_2_index_MCP_FE" type="revolute">
+    <origin xyz="0.001 -0.0303 0.0957" rpy="0 -1.5708 -1.5708" />
+    <parent link="left_hand_C_MC" />
+    <child link="left_index_MCP_VL" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.17453293" upper="1.5708" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_index_MCP_AA" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="left_index_MCP_VL" />
+    <child link="left_index_PP" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.03491" upper="0.03491" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_index_PIP" type="revolute">
+    <origin xyz="0.047 0 0" rpy="-1.5708 0 0" />
+    <parent link="left_index_PP" />
+    <child link="left_index_MP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.7453" effort="0.638" velocity="11.61831603" />
+  </joint>
+  <joint name="left_index_DIP" type="revolute">
+    <origin xyz="0.0315 0 0" rpy="0 0 0" />
+    <parent link="left_index_MP" />
+    <child link="left_index_DP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.3963" effort="0.189369" velocity="14.66594768" />
+  </joint>
+  <joint name="left_index_elastomer_fix_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="1.5707963267949 -1.5707963267949 0" />
+    <parent link="left_index_DP" />
+    <child link="left_index_elastomer" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_index_fingertip_fix_joint" type="fixed">
+    <origin xyz="0 -0.0260092574262508 0" rpy="1.5707963267949 1.5707963267949 0" />
+    <parent link="left_index_elastomer" />
+    <child link="left_index_fingertip" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_3_middle_MCP_FE" type="revolute">
+    <origin xyz="0 -0.01 0.0987" rpy="0 -1.5708 -1.5708" />
+    <parent link="left_hand_C_MC" />
+    <child link="left_middle_MCP_VL" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.17453293" upper="1.5708" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_middle_MCP_AA" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="left_middle_MCP_VL" />
+    <child link="left_middle_PP" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.03491" upper="0.03491" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_middle_PIP" type="revolute">
+    <origin xyz="0.047 0 0" rpy="-1.5708 0 0" />
+    <parent link="left_middle_PP" />
+    <child link="left_middle_MP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.7453" effort="0.638" velocity="11.61831603" />
+  </joint>
+  <joint name="left_middle_DIP" type="revolute">
+    <origin xyz="0.0315 0 0" rpy="0 0 0" />
+    <parent link="left_middle_MP" />
+    <child link="left_middle_DP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.3963" effort="0.189369" velocity="14.66594768" />
+  </joint>
+  <joint name="left_middle_elastomer_fix_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="1.5707963267949 -1.5707963267949 0" />
+    <parent link="left_middle_DP" />
+    <child link="left_middle_elastomer" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_middle_fingertip_fix_joint" type="fixed">
+    <origin xyz="0 -0.0260092574262507 0" rpy="1.5707963267949 1.5707963267949 0" />
+    <parent link="left_middle_elastomer" />
+    <child link="left_middle_fingertip" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_4_ring_MCP_FE" type="revolute">
+    <origin xyz="0.0015 0.0103 0.0927" rpy="0 -1.5708 -1.5708" />
+    <parent link="left_hand_C_MC" />
+    <child link="left_ring_MCP_VL" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.17453293" upper="1.5708" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_ring_MCP_AA" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="left_ring_MCP_VL" />
+    <child link="left_ring_PP" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.03491" upper="0.03491" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_ring_PIP" type="revolute">
+    <origin xyz="0.047 0 0" rpy="-1.5708 0 0" />
+    <parent link="left_ring_PP" />
+    <child link="left_ring_MP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.7453" effort="0.638" velocity="11.61831603" />
+  </joint>
+  <joint name="left_ring_DIP" type="revolute">
+    <origin xyz="0.0315 0 0" rpy="0 0 0" />
+    <parent link="left_ring_MP" />
+    <child link="left_ring_DP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.3963" effort="0.189369" velocity="14.66594768" />
+  </joint>
+  <joint name="left_ring_elastomer_fix_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="1.5708 -1.5708 0" />
+    <parent link="left_ring_DP" />
+    <child link="left_ring_elastomer" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_ring_fingertip_fix_joint" type="fixed">
+    <origin xyz="0 -0.0260092574262507 0" rpy="1.5707963267949 1.5707963267949 0" />
+    <parent link="left_ring_elastomer" />
+    <child link="left_ring_fingertip" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_5_pinky_CMC" type="revolute">
+    <origin xyz="0.01136 0.0263 0.0867" rpy="-3.1416 0 3.1416" />
+    <parent link="left_hand_C_MC" />
+    <child link="left_pinky_MC" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="0.2618" effort="0.5285" velocity="35.07416159" />
+  </joint>
+  <joint name="left_pinky_MCP_FE" type="revolute">
+    <origin xyz="0.00836 0.0048 0" rpy="-1.5708 1.5708 0" />
+    <parent link="left_pinky_MC" />
+    <child link="left_pinky_MCP_VL" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.17453293" upper="1.5708" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_pinky_MCP_AA" type="revolute">
+    <origin xyz="0 0 0" rpy="1.5708 0 0" />
+    <parent link="left_pinky_MCP_VL" />
+    <child link="left_pinky_PP" />
+    <axis xyz="0 0 1" />
+    <limit lower="-0.03491" upper="0.03491" effort="1.864" velocity="16.07692878" />
+  </joint>
+  <joint name="left_pinky_PIP" type="revolute">
+    <origin xyz="0.047 0 0" rpy="-1.5708 0 0" />
+    <parent link="left_pinky_PP" />
+    <child link="left_pinky_MP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.7453" effort="0.638" velocity="11.61831603" />
+  </joint>
+  <joint name="left_pinky_DIP" type="revolute">
+    <origin xyz="0.0315 0 0" rpy="0 0 0" />
+    <parent link="left_pinky_MP" />
+    <child link="left_pinky_DP" />
+    <axis xyz="0 0 1" />
+    <limit lower="0" upper="1.3963" effort="0.189369" velocity="14.66594768" />
+  </joint>
+  <joint name="left_pinky_elastomer_fix_joint" type="fixed">
+    <origin xyz="0 0 0" rpy="1.5707963267949 -1.5707963267949 0" />
+    <parent link="left_pinky_DP" />
+    <child link="left_pinky_elastomer" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="left_pinky_fingertip_fix_joint" type="fixed">
+    <origin xyz="0 -0.0260092574262507 0" rpy="1.5707963267949 1.5707963267949 0" />
+    <parent link="left_pinky_elastomer" />
+    <child link="left_pinky_fingertip" />
+    <axis xyz="0 0 0" />
+  </joint>
+  <joint name="ur5e_sharpa" type="fixed">
+    <parent link="wrist_3_link" />
+    <child link="sharpa_mount" />
+    <origin rpy="0 0 0.261799" xyz="0 0 0" />
+  </joint>
+</robot>

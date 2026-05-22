@@ -38,70 +38,80 @@ def populate_dof_properties(hand_arm_dof_props, arm_dofs: int, hand_dofs: int) -
 
     import numpy as np
 
-    kuka_efforts = [300, 300, 300, 300, 300, 300, 300]
-    kuka_stiffnesses = [600, 600, 500, 400, 200, 200, 200]
-    kuka_dampings = [
-        27.027026473513512,
-        27.027026473513512,
-        24.672186769721083,
-        22.067474708266914,
-        9.752538131173853,
-        9.147747263670984,
-        9.147747263670984,
-    ]
-    kuka_gear_ratios = [160, 160, 160, 160, 100, 160, 160]
-    kuka_rotor_inertias = [
-        0.0001321,
-        0.0001321,
-        0.0001321,
-        0.0001321,
-        0.0001321,
-        0.0000454,
-        0.0000454,
-    ]
+    if arm_dofs != 7:
+        # Fallback for non-KUKA arms (e.g. UR5): keep asset-provided arm gains,
+        # and only enforce the hand tuning profile.
+        arm_stiffnesses = hand_arm_dof_props["stiffness"][0:arm_dofs].copy()
+        arm_dampings = hand_arm_dof_props["damping"][0:arm_dofs].copy()
+        arm_efforts = hand_arm_dof_props["effort"][0:arm_dofs].copy()
+        hand_arm_dof_props["stiffness"][0:arm_dofs] = arm_stiffnesses
+        hand_arm_dof_props["damping"][0:arm_dofs] = arm_dampings
+        hand_arm_dof_props["effort"][0:arm_dofs] = arm_efforts
+    else:
+        kuka_efforts = [300, 300, 300, 300, 300, 300, 300]
+        kuka_stiffnesses = [600, 600, 500, 400, 200, 200, 200]
+        kuka_dampings = [
+            27.027026473513512,
+            27.027026473513512,
+            24.672186769721083,
+            22.067474708266914,
+            9.752538131173853,
+            9.147747263670984,
+            9.147747263670984,
+        ]
+        kuka_gear_ratios = [160, 160, 160, 160, 100, 160, 160]
+        kuka_rotor_inertias = [
+            0.0001321,
+            0.0001321,
+            0.0001321,
+            0.0001321,
+            0.0001321,
+            0.0000454,
+            0.0000454,
+        ]
 
-    assert (
-        len(kuka_stiffnesses)
-        == len(kuka_dampings)
-        == len(kuka_gear_ratios)
-        == len(kuka_rotor_inertias)
-        == arm_dofs
-    ), (
-        f"{len(kuka_stiffnesses)} != {len(kuka_dampings)} != {len(kuka_gear_ratios)} != {len(kuka_rotor_inertias)} != {arm_dofs}"
-    )
-    kuka_reflected_inertias = [
-        n * n * J for n, J in zip(kuka_gear_ratios, kuka_rotor_inertias)
-    ]
-    computed_kuka_armatures = kuka_reflected_inertias
-    kuka_armatures = [
-        3.3817600000000003,
-        3.3817600000000003,
-        3.3817600000000003,
-        3.3817600000000003,
-        1.3210000000000002,
-        1.16224,
-        1.16224,
-    ]
-    assert np.allclose(computed_kuka_armatures, kuka_armatures), (
-        f"computed_kuka_armatures: {computed_kuka_armatures}, kuka_armatures: {kuka_armatures}"
-    )
+        assert (
+            len(kuka_stiffnesses)
+            == len(kuka_dampings)
+            == len(kuka_gear_ratios)
+            == len(kuka_rotor_inertias)
+            == arm_dofs
+        ), (
+            f"{len(kuka_stiffnesses)} != {len(kuka_dampings)} != {len(kuka_gear_ratios)} != {len(kuka_rotor_inertias)} != {arm_dofs}"
+        )
+        kuka_reflected_inertias = [
+            n * n * J for n, J in zip(kuka_gear_ratios, kuka_rotor_inertias)
+        ]
+        computed_kuka_armatures = kuka_reflected_inertias
+        kuka_armatures = [
+            3.3817600000000003,
+            3.3817600000000003,
+            3.3817600000000003,
+            3.3817600000000003,
+            1.3210000000000002,
+            1.16224,
+            1.16224,
+        ]
+        assert np.allclose(computed_kuka_armatures, kuka_armatures), (
+            f"computed_kuka_armatures: {computed_kuka_armatures}, kuka_armatures: {kuka_armatures}"
+        )
 
-    kuka_damping_ratio = 0.3
-    computed_kuka_dampings = [
-        2 * kuka_damping_ratio * np.sqrt(kuka_stiffnesses[i] * kuka_armatures[i])
-        for i in range(arm_dofs)
-    ]
-    assert np.allclose(computed_kuka_dampings, kuka_dampings), (
-        f"computed_kuka_dampings: {computed_kuka_dampings}, kuka_dampings: {kuka_dampings}"
-    )
+        kuka_damping_ratio = 0.3
+        computed_kuka_dampings = [
+            2 * kuka_damping_ratio * np.sqrt(kuka_stiffnesses[i] * kuka_armatures[i])
+            for i in range(arm_dofs)
+        ]
+        assert np.allclose(computed_kuka_dampings, kuka_dampings), (
+            f"computed_kuka_dampings: {computed_kuka_dampings}, kuka_dampings: {kuka_dampings}"
+        )
 
-    hand_arm_dof_props["stiffness"][0:arm_dofs] = kuka_stiffnesses
-    hand_arm_dof_props["damping"][0:arm_dofs] = kuka_dampings
-    # Not setting armature matches real KUKA robot behavior
-    # hand_arm_dof_props["armature"][0:arm_dofs] = kuka_armatures
-    hand_arm_dof_props["effort"][0:arm_dofs] = kuka_efforts
+        hand_arm_dof_props["stiffness"][0:arm_dofs] = kuka_stiffnesses
+        hand_arm_dof_props["damping"][0:arm_dofs] = kuka_dampings
+        # Not setting armature matches real KUKA robot behavior
+        # hand_arm_dof_props["armature"][0:arm_dofs] = kuka_armatures
+        hand_arm_dof_props["effort"][0:arm_dofs] = kuka_efforts
 
-    # Assumes hand order
+    # Assumes Sharpa hand order
     # ['left_thumb_CMC_FE', 'left_thumb_CMC_AA', 'left_thumb_MCP_FE', 'left_thumb_MCP_AA', 'left_thumb_IP',
     #  'left_index_MCP_FE', 'left_index_MCP_AA', 'left_index_PIP', 'left_index_DIP',
     #  'left_middle_MCP_FE', 'left_middle_MCP_AA', 'left_middle_PIP', 'left_middle_DIP',
@@ -203,19 +213,11 @@ def populate_dof_properties(hand_arm_dof_props, arm_dofs: int, hand_dofs: int) -
         0.01276,
         0.00378738,
     ]
-    assert (
-        len(hand_stiffnesses)
-        == len(hand_dampings)
-        == len(hand_armatures)
-        == len(hand_frictions)
-        == hand_dofs
-    ), (
-        f"{len(hand_stiffnesses)} != {len(hand_dampings)} != {len(hand_armatures)} != {len(hand_frictions)} != {hand_dofs}"
-    )
-    hand_arm_dof_props["stiffness"][arm_dofs:] = hand_stiffnesses
-    hand_arm_dof_props["damping"][arm_dofs:] = hand_dampings
-    hand_arm_dof_props["armature"][arm_dofs:] = hand_armatures
-    hand_arm_dof_props["friction"][arm_dofs:] = hand_frictions
+    if hand_dofs == len(hand_stiffnesses):
+        hand_arm_dof_props["stiffness"][arm_dofs:] = hand_stiffnesses
+        hand_arm_dof_props["damping"][arm_dofs:] = hand_dampings
+        hand_arm_dof_props["armature"][arm_dofs:] = hand_armatures
+        hand_arm_dof_props["friction"][arm_dofs:] = hand_frictions
 
 
 def tolerance_curriculum(

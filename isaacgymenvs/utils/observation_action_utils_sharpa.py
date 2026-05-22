@@ -211,7 +211,7 @@ N_OBS = 140
 assert len(OBS_NAMES) == N_OBS, f"len(OBS_NAMES): {len(OBS_NAMES)}, expected: {N_OBS}"
 
 T_W_R_np = np.eye(4)
-T_W_R_np[:3, 3] = np.array([0.0, 0.8, 0.0])
+T_W_R_np[:3, 3] = np.array([0.0, 0.5, 0.0])
 
 PALM_OFFSET_np = np.array([-0.00, -0.02, 0.16])
 
