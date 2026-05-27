@@ -83,6 +83,11 @@ env:
   # Penalty on sum(|joint_vel|) for arm vs hand DOFs; lower = less discouragement of arm motion
   kukaActionsPenaltyScale: 0.03  # no penalty on arm joint velocities
   handActionsPenaltyScale: 0.003
+  # Penalty on consecutive policy-action changes; useful for suppressing jitter.
+  # Disabled in the base task and enabled conservatively in sim-to-real presets.
+  armActionDeltaPenaltyScale: 0.0
+  handActionDeltaPenaltyScale: 0.0
+  actionDeltaPenaltyLiftedMultiplier: 1.0
   # Grasp shaping while object is lifted (keep scales tiny — tune up if too weak)
   fingertipSpreadPenaltyScale: 0.25  # reward += -scale * std(distances); 0 disables
   fingertipMultiContactBonusScale: 0.1  # reward += scale * min(1, num_close / K); 0 disables (50x vs 0.002)

@@ -54,7 +54,16 @@ env:
   resetPositionNoiseY: 0.05
   resetPositionNoiseZ: 0.02
   randomizeObjectRotation: True
+  # Reset randomization selected for the real-transfer training.
+  resetDofPosRandomIntervalFingers: 0.1
+  resetDofPosRandomIntervalArm: 0.5
+  resetDofVelRandomInterval: 0.15
   fixedSizeKeypointReward: False
+  # Small smoothness cost: suppress rapid command reversals without impeding reach.
+  # It is doubled once the cube is lifted, where calm holding matters most.
+  armActionDeltaPenaltyScale: 0.003
+  handActionDeltaPenaltyScale: 0.0003
+  actionDeltaPenaltyLiftedMultiplier: 2.0
   fingertipSpreadPenaltyScale: 1.25
   fingertipMultiContactBonusScale: 0.20
   handleHeadTypes: ["cube"]
@@ -69,20 +78,21 @@ task:
     frequency: 720
 
     # Low generic noise complements the structured delay/object pose noise above.
+    # At 12288 parallel envs, 813803 frames are 10.000011264G transitions.
     observations:
       range: [0.0, 0.01]
       range_correlated: [0.0, 0.01]
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"
-      schedule_steps: 5000
+      schedule_steps: 813803
     actions:
       range: [0.0, 0.01]
       range_correlated: [0.0, 0.01]
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"
-      schedule_steps: 5000
+      schedule_steps: 813803
 
     sim_params:
       gravity:

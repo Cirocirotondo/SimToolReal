@@ -52,6 +52,8 @@ STEP_REWARD_KEYS: Tuple[str, ...] = (
     "keypoint_rew",
     "kuka_actions_penalty",
     "hand_actions_penalty",
+    "arm_action_delta_penalty",
+    "hand_action_delta_penalty",
     "bonus_rew",
     "object_lin_vel_penalty",
     "object_ang_vel_penalty",

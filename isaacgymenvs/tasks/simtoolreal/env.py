@@ -148,6 +148,15 @@ class SimToolReal(VecTask):
         self.keypoint_rew_scale = self.cfg["env"]["keypointRewScale"]
         self.kuka_actions_penalty_scale = self.cfg["env"]["kukaActionsPenaltyScale"]
         self.hand_actions_penalty_scale = self.cfg["env"]["handActionsPenaltyScale"]
+        self.arm_action_delta_penalty_scale = self.cfg["env"].get(
+            "armActionDeltaPenaltyScale", 0.0
+        )
+        self.hand_action_delta_penalty_scale = self.cfg["env"].get(
+            "handActionDeltaPenaltyScale", 0.0
+        )
+        self.action_delta_penalty_lifted_multiplier = self.cfg["env"].get(
+            "actionDeltaPenaltyLiftedMultiplier", 1.0
+        )
         self.object_lin_vel_penalty_scale = self.cfg["env"]["objectLinVelPenaltyScale"]
         self.object_ang_vel_penalty_scale = self.cfg["env"]["objectAngVelPenaltyScale"]
 
@@ -551,6 +560,12 @@ class SimToolReal(VecTask):
         self.cur_targets = torch.zeros(
             (self.num_envs, self.num_dofs), dtype=torch.float, device=self.device
         )
+        self.prev_penalized_actions = torch.zeros(
+            (self.num_envs, self.num_hand_arm_dofs),
+            dtype=torch.float,
+            device=self.device,
+        )
+        self.action_deltas = torch.zeros_like(self.prev_penalized_actions)
 
         self.global_indices = torch.arange(
             self.num_envs * 3, dtype=torch.int32, device=self.device
@@ -708,6 +723,8 @@ class SimToolReal(VecTask):
             "bonus_rew",
             "kuka_actions_penalty",
             "hand_actions_penalty",
+            "arm_action_delta_penalty",
+            "hand_action_delta_penalty",
             "object_lin_vel_penalty",
             "object_ang_vel_penalty",
             "fingertip_spread_penalty",
@@ -1593,6 +1610,8 @@ class SimToolReal(VecTask):
             furthest_hand_dist=self.furthest_hand_dist,
             prev_targets=self.prev_targets,
             cur_targets=self.cur_targets,
+            prev_penalized_actions=self.prev_penalized_actions,
+            action_deltas=self.action_deltas,
             reset_buf=self.reset_buf,
             progress_buf=self.progress_buf,
             reset_goal_buf=self.reset_goal_buf,
@@ -2565,6 +2584,30 @@ class SimToolReal(VecTask):
 
         return -1 * kuka_actions_penalty, -1 * hand_actions_penalty
 
+    def _action_delta_penalties(self, lifted_object: Tensor) -> Tuple[Tensor, Tensor]:
+        multiplier = 1.0 + lifted_object.to(torch.float32) * (
+            self.action_delta_penalty_lifted_multiplier - 1.0
+        )
+        arm_action_delta_penalty = -torch.sum(
+            torch.square(self.action_deltas[..., : self.num_arm_dofs]), dim=-1
+        )
+        hand_action_delta_penalty = -torch.sum(
+            torch.square(
+                self.action_deltas[
+                    ..., self.num_arm_dofs : self.num_hand_arm_dofs
+                ]
+            ),
+            dim=-1,
+        )
+        return (
+            arm_action_delta_penalty
+            * self.arm_action_delta_penalty_scale
+            * multiplier,
+            hand_action_delta_penalty
+            * self.hand_action_delta_penalty_scale
+            * multiplier,
+        )
+
     def _compute_resets(self, is_success):
         ones = torch.ones_like(self.reset_buf)
         zeros = torch.zeros_like(self.reset_buf)
@@ -2784,6 +2827,9 @@ class SimToolReal(VecTask):
         object_ang_vel_penalty *= self.object_ang_vel_penalty_scale
 
         kuka_actions_penalty, hand_actions_penalty = self._action_penalties()
+        arm_action_delta_penalty, hand_action_delta_penalty = (
+            self._action_delta_penalties(lifted_object)
+        )
 
         fingertip_spread_penalty, fingertip_multi_contact_bonus, fingertip_thumb_bonus = (
             self._fingertip_grasp_shaping(lifted_object)
@@ -2803,6 +2849,8 @@ class SimToolReal(VecTask):
             + keypoint_rew
             + kuka_actions_penalty
             + hand_actions_penalty
+            + arm_action_delta_penalty
+            + hand_action_delta_penalty
             + bonus_rew
             + object_lin_vel_penalty
             + object_ang_vel_penalty
@@ -2843,6 +2891,8 @@ class SimToolReal(VecTask):
             (keypoint_rew, "keypoint_rew"),
             (kuka_actions_penalty, "kuka_actions_penalty"),
             (hand_actions_penalty, "hand_actions_penalty"),
+            (arm_action_delta_penalty, "arm_action_delta_penalty"),
+            (hand_action_delta_penalty, "hand_action_delta_penalty"),
             (bonus_rew, "bonus_rew"),
             (object_lin_vel_penalty, "object_lin_vel_penalty"),
             (object_ang_vel_penalty, "object_ang_vel_penalty"),
@@ -2867,6 +2917,15 @@ class SimToolReal(VecTask):
             "keypoint_rew_scale": float(self.keypoint_rew_scale),
             "kuka_actions_penalty_scale": float(self.kuka_actions_penalty_scale),
             "hand_actions_penalty_scale": float(self.hand_actions_penalty_scale),
+            "arm_action_delta_penalty_scale": float(
+                self.arm_action_delta_penalty_scale
+            ),
+            "hand_action_delta_penalty_scale": float(
+                self.hand_action_delta_penalty_scale
+            ),
+            "action_delta_penalty_lifted_multiplier": float(
+                self.action_delta_penalty_lifted_multiplier
+            ),
             "object_lin_vel_penalty_scale": float(self.object_lin_vel_penalty_scale),
             "object_ang_vel_penalty_scale": float(self.object_ang_vel_penalty_scale),
             "reach_goal_bonus": float(self.reach_goal_bonus),
@@ -3986,6 +4045,13 @@ class SimToolReal(VecTask):
         self.reset_target_pose(reset_goal_env_ids, None, is_first_goal=False)
         if len(reset_env_ids) > 0:
             self.reset_idx(reset_env_ids, None)
+
+        # Use post-delay commands: these are the oscillations reaching the controller.
+        control_actions = actions[:, : self.num_hand_arm_dofs]
+        self.action_deltas[:] = control_actions - self.prev_penalized_actions
+        if len(reset_env_ids) > 0:
+            self.action_deltas[reset_env_ids] = 0.0
+        self.prev_penalized_actions[:] = control_actions
 
         if self.use_relative_control:
             # arm relative to current position
