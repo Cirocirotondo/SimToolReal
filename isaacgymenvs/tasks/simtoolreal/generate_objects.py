@@ -40,6 +40,7 @@ def generate_cuboid_urdf_constant_density(
     scale: Tuple[float, float, float],
     density: float = 400,
     per_face_colors: bool = False,
+    com_offset: Optional[Tuple[float, float, float]] = None,
 ) -> Path:
     """
     Generate a URDF file for a cuboid with uniform density.
@@ -55,6 +56,9 @@ def generate_cuboid_urdf_constant_density(
     per_face_colors : bool, default=False
         If True, render each face in a distinct color (visual only). Collision stays
         a single box. Useful for cube orientation cues in the viewer / cameras.
+    com_offset : tuple of float or None, default=None
+        Center of mass offset relative to the geometric center. When provided,
+        explicit mass and inertia are written to represent an unbalanced cuboid.
 
     Returns
     -------
@@ -63,8 +67,9 @@ def generate_cuboid_urdf_constant_density(
 
     Notes
     -----
-    The cuboid's origin is at its center. Collision is always a single box; when
-    per_face_colors is True, visuals are six thin face plates instead of one solid color.
+    The cuboid's geometric origin is at its center. Collision is always a single
+    box; when per_face_colors is True, visuals are six thin face plates instead
+    of one solid color.
     """
     sx, sy, sz = scale
     if per_face_colors:
@@ -81,6 +86,19 @@ def generate_cuboid_urdf_constant_density(
       </material>
     </visual>"""
 
+    if com_offset is None:
+        inertial_text = f"""    <inertial>
+      <density value="{density}"/>
+    </inertial>"""
+    else:
+        mass, ixx, iyy, izz = compute_mass_and_inertia(scale=scale, density=density)
+        com_x, com_y, com_z = com_offset
+        inertial_text = f"""    <inertial>
+      <origin xyz="{com_x} {com_y} {com_z}" rpy="0 0 0"/>
+      <mass value="{mass}"/>
+      <inertia ixx="{ixx}" iyy="{iyy}" izz="{izz}" ixy="0" ixz="0" iyz="0"/>
+    </inertial>"""
+
     urdf = f"""<?xml version="1.0"?>
 <robot name="cuboid">
 
@@ -93,9 +111,7 @@ def generate_cuboid_urdf_constant_density(
       </geometry>
     </collision>
 
-    <inertial>
-      <density value="{density}"/>
-    </inertial>
+{inertial_text}
   </link>
 
 </robot>
@@ -699,6 +715,7 @@ def generate_handle_urdf(
     handle_scale: Union[Tuple[float, float, float], Tuple[float, float]],
     handle_density: float = 400,
     per_face_colors: bool = False,
+    handle_com_offset: Optional[Tuple[float, float, float]] = None,
 ):
     """
     Generate a URDF for a single handle (cuboid or cylinder) with specified density.
@@ -723,8 +740,11 @@ def generate_handle_urdf(
             scale=handle_scale,
             density=handle_density,
             per_face_colors=per_face_colors,
+            com_offset=handle_com_offset,
         )
     elif len(handle_scale) == 2:
+        if handle_com_offset is not None:
+            raise ValueError("handle_com_offset is currently supported only for cuboids")
         return generate_cylinder_urdf_constant_density(
             filepath=filepath,
             height=handle_scale[0],
@@ -742,6 +762,7 @@ def generate_handle_head_urdf(
     handle_density: float = 400,
     head_density: Optional[float] = 800,
     per_face_colors: bool = False,
+    handle_com_offset: Optional[Tuple[float, float, float]] = None,
 ):
     """
     Generate a URDF for a handle or a composite handle-head object.
@@ -779,8 +800,11 @@ def generate_handle_head_urdf(
             handle_scale=handle_scale,
             handle_density=handle_density,
             per_face_colors=per_face_colors,
+            handle_com_offset=handle_com_offset,
         )
     elif head_scale is not None and head_density is not None:
+        if handle_com_offset is not None:
+            raise ValueError("handle_com_offset is not supported for composite objects")
         # For some reason, the 2-link approach is not working well, causing physics instability
         # return generate_handle_head_urdf_variable_density_2_links(
         return generate_handle_head_urdf_variable_density(

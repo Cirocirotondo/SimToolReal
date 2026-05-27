@@ -6,7 +6,7 @@ from typing import List, Literal, Optional
 
 import tyro
 
-_TRAINING_PRESETS = ("default", "clean_dr")
+_TRAINING_PRESETS = ("default", "clean_dr", "real_dr")
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
     ("hammer", "screwdriver", "marker", "spatula", "eraser", "brush", "cube")
@@ -27,15 +27,15 @@ class LaunchTrainingArgs:
     checkpoint: Optional[Path] = None
     """Path to checkpoint .pth file for finetuning. If None, trains from scratch."""
 
-    training_preset: Literal["default", "clean_dr"] = "default"
-    """default = SimToolRealLSTMAsymmetric (delays, noise, pushes). clean_dr = no disturbances, mild reset/URDF DR only (see SimToolRealCleanDR.yaml)."""
+    training_preset: Literal["default", "clean_dr", "real_dr"] = "default"
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = physics, sensor, latency, and object DR for sim-to-real training."""
 
-    # === Forces/Torques : sim2real disturbances on object (when lifted). Strong legacy: 20 / 2; default below is milder. ===
-    force_scale: float = 6.0
-    """Force scale (see task env forceScale)."""
+    # === Forces/Torques : sim2real disturbances on object (when lifted). ===
+    force_scale: Optional[float] = None
+    """Force scale override. If unset: default=6.0, real_dr=20.0."""
 
-    torque_scale: float = 0.5
-    """Torque scale (see task env torqueScale)."""
+    torque_scale: Optional[float] = None
+    """Torque scale override. If unset: default=0.5, real_dr=2.0."""
 
     handle_head_type: Optional[str] = None
     """If set, only this procedural tool family is used (see task env handleHeadTypes)."""
@@ -142,11 +142,19 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         raise ValueError("num_envs troppo piccolo per un rollout valido")
 
     use_clean_dr = args.training_preset == "clean_dr"
-    task_name = (
-        "SimToolRealLSTMAsymmetricCleanDR"
-        if use_clean_dr
-        else "SimToolRealLSTMAsymmetric"
-    )
+    task_name = {
+        "default": "SimToolRealLSTMAsymmetric",
+        "clean_dr": "SimToolRealLSTMAsymmetricCleanDR",
+        "real_dr": "SimToolRealLSTMAsymmetricRealDR",
+    }[args.training_preset]
+    force_scale = args.force_scale
+    torque_scale = args.torque_scale
+    if args.training_preset == "default":
+        force_scale = 6.0 if force_scale is None else force_scale
+        torque_scale = 0.5 if torque_scale is None else torque_scale
+    elif args.training_preset == "real_dr":
+        force_scale = 20.0 if force_scale is None else force_scale
+        torque_scale = 2.0 if torque_scale is None else torque_scale
 
     cmd_parts = [
         "python",
@@ -187,8 +195,8 @@ def launch_training(args: LaunchTrainingArgs) -> None:
     if not use_clean_dr:
         cmd_parts.extend(
             [
-                f"task.env.forceScale={args.force_scale}",
-                f"task.env.torqueScale={args.torque_scale}",
+                f"task.env.forceScale={force_scale}",
+                f"task.env.torqueScale={torque_scale}",
             ]
         )
 

@@ -1,7 +1,10 @@
 # Interactive Evaluation:
 Launch: 
 ```bash 
+source /home/simone/.venv/bin/activate
 python dextoolbench/eval_interactive.py   --config-path pretrained_policy/config.yaml   --checkpoint-path pretrained_policy/model.pth  
+
+#optional: add the argument "--plot-rewards"
 ```
 Add `--debug-network` to see all the debug messages (shouldn't be necessary anymore). 
 
@@ -50,6 +53,34 @@ python isaacgymenvs/launch_training.py \
   --training-preset clean_dr \
   --custom_experiment_name cube_clean_dr_ft \
   --checkpoint train_dir/simtoolreal/.../best/model.pth \
+  --num_envs 12288
+```
+
+## Training da zero sim-to-real con physics domain randomization
+
+Preset `real_dr`: usa cubi procedurali da 5-7 cm con centro di massa spostato fino a 5 mm per asse, mantiene delay e rumore sensoriale/azione, variazione della posa e della scala dell'oggetto e abilita PhysX DR su gravita, dinamica del robot, masse, frizione e restituzione di cubo/tavolo/dita. Il rumore DR di osservazioni e azioni cresce linearmente nei primi 5000 step. `dofSpeedScale` rimane fisso al valore base `1.5`: il curriculum aumenta invece i disturbi sul cubo afferrato quando la reward episodica media raggiunge le soglie della tabella, iniziando a `10000` e raggiungendo i disturbi originali forti a `19000+`. Per il grasp stabile usa `fingertipSpreadPenaltyScale=1.25` e `fingertipMultiContactBonusScale=0.20`. La restituzione e' limitata a `[0.0, 0.10]` per includere contatti moderatamente elastici senza favorire rimbalzi irrealistici durante la presa.
+
+| Reward episodica media | `forceScale` | `torqueScale` | Impulso lineare | Impulso angolare |
+| ---: | ---: | ---: | ---: | ---: |
+| `< 10000` | `4.0` | `0.30` | `0.000` | `0.000` |
+| `10000-10999` | `5.6` | `0.47` | `0.002` | `0.002` |
+| `11000-11999` | `7.1` | `0.64` | `0.004` | `0.004` |
+| `12000-12999` | `8.7` | `0.81` | `0.006` | `0.006` |
+| `13000-13999` | `10.2` | `0.98` | `0.008` | `0.008` |
+| `14000-14999` | `11.8` | `1.15` | `0.010` | `0.010` |
+| `15000-15999` | `13.3` | `1.32` | `0.012` | `0.012` |
+| `16000-16999` | `14.9` | `1.49` | `0.014` | `0.014` |
+| `17000-17999` | `16.4` | `1.66` | `0.016` | `0.016` |
+| `18000-18999` | `18.0` | `1.83` | `0.018` | `0.018` |
+| `19000+` | `20.0` | `2.00` | `0.020` | `0.020` |
+
+Config: `isaacgymenvs/cfg/task/SimToolRealRealDR.yaml`
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset real_dr \
+  --custom_experiment_name train_real_dr_cube_from_zero \
+  --handle-head-type cube \
   --num_envs 12288
 ```
 
@@ -195,9 +226,13 @@ Grafici WandB: `reward_step/<termine>` (un solo tag per termine; asse X = `globa
 │       Fine-tune da train_3 best. Shaping dita ↑ (spread 0.25, multi-contact 0.1, pollice 0.05).
 │       WandB: stesso gruppo logico di train_3; confronta reward_step/fingertip_*.
 │
-└── 00_train_4_cube_2026-05-21_19-06-51  (sorella di train_3, non figlia)
-    Da zero. Sim pulita: no delay/rumore obs (preset clean_dr), push sul cubo off;
-    DR leggera su tavolo + cubi procedurali (size/massa). Vedi sezione “Training sim pulita” sopra.
+├── 00_train_4_cube_2026-05-21_19-06-51  (sorella di train_3, non figlia)
+│   Da zero. Sim pulita: no delay/rumore obs (preset clean_dr), push sul cubo off;
+│   DR leggera su tavolo + cubi procedurali (size/massa). Vedi sezione “Training sim pulita” sopra.
+│
+└── 00_train_5_cube_2026-05-22_17-27-47
+    Nuova run cubo dopo fix URDF Delto: limiti corretti sui giunti del pollice
+    `lj_dg_1_3` e `lj_dg_1_4` a [-90°, 0°] invece di [0°, 90°].
 ```
 
 **Eval + grafici reward locali** (es. train_3 / train_30 checkpoint):

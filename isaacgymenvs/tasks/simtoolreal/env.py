@@ -34,6 +34,7 @@ import random
 import tempfile
 import time
 from copy import copy
+from dataclasses import replace
 from os.path import join
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -718,6 +719,9 @@ class SimToolReal(VecTask):
             key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
             for key in reward_keys
         }
+        self.prev_episode_total_reward = torch.zeros(
+            self.num_envs, dtype=torch.float, device=self.device
+        )
 
         self.last_curriculum_update = 0
 
@@ -822,6 +826,7 @@ class SimToolReal(VecTask):
             )
 
         self._init_tyler_curriculum()
+        self._init_disturbance_curriculum()
 
         self._init_obs_action_queue()
 
@@ -1573,6 +1578,7 @@ class SimToolReal(VecTask):
             success_tolerance=self.success_tolerance,
             prev_episode_successes=self.prev_episode_successes,
             prev_episode_true_objective=self.prev_episode_true_objective,
+            prev_episode_total_reward=self.prev_episode_total_reward,
             dof_state=self.dof_state,
             root_state_tensor=self.root_state_tensor,
             rigid_body_states=self.rigid_body_states,
@@ -1727,6 +1733,34 @@ class SimToolReal(VecTask):
         object_size_distributions = [
             obj for obj in OBJECT_SIZE_DISTRIBUTIONS if obj.type in handle_head_types
         ]
+        cube_size_range = self.cfg["env"].get("cubeSizeRange")
+        if cube_size_range is not None:
+            assert len(cube_size_range) == 2, "cubeSizeRange must be [min_size, max_size]"
+            cube_min_size, cube_max_size = (float(v) for v in cube_size_range)
+            assert 0.0 < cube_min_size <= cube_max_size, (
+                "cubeSizeRange must satisfy 0 < min_size <= max_size"
+            )
+            object_size_distributions = [
+                replace(
+                    obj,
+                    handle_min_lengths=(cube_min_size,) * 3,
+                    handle_max_lengths=(cube_max_size,) * 3,
+                )
+                if obj.type == "cube"
+                else obj
+                for obj in object_size_distributions
+            ]
+        cube_com_offset_range = self.cfg["env"].get("cubeComOffsetRange")
+        if cube_com_offset_range is not None:
+            assert len(cube_com_offset_range) == 2, (
+                "cubeComOffsetRange must be [min_offset, max_offset]"
+            )
+            cube_com_offset_min, cube_com_offset_max = (
+                float(v) for v in cube_com_offset_range
+            )
+            assert cube_com_offset_min <= cube_com_offset_max, (
+                "cubeComOffsetRange must satisfy min_offset <= max_offset"
+            )
         if self.cfg["env"].get("useSingleHandleHeadTemplate", False):
             object_size_distributions = object_size_distributions[:1]
 
@@ -1752,6 +1786,14 @@ class SimToolReal(VecTask):
             head_scales = object_size_distribution.sample_head_scales(
                 num_objects_per_type
             )
+            if handle_head_type == "cube" and cube_com_offset_range is not None:
+                handle_com_offsets = np.random.uniform(
+                    cube_com_offset_min,
+                    cube_com_offset_max,
+                    size=(num_objects_per_type, 3),
+                )
+            else:
+                handle_com_offsets = [None] * num_objects_per_type
             assert handle_scales.shape in [
                 (num_objects_per_type, 2),
                 (num_objects_per_type, 3),
@@ -1777,6 +1819,7 @@ class SimToolReal(VecTask):
                         if head_scales is not None
                         else None,
                         per_face_colors=(handle_head_type == "cube"),
+                        handle_com_offset=handle_com_offsets[idx],
                     )
                     for idx in range(num_objects_per_type)
                 ]
@@ -2829,10 +2872,10 @@ class SimToolReal(VecTask):
             "keypoint_scale": float(self.keypoint_scale),
             "lifting_bonus": float(self.lifting_bonus),
             "lifting_bonus_threshold": float(self.lifting_bonus_threshold),
-            "force_scale": float(self.force_scale),
-            "torque_scale": float(self.torque_scale),
-            "lin_vel_impulse_scale": float(self.lin_vel_impulse_scale),
-            "ang_vel_impulse_scale": float(self.ang_vel_impulse_scale),
+            "force_scale": float(self.applied_force_scale),
+            "torque_scale": float(self.applied_torque_scale),
+            "lin_vel_impulse_scale": float(self.applied_lin_vel_impulse_scale),
+            "ang_vel_impulse_scale": float(self.applied_ang_vel_impulse_scale),
             "fingertip_spread_penalty_scale": float(
                 self.cfg["env"].get("fingertipSpreadPenaltyScale", 0.0) or 0.0
             ),
@@ -3700,6 +3743,9 @@ class SimToolReal(VecTask):
 
             self.prev_episode_true_objective[env_ids] = self.true_objective[env_ids]
             self.true_objective[env_ids] = 0
+            self.prev_episode_total_reward[env_ids] = self.rewards_episode[
+                "total_reward"
+            ][env_ids]
 
             self.prev_episode_closest_keypoint_max_dist[env_ids] = torch.where(
                 self.prev_episode_successes[env_ids] > 0,
@@ -4070,8 +4116,10 @@ class SimToolReal(VecTask):
         )
 
         # Random forces
-        if self.force_scale > 0.0 or self.torque_scale > 0.0:
-            if self.force_scale > 0.0:
+        force_scale = self.applied_force_scale
+        torque_scale = self.applied_torque_scale
+        if force_scale > 0.0 or torque_scale > 0.0:
+            if force_scale > 0.0:
                 self.rb_forces *= torch.pow(
                     self.force_decay, self.dt / self.force_decay_interval
                 )
@@ -4087,7 +4135,7 @@ class SimToolReal(VecTask):
                         device=self.device,
                     )
                     * self.object_rb_masses
-                    * self.force_scale
+                    * force_scale
                 )
 
                 if self.force_only_when_lifted:
@@ -4097,7 +4145,7 @@ class SimToolReal(VecTask):
                         self.lifted_object.unsqueeze(1).unsqueeze(2)
                     )
 
-            if self.torque_scale > 0.0:
+            if torque_scale > 0.0:
                 self.rb_torques *= torch.pow(
                     self.torque_decay, self.dt / self.torque_decay_interval
                 )
@@ -4115,7 +4163,7 @@ class SimToolReal(VecTask):
                         device=self.device,
                     )
                     * self.object_rb_masses  # in theory should do inertia, but harder to do this, so just use mass for now
-                    * self.torque_scale
+                    * torque_scale
                 )
 
                 if self.torque_only_when_lifted:
@@ -4133,8 +4181,10 @@ class SimToolReal(VecTask):
             )
 
         # Random velocity impulses
-        if self.lin_vel_impulse_scale > 0.0 or self.ang_vel_impulse_scale > 0.0:
-            if self.lin_vel_impulse_scale > 0.0:
+        lin_vel_impulse_scale = self.applied_lin_vel_impulse_scale
+        ang_vel_impulse_scale = self.applied_ang_vel_impulse_scale
+        if lin_vel_impulse_scale > 0.0 or ang_vel_impulse_scale > 0.0:
+            if lin_vel_impulse_scale > 0.0:
                 if self.lin_vel_impulse_only_when_lifted:
                     lin_vel_impulse_env_ids = (
                         (
@@ -4158,7 +4208,7 @@ class SimToolReal(VecTask):
                     )
                 random_lin_vel_impulses = (
                     torch.randn(self.num_envs, 3, device=self.device)
-                    * self.lin_vel_impulse_scale
+                    * lin_vel_impulse_scale
                 )
                 self.root_state_tensor[
                     self.object_indices[lin_vel_impulse_env_ids], 7:10
@@ -4167,7 +4217,7 @@ class SimToolReal(VecTask):
                     [self.object_indices[lin_vel_impulse_env_ids]]
                 )
 
-            if self.ang_vel_impulse_scale > 0.0:
+            if ang_vel_impulse_scale > 0.0:
                 if self.ang_vel_impulse_only_when_lifted:
                     ang_vel_impulse_env_ids = (
                         (
@@ -4191,7 +4241,7 @@ class SimToolReal(VecTask):
                     )
                 random_ang_vel_impulses = (
                     torch.randn(self.num_envs, 3, device=self.device)
-                    * self.ang_vel_impulse_scale
+                    * ang_vel_impulse_scale
                 )
                 self.root_state_tensor[
                     self.object_indices[ang_vel_impulse_env_ids], 10:13
@@ -4656,6 +4706,51 @@ class SimToolReal(VecTask):
                 alpha=self._tyler_curriculum_scale,
             )
 
+    @property
+    def applied_force_scale(self) -> float:
+        return self._disturbance_scale_value(
+            "disturbanceForceScaleLevels", "forceScaleInitial", self.force_scale
+        )
+
+    @property
+    def applied_torque_scale(self) -> float:
+        return self._disturbance_scale_value(
+            "disturbanceTorqueScaleLevels", "torqueScaleInitial", self.torque_scale
+        )
+
+    @property
+    def applied_lin_vel_impulse_scale(self) -> float:
+        return self._disturbance_scale_value(
+            "disturbanceLinVelImpulseScaleLevels",
+            "linVelImpulseScaleInitial",
+            self.lin_vel_impulse_scale,
+        )
+
+    @property
+    def applied_ang_vel_impulse_scale(self) -> float:
+        return self._disturbance_scale_value(
+            "disturbanceAngVelImpulseScaleLevels",
+            "angVelImpulseScaleInitial",
+            self.ang_vel_impulse_scale,
+        )
+
+    def _disturbance_scale_value(
+        self, levels_key: str, initial_key: str, final: float
+    ) -> float:
+        if not getattr(self, "_disturbance_curriculum_enabled", False):
+            return final
+        if levels_key in self.cfg["env"]:
+            levels = self.cfg["env"][levels_key]
+            reference_final = float(levels[-1])
+            if reference_final == 0.0:
+                return 0.0
+            level_value = float(levels[self._disturbance_curriculum_level])
+            return level_value * final / reference_final
+        initial = self.cfg["env"].get(initial_key, final)
+        return self.interpolate(
+            init=initial, final=final, alpha=self._disturbance_curriculum_scale
+        )
+
     @staticmethod
     def interpolate(init, final, alpha: float) -> float:
         assert 0 <= alpha <= 1, f"alpha must be between 0 and 1, got {alpha}"
@@ -4670,6 +4765,7 @@ class SimToolReal(VecTask):
         self._extra_curriculum()
 
         self._update_tyler_curriculum()
+        self._update_disturbance_curriculum()
 
         self.populate_sim_buffers()
         rewards, is_success = self.compute_kuka_reward()
@@ -4816,7 +4912,7 @@ class SimToolReal(VecTask):
                     f"object_pos_cpu.shape: {object_pos_cpu.shape}"
                 )
                 start_pos = gymapi.Vec3(*object_pos_cpu)
-                MAX_FORCE_NORM = self.force_scale * 0.1  # Often mass is about 0.1 kg
+                MAX_FORCE_NORM = self.applied_force_scale * 0.1  # Often mass is about 0.1 kg
                 MAX_VECTOR_LENGTH = 0.3
                 force_norm = np.linalg.norm(rb_forces_cpu)
                 if force_norm > MAX_FORCE_NORM:
@@ -4846,7 +4942,7 @@ class SimToolReal(VecTask):
                     f"object_pos_cpu.shape: {object_pos_cpu.shape}"
                 )
                 start_pos = gymapi.Vec3(*object_pos_cpu)
-                MAX_TORQUE_NORM = self.torque_scale * 0.1  # Often mass is about 0.1 kg
+                MAX_TORQUE_NORM = self.applied_torque_scale * 0.1  # Often mass is about 0.1 kg
                 MAX_VECTOR_LENGTH = 0.3
                 torque_norm = np.linalg.norm(rb_torques_cpu)
                 if torque_norm > MAX_TORQUE_NORM:
@@ -4978,12 +5074,80 @@ class SimToolReal(VecTask):
                 "init_tyler_curriculum_scale"
             ]
 
+    def _init_disturbance_curriculum(self):
+        self._disturbance_curriculum_enabled = (
+            "disturbanceCurriculumStartMeanEpisodeReward" in self.cfg["env"]
+        )
+        self._disturbance_curriculum_scale = (
+            0.0 if self._disturbance_curriculum_enabled else 1.0
+        )
+        self._disturbance_curriculum_level = 0
+
+    def _update_disturbance_curriculum(self):
+        if not self._disturbance_curriculum_enabled:
+            return
+
+        start = float(self.cfg["env"]["disturbanceCurriculumStartMeanEpisodeReward"])
+        full = float(self.cfg["env"]["disturbanceCurriculumFullMeanEpisodeReward"])
+        reward_per_level = float(
+            self.cfg["env"].get("disturbanceCurriculumRewardPerLevel", 1000.0)
+        )
+        assert reward_per_level > 0.0, (
+            "disturbanceCurriculumRewardPerLevel must be > 0"
+        )
+        assert full >= start, (
+            "disturbanceCurriculumFullMeanEpisodeReward must not be below start"
+        )
+
+        num_levels = int(round((full - start) / reward_per_level)) + 1
+        assert num_levels > 0, "disturbance curriculum must have at least one level"
+        for levels_key in (
+            "disturbanceForceScaleLevels",
+            "disturbanceTorqueScaleLevels",
+            "disturbanceLinVelImpulseScaleLevels",
+            "disturbanceAngVelImpulseScaleLevels",
+        ):
+            if levels_key in self.cfg["env"]:
+                assert len(self.cfg["env"][levels_key]) == num_levels + 1, (
+                    f"{levels_key} must contain {num_levels + 1} levels"
+                )
+        mean_episode_reward = self.prev_episode_total_reward.mean().item()
+        if mean_episode_reward < start:
+            level = 0
+        else:
+            level = (
+                math.floor((mean_episode_reward - start) / reward_per_level + 1e-9)
+                + 1
+            )
+        level = max(0, min(num_levels, level))
+        self._disturbance_curriculum_level = max(
+            self._disturbance_curriculum_level, level
+        )
+        self._disturbance_curriculum_scale = (
+            self._disturbance_curriculum_level / num_levels
+        )
+        self.extras["disturbance_curriculum_level"] = (
+            self._disturbance_curriculum_level
+        )
+        self.extras["disturbance_curriculum_scale"] = self._disturbance_curriculum_scale
+        self.extras["mean_episode_reward_for_disturbance_curriculum"] = (
+            mean_episode_reward
+        )
+        self.extras["applied_force_scale"] = self.applied_force_scale
+        self.extras["applied_torque_scale"] = self.applied_torque_scale
+        self.extras["applied_lin_vel_impulse_scale"] = (
+            self.applied_lin_vel_impulse_scale
+        )
+        self.extras["applied_ang_vel_impulse_scale"] = (
+            self.applied_ang_vel_impulse_scale
+        )
+
     def _update_tyler_curriculum(self):
         # Vary _tyler_curriculum_scale from 0.0 to 1.0 over time
         # 0.0 means easy and 1.0 means hard
 
-        # If gets at least 50% of max consecutive successes and been at least 5 minutes since last update, turn off extra obs more
         mean_successes = self.prev_episode_successes.mean().item()
+        update_step_size = self.cfg["env"]["updateStepSizeTylerCurriculum"]
         minutes_elapsed_since_last_update = (
             time.time() - self._last_tyler_curriculum_update
         ) / 60
@@ -4992,7 +5156,6 @@ class SimToolReal(VecTask):
         doing_well = success_ratio > curriculum_success_ratio
 
         time_to_update = self.cfg["env"]["timeToUpdateTylerCurriculum"]
-        update_step_size = self.cfg["env"]["updateStepSizeTylerCurriculum"]
 
         enough_time_since_last_update = (
             minutes_elapsed_since_last_update > time_to_update

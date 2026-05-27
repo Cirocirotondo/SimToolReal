@@ -85,6 +85,15 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
    pool cubi procedurali (dimensioni/massa). Shaping dita come repo attuale (0.25 / 0.1 / pollice 0.05).
    Per rilanciare: `launch_training.py --training-preset clean_dr --handle-head-type cube`.
 
+00_train_5_cube_2026-05-22_17-27-47
+   Nuova run cubo dopo fix URDF Delto: limiti corretti sui giunti del pollice
+   `lj_dg_1_3` e `lj_dg_1_4` a [-90°, 0°] invece di [0°, 90°].
+   --> BEST BY NOW! Ora il robot afferra per bene, ha raggiunto reward media per episodio > 10000, la reward sta crescendo bene!
+   │
+   └── 00_train_50_cube_from_50h_
+         Riparto da 50h, con tutti gli stessi valori per controllare che il training risegua la stessa strada. Questo per controllare che tutti i valori per fare ripresa del training siano stati salvati correttamente.
+
+
 
 ```
 
@@ -95,24 +104,25 @@ Oltre ai coefficienti che entrano nella somma in `compute_kuka_reward` e al curr
 Valori letti dai `**config.yaml`** risolti in ciascuna cartella `train_dir/.../runs/<00_nome>/` (generati da `train.py` all’avvio).  
 `—` = chiave **assente** in quel file (spesso equivale al default nel codice, es. shaping dita a 0).
 
-Percorsi usati: `train_dir/simtoolreal/2026-05-11/train_single_tool_from_zero_.../runs/...`, `.../2026-05-12/train_single_tool_from_chkpt1...`, `.../chkpt2...`, `.../2026-05-13/train_01_st...`, `.../train_02_st...`, `.../2026-05-16/train_2_cube_.../runs/00_train_2_cube_2026-05-16_11-58-42/`, `.../2026-05-18/train_3_cube_.../runs/00_train_3_cube_2026-05-18_10-45-49/`, `.../2026-05-21/train_30_cube_2026-05-21_11-57-27/runs/00_train_30_cube_2026-05-21_11-57-27/`, `.../2026-05-21/train_4_cube_2026-05-21_19-06-51/runs/00_train_4_cube_2026-05-21_19-06-51/`.
+Percorsi usati: `train_dir/simtoolreal/2026-05-11/train_single_tool_from_zero_.../runs/...`, `.../2026-05-12/train_single_tool_from_chkpt1...`, `.../chkpt2...`, `.../2026-05-13/train_01_st...`, `.../train_02_st...`, `.../2026-05-16/train_2_cube_.../runs/00_train_2_cube_2026-05-16_11-58-42/`, `.../2026-05-18/train_3_cube_.../runs/00_train_3_cube_2026-05-18_10-45-49/`, `.../2026-05-21/train_30_cube_2026-05-21_11-57-27/runs/00_train_30_cube_2026-05-21_11-57-27/`, `.../2026-05-21/train_4_cube_2026-05-21_19-06-51/runs/00_train_4_cube_2026-05-21_19-06-51/`, `.../2026-05-22/train_5_cube_2026-05-22_17-27-47/runs/00_train_5_cube_2026-05-22_17-27-47/`.
 
 ### Tabella run **cubo** (WandB `reward_step/*`, `episode_cumulative/*`)
 
 Confronto rapido per leggere i grafici WandB / TensorBoard. Nomi run = cartella sotto `runs/` (prefisso `00_`).
 
-| Parametro | `00_train_2_cube_…_11-58-42` | `00_train_3_cube_…_10-45-49` | `00_train_30_cube_…_11-57-27` | `00_train_4_cube_…_19-06-51` |
-| --- | --- | --- | --- | --- |
-| Parent / checkpoint | da `train_02_st` | da `train_2_cube` | **da train_3 `best`** | **da zero** (sorella di train_3) |
-| `fingertipSpreadPenaltyScale` | 0.0025 | 0.0025 | **0.25** | **0.25** (repo / clean_dr) |
-| `fingertipMultiContactBonusScale` | 0.002 | 0.002 | **0.1** | **0.1** |
-| `fingertipMultiContactDistThresholdM` | 0.042 | 0.042 | **0.06** | **0.06** |
-| `fingertipMultiContactMinFingers` | 4 | 4 | **5** | **5** |
-| `fingertipThumbBonusScale` | — | — | **0.05** | **0.05** |
-| `objectRestitution` / depenetration | default | **0.0**, max depen **2.0** | come train_3 | come train_3 |
-| Disturbi obs / action / object state | on | on | on (eredita train_3) | **off** (preset `clean_dr`) |
-| DR tavolo / oggetto | `tableResetZRange` 0.01, scala ±10% | idem | idem | **tavolo ±3 cm**, pool cubi procedurali |
-| Push su cubo sollevato (`forceScale`, impulsi) | 6.0 / 0 impulsi | idem | idem | **0** (clean_dr) |
+| Parametro | `00_train_2_cube_…_11-58-42` | `00_train_3_cube_…_10-45-49` | `00_train_30_cube_…_11-57-27` | `00_train_4_cube_…_19-06-51` | `00_train_5_cube_…_17-27-47` |
+| --- | --- | --- | --- | --- | --- |
+| Parent / checkpoint | da `train_02_st` | da `train_2_cube` | **da train_3 `best`** | **da zero** (sorella di train_3) | **da zero** |
+| `fingertipSpreadPenaltyScale` | 0.0025 | 0.0025 | **0.25** | **0.25** (repo / clean_dr) | **0.25** |
+| `fingertipMultiContactBonusScale` | 0.002 | 0.002 | **0.1** | **0.1** | **0.1** |
+| `fingertipMultiContactDistThresholdM` | 0.042 | 0.042 | **0.06** | **0.06** | **0.06** |
+| `fingertipMultiContactMinFingers` | 4 | 4 | **5** | **5** | **5** |
+| `fingertipThumbBonusScale` | — | — | **0.05** | **0.05** | **0.05** |
+| `lj_dg_1_3` / `lj_dg_1_4` limiti URDF | `[0°, 90°]` | `[0°, 90°]` | `[0°, 90°]` | `[0°, 90°]` | **`[-90°, 0°]`** |
+| `objectRestitution` / depenetration | default | **0.0**, max depen **2.0** | come train_3 | come train_3 | come train_4 |
+| Disturbi obs / action / object state | on | on | on (eredita train_3) | **off** (preset `clean_dr`) | **on** |
+| DR tavolo / oggetto | `tableResetZRange` 0.01, scala ±10% | idem | idem | **tavolo ±3 cm**, pool cubi procedurali | `tableResetZRange` 0.01, scala ±10%, 1 cubo |
+| Push su cubo sollevato (`forceScale`, impulsi) | 6.0 / 0 impulsi | idem | idem | **0** (clean_dr) | 6.0 / 0 impulsi |
 
 **Nota train_4:** l’intento della run è `SimToolRealCleanDR.yaml` (vedi `README_MINE.md`). Se in un `config.yaml` salvato vedi ancora `useObsDelay: true`, il lancio non aveva `--training-preset clean_dr` — usa quel flag per allineare log e comportamento.
 
@@ -214,4 +224,3 @@ Confronto rapido per leggere i grafici WandB / TensorBoard. Nomi run = cartella 
 
 - Per confrontare i pesi: `train_dir/<project>/<data>/<custom_name>/runs/<00_run...>/` → `last/`, `best/`, `nn/`.
 - Allineare questo albero ai **commit git** o a un export di `SimToolReal.yaml` salvato per run se vuoi riproducibilità assoluta.
-

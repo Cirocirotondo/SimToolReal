@@ -1,0 +1,154 @@
+# Training preset for learning a policy intended for real-world transfer.
+# Starts from the corrected UR5e + Delto cube task and combines observation /
+# action latency, procedural object variation, disturbances, and physics DR.
+# Restitution is kept moderate to avoid unrealistic pinch-and-launch.
+defaults:
+  - SimToolReal
+  - _self_
+
+env:
+  # Sensor and command uncertainty already modeled by the SimToolReal task.
+  useObsDelay: True
+  obsDelayMax: 3
+  useActionDelay: True
+  actionDelayMax: 3
+  useObjectStateDelayNoise: True
+  objectStateDelayMax: 10
+  objectStateXyzNoiseStd: 0.01
+  objectStateRotationNoiseDegrees: 5.0
+  jointVelocityObsNoiseStd: 0.1
+  objectScaleNoiseMultiplierRange: [0.9, 1.1]
+
+  # Disturbance curriculum on the grasped object. The first harder level is
+  # unlocked at mean episode reward 10k, and the original strong disturbances
+  # are reached at 19k.
+  disturbanceCurriculumStartMeanEpisodeReward: 10000.0
+  disturbanceCurriculumFullMeanEpisodeReward: 19000.0
+  disturbanceCurriculumRewardPerLevel: 1000.0
+  disturbanceForceScaleLevels: [4.0, 5.6, 7.1, 8.7, 10.2, 11.8, 13.3, 14.9, 16.4, 18.0, 20.0]
+  disturbanceTorqueScaleLevels: [0.30, 0.47, 0.64, 0.81, 0.98, 1.15, 1.32, 1.49, 1.66, 1.83, 2.00]
+  disturbanceLinVelImpulseScaleLevels: [0.000, 0.002, 0.004, 0.006, 0.008, 0.010, 0.012, 0.014, 0.016, 0.018, 0.020]
+  disturbanceAngVelImpulseScaleLevels: [0.000, 0.002, 0.004, 0.006, 0.008, 0.010, 0.012, 0.014, 0.016, 0.018, 0.020]
+  forceScaleInitial: 4.0
+  forceScale: 20.0
+  torqueScaleInitial: 0.3
+  torqueScale: 2.0
+  linVelImpulseScaleInitial: 0.0
+  linVelImpulseScale: 0.02
+  angVelImpulseScaleInitial: 0.0
+  angVelImpulseScale: 0.02
+
+  # Reset and geometry variation.
+  tableResetZRange: 0.03
+  resetPositionNoiseX: 0.05
+  resetPositionNoiseY: 0.05
+  resetPositionNoiseZ: 0.02
+  randomizeObjectRotation: True
+  fixedSizeKeypointReward: False
+  fingertipSpreadPenaltyScale: 1.25
+  fingertipMultiContactBonusScale: 0.20
+  handleHeadTypes: ["cube"]
+  cubeSizeRange: [0.05, 0.07]
+  cubeComOffsetRange: [-0.005, 0.005]
+  useSingleHandleHeadTemplate: True
+  numObjectsPerType: 20
+
+task:
+  randomize: True
+  randomization_params:
+    frequency: 720
+
+    # Low generic noise complements the structured delay/object pose noise above.
+    observations:
+      range: [0.0, 0.01]
+      range_correlated: [0.0, 0.01]
+      operation: "additive"
+      distribution: "gaussian"
+      schedule: "linear"
+      schedule_steps: 5000
+    actions:
+      range: [0.0, 0.01]
+      range_correlated: [0.0, 0.01]
+      operation: "additive"
+      distribution: "gaussian"
+      schedule: "linear"
+      schedule_steps: 5000
+
+    sim_params:
+      gravity:
+        range: [0.0, 0.3]
+        operation: "additive"
+        distribution: "gaussian"
+
+    actor_params:
+      robot:
+        dof_properties:
+          damping:
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "loguniform"
+          stiffness:
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "loguniform"
+          effort:
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "uniform"
+          friction:
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "uniform"
+          armature:
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "uniform"
+        rigid_body_properties:
+          mass:
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.10]
+            operation: "additive"
+            distribution: "uniform"
+
+      object:
+        rigid_body_properties:
+          mass:
+            range: [0.7, 1.3]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.5, 2.0]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.10]
+            operation: "additive"
+            distribution: "uniform"
+
+      table:
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.5, 2.0]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.10]
+            operation: "additive"
+            distribution: "uniform"
