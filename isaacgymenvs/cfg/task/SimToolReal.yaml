@@ -92,6 +92,7 @@ env:
   fingertipThumbIndex: null  # optional fingertip index; null = auto (Delto ll_dg_1_4, or link name containing "thumb")
 
   fallDistance: 0.24
+  objectFallResetZ: 0.10  # absolute center-z threshold used to terminate after a fall
   fallPenalty: 0.0
   objectLinVelPenaltyScale: 0.0  # Typically want angvel scale to be 100x smaller than linvel scale
   objectAngVelPenaltyScale: 0.0  # Because 0.05-0.2m/s ~~ 0.5-2.0rad/s, 10x factor, which is squared

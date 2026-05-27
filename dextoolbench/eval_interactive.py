@@ -53,8 +53,8 @@ from viser.extras import ViserUrdf
 from dextoolbench.eval_env_config import (
     CUBE_FIXED_SIZE,
     ISAAC_ROBOT_BASE_POS,
-    ISAAC_TABLE_CENTER_POS,
     build_eval_env_overrides,
+    eval_table_center_pos,
     eval_viser_default_arm_dof,
     is_cube_eval,
     load_trajectory,
@@ -277,6 +277,10 @@ def _sim_get_state(env, obs, joint_lower, joint_upper, n_act):
 
 def _sim_reset(env, n_act, device):
     import torch
+    env.reset_idx(
+        torch.arange(env.num_envs, dtype=torch.long, device=env.device),
+        tensor_reset=True,
+    )
     obs, _, _, _ = env.step(torch.zeros((env.num_envs, n_act), device=device))
     return obs["obs"]
 
@@ -598,11 +602,11 @@ class InteractiveDemo:
         self._setup_default_table()
 
     def _setup_default_table(self):
-        """Show a plain wooden table before any environment is loaded."""
+        """Show the cube setup table before any environment is loaded."""
         self._clear_dynamic()
         t = self.server.scene.add_frame(
             "/table",
-            position=ISAAC_TABLE_CENTER_POS,
+            position=eval_table_center_pos("cube", "training_cube"),
             wxyz=(1, 0, 0, 0),
             show_axes=False,
         )
@@ -679,12 +683,12 @@ class InteractiveDemo:
         self._dyn.append(h)
         return h
 
-    def _setup_table(self, table_urdf_path):
+    def _setup_table(self, table_urdf_path, category: str, object_name: str):
         """Parse the per-task URDF and render coloured boxes in viser."""
         self._clear_dynamic()
         t = self.server.scene.add_frame(
             "/table",
-            position=ISAAC_TABLE_CENTER_POS,
+            position=eval_table_center_pos(category, object_name),
             wxyz=(1, 0, 0, 0),
             show_axes=False,
         )
@@ -821,7 +825,7 @@ class InteractiveDemo:
         self._pending_cat_key = cat_key
 
         # Show table + default robot pose immediately while IsaacGym loads
-        self._setup_table(table_urdf_abs)
+        self._setup_table(table_urdf_abs, cat_key, object_name)
 
         label = f"{_snake_to_title(cat_key)} / {self._dd_obj.value} / {self._dd_task.value}"
         self._md_status.content = f"**Status:** Loading *{label}* ..."

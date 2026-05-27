@@ -8,6 +8,8 @@ defaults:
 
 env:
   # Sensor and command uncertainty already modeled by the SimToolReal task.
+  defaultArmDofPos: [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+  startArmHigher: False
   useObsDelay: True
   obsDelayMax: 3
   useActionDelay: True
@@ -39,7 +41,15 @@ env:
   angVelImpulseScale: 0.02
 
   # Reset and geometry variation.
-  tableResetZRange: 0.03
+  # table_narrow.urdf is a 0.30 m box centered on tableResetZ. Sampling its
+  # center in [-0.15, -0.10] places the upper surface in z=[0.00, 0.05].
+  tableResetZ: -0.125
+  tableResetZRange: 0.025
+  objectFallResetZ: -0.05
+  # Preserve the previous goal volume relative to the support surface after
+  # moving the training table top from z=0.53 down to z=0.
+  targetVolumeMins: [-0.35, -0.2, 0.07]
+  targetVolumeMaxs: [0.35, 0.2, 0.42]
   resetPositionNoiseX: 0.05
   resetPositionNoiseY: 0.05
   resetPositionNoiseZ: 0.02

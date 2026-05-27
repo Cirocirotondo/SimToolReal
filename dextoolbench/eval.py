@@ -25,8 +25,8 @@ from deployment.rl_player import RlPlayer
 from dextoolbench.eval_env_config import (
     CUBE_FIXED_SIZE,
     ISAAC_ROBOT_BASE_POS,
-    ISAAC_TABLE_CENTER_POS,
     build_eval_env_overrides,
+    eval_table_center_pos,
     is_cube_eval,
     load_trajectory,
     table_urdf_rel_for_eval,
@@ -114,7 +114,7 @@ class ViserServer:
         table_urdf = get_repo_root_dir() / "assets" / self.table_urdf
         self.server.scene.add_frame(
             "/table",
-            position=ISAAC_TABLE_CENTER_POS,
+            position=eval_table_center_pos(object_category, object_name),
             wxyz=(1, 0, 0, 0),
             show_axes=False,
         )
@@ -366,6 +366,10 @@ class EvalRunner:
 
     def _reset(self):
         """Reset environment and return initial observation."""
+        self.env.reset_idx(
+            torch.arange(self.env.num_envs, dtype=torch.long, device=self.env.device),
+            tensor_reset=True,
+        )
         obs, _, _, _ = self.env.step(
             torch.zeros((self.env.num_envs, self.n_act), device=self.device)
         )

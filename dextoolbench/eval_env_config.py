@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 from typing import Any, Dict, List, Tuple, Union
 
@@ -14,25 +13,41 @@ CUBE_TASK_LIFT_DELTA = "lift_delta"
 
 CUBE_EVAL_URDF = REPO_ROOT / "assets/urdf/eval_cube/cube_5cm.urdf"
 CUBE_FIXED_SIZE = [0.05, 0.05, 0.05]
+EVAL_DEFAULT_ARM_DOF = [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
 
 # Matches SimToolReal.yaml robotBaseY / tablePoseDy (60 cm spacing, table at y=0).
 ISAAC_ROBOT_BASE_Y = 0.6
 ISAAC_TABLE_POSE_DY = -0.6
-EVAL_TABLE_RESET_Z = 0.28  # eval-only; training uses tableResetZ: 0.38
+TABLE_NARROW_HEIGHT = 0.30
+DEFAULT_EVAL_TABLE_RESET_Z = 0.28
+CUBE_EVAL_TABLE_SURFACE_Z = 0.0
+# table_narrow is centered on its pose, so this puts its upper surface at z=0.
+CUBE_EVAL_TABLE_RESET_Z = CUBE_EVAL_TABLE_SURFACE_Z - TABLE_NARROW_HEIGHT / 2.0
+# Preserve the cube trajectory relative to the table when moving the surface
+# from its previous evaluation height (0.28 + 0.15 = 0.43 m) down to z=0.
+CUBE_EVAL_TRAJECTORY_Z_SHIFT = CUBE_EVAL_TABLE_SURFACE_Z - 0.43
 ISAAC_ROBOT_BASE_POS: Tuple[float, float, float] = (0.0, ISAAC_ROBOT_BASE_Y, 0.0)
-ISAAC_TABLE_CENTER_POS: Tuple[float, float, float] = (
-    0.0,
-    ISAAC_ROBOT_BASE_Y + ISAAC_TABLE_POSE_DY,
-    EVAL_TABLE_RESET_Z,
-)
+
+
+def eval_table_reset_z(category: str, object_name: str) -> float:
+    return (
+        CUBE_EVAL_TABLE_RESET_Z
+        if is_cube_eval(category, object_name)
+        else DEFAULT_EVAL_TABLE_RESET_Z
+    )
+
+
+def eval_table_center_pos(category: str, object_name: str) -> Tuple[float, float, float]:
+    return (
+        0.0,
+        ISAAC_ROBOT_BASE_Y + ISAAC_TABLE_POSE_DY,
+        eval_table_reset_z(category, object_name),
+    )
 
 
 def eval_viser_default_arm_dof(num_arm_dofs: int = 6) -> List[float]:
-    """Static Viser arm pose: defaultArmDofPos + startArmHigher (eval overrides)."""
-    arm = [-1.5708, -1.571, 1.0, 0.5, 1.571, -1.571]
-    arm[1] -= math.radians(10)
-    arm[3] += math.radians(10)
-    return arm[:num_arm_dofs]
+    """Static Viser arm pose, matching the IsaacGym evaluation reset pose."""
+    return list(EVAL_DEFAULT_ARM_DOF[:num_arm_dofs])
 
 
 def is_cube_eval(category: str, object_name: str) -> bool:
@@ -136,18 +151,14 @@ def build_eval_env_overrides(
         "task.env.asset.table": str(table_urdf),
         "task.env.robotBaseY": ISAAC_ROBOT_BASE_Y,
         "task.env.tablePoseDy": ISAAC_TABLE_POSE_DY,
-        "task.env.tableResetZ": EVAL_TABLE_RESET_Z,
+        "task.env.tableResetZ": eval_table_reset_z(category, object_name),
+        "task.env.objectFallResetZ": (
+            -0.05 if is_cube_eval(category, object_name) else 0.10
+        ),
         "task.env.useFixedInitObjectPose": True,
         "task.env.objectStartPose": traj_data["start_pose"],
-        "task.env.startArmHigher": True,
-        "task.env.defaultArmDofPos": [
-            -1.5708,
-            -1.571,
-            1.0,
-            0.5,
-            1.571,
-            -1.571,
-        ],
+        "task.env.startArmHigher": False,
+        "task.env.defaultArmDofPos": list(EVAL_DEFAULT_ARM_DOF),
         "task.env.forceScale": 0.0,
         "task.env.torqueScale": 0.0,
         "task.env.linVelImpulseScale": 0.0,
@@ -190,6 +201,11 @@ def load_trajectory(
         traj_data = json.load(f)
     traj_data = dict(traj_data)
     traj_data["start_pose"] = list(traj_data["start_pose"])
-    traj_data["start_pose"][2] += z_offset
     traj_data["goals"] = [list(g) for g in traj_data["goals"]]
+    trajectory_z_shift = (
+        CUBE_EVAL_TRAJECTORY_Z_SHIFT if is_cube_eval(category, object_name) else 0.0
+    )
+    traj_data["start_pose"][2] += z_offset + trajectory_z_shift
+    for goal in traj_data["goals"]:
+        goal[2] += trajectory_z_shift
     return traj_data

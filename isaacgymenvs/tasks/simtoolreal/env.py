@@ -171,6 +171,7 @@ class SimToolReal(VecTask):
 
         self.reach_goal_bonus = self.cfg["env"]["reachGoalBonus"]
         self.fall_dist = self.cfg["env"]["fallDistance"]
+        self.object_fall_reset_z = self.cfg["env"].get("objectFallResetZ", 0.1)
         self.fall_penalty = self.cfg["env"]["fallPenalty"]
 
         self.reset_position_noise_x = self.cfg["env"]["resetPositionNoiseX"]
@@ -2568,7 +2569,9 @@ class SimToolReal(VecTask):
         ones = torch.ones_like(self.reset_buf)
         zeros = torch.zeros_like(self.reset_buf)
 
-        object_z_low = torch.where(self.object_pos[:, 2] < 0.1, ones, zeros)  # fall
+        object_z_low = torch.where(
+            self.object_pos[:, 2] < self.object_fall_reset_z, ones, zeros
+        )  # fall
         if self.max_consecutive_successes > 0:
             # Reset progress buffer if max_consecutive_successes > 0
             self.progress_buf = torch.where(
