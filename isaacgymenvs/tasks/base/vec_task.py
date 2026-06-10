@@ -615,6 +615,8 @@ class VecTask(Env):
         for actor, actor_properties in dr_params["actor_params"].items():
             handle = self.gym.find_actor_handle(env, actor)
             for prop_name, prop_attrs in actor_properties.items():
+                if prop_attrs is None:
+                    continue
                 if prop_name == 'color':
                     continue  # this is set randomly
                 props = param_getters_map[prop_name](env, handle)
@@ -790,6 +792,17 @@ class VecTask(Env):
             for env_id in env_ids:
                 env = self.envs[env_id]
                 handle = self.gym.find_actor_handle(env, actor)
+                if handle < 0:
+                    actor_names = [
+                        self.gym.get_actor_name(
+                            env, self.gym.get_actor_handle(env, actor_idx)
+                        )
+                        for actor_idx in range(self.gym.get_actor_count(env))
+                    ]
+                    raise ValueError(
+                        f"Domain randomization actor {actor!r} was not found. "
+                        f"Available actors: {actor_names}"
+                    )
                 extern_sample = self.extern_actor_params[env_id]
 
                 # randomise dof_props, rigid_body, rigid_shape properties 
@@ -799,6 +812,8 @@ class VecTask(Env):
                 #               {'damping': {'range': [0.3, 3.0], 'operation': 'scaling', 'distribution': 'loguniform'}
                 #               {'stiffness': {'range': [0.75, 1.5], 'operation': 'scaling', 'distribution': 'loguniform'}
                 for prop_name, prop_attrs in actor_properties.items():
+                    if prop_attrs is None:
+                        continue
                     if prop_name == 'color':
                         num_bodies = self.gym.get_actor_rigid_body_count(
                             env, handle)

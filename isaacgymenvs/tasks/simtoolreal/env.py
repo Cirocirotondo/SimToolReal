@@ -845,6 +845,7 @@ class SimToolReal(VecTask):
 
         self._init_tyler_curriculum()
         self._init_disturbance_curriculum()
+        self._init_arm_reset_curriculum()
 
         self._init_obs_action_queue()
 
@@ -2957,6 +2958,10 @@ class SimToolReal(VecTask):
             "arm_moving_average": float(self.arm_moving_average),
             "hand_moving_average": float(self.hand_moving_average),
             "dof_speed_scale": float(self.hand_dof_speed_scale),
+            "reset_dof_pos_noise_arm": float(self.applied_reset_dof_pos_noise_arm),
+            "arm_reset_curriculum_scale": float(
+                getattr(self, "_arm_reset_curriculum_scale", 1.0)
+            ),
         }
 
         return self.rew_buf, is_success
@@ -3878,22 +3883,26 @@ class SimToolReal(VecTask):
             delta_max = self.arm_hand_dof_upper_limits - self.hand_arm_default_dof_pos
             delta_min = self.arm_hand_dof_lower_limits - self.hand_arm_default_dof_pos
 
-            rand_dof_floats = torch_rand_float(
-                0.0, 1.0, (len(env_ids), self.num_hand_arm_dofs), device=self.device
-            )
-
-            rand_delta = delta_min + (delta_max - delta_min) * rand_dof_floats
-
             noise_coeff = torch.zeros_like(
                 self.hand_arm_default_dof_pos, device=self.device
             )
 
-            noise_coeff[: self.num_arm_dofs] = self.reset_dof_pos_noise_arm
+            noise_coeff[: self.num_arm_dofs] = self.applied_reset_dof_pos_noise_arm
             noise_coeff[self.num_arm_dofs : self.num_hand_arm_dofs] = (
                 self.reset_dof_pos_noise_fingers
             )
 
-            robot_pos = self.hand_arm_default_dof_pos + noise_coeff * rand_delta
+            # Sample reset poses from a zero-mean Gaussian around the default pose.
+            # We scale the standard deviation by the distance to the closest joint
+            # limit so the distribution stays centered while respecting asymmetric
+            # default poses.
+            dist_to_closest_limit = torch.minimum(delta_max, -delta_min)
+            rand_dof_gaussian = torch.randn(
+                (len(env_ids), self.num_hand_arm_dofs), device=self.device
+            )
+            rand_delta = noise_coeff * dist_to_closest_limit * rand_dof_gaussian
+
+            robot_pos = self.hand_arm_default_dof_pos + rand_delta
             robot_pos = tensor_clamp(
                 robot_pos,
                 self.arm_hand_dof_lower_limits,
@@ -4803,6 +4812,18 @@ class SimToolReal(VecTask):
             self.ang_vel_impulse_scale,
         )
 
+    @property
+    def applied_reset_dof_pos_noise_arm(self) -> float:
+        if not getattr(self, "_arm_reset_curriculum_enabled", False):
+            return float(self.reset_dof_pos_noise_arm)
+        return float(
+            self.interpolate(
+                init=self._reset_dof_pos_noise_arm_initial,
+                final=self.reset_dof_pos_noise_arm,
+                alpha=self._arm_reset_curriculum_scale,
+            )
+        )
+
     def _disturbance_scale_value(
         self, levels_key: str, initial_key: str, final: float
     ) -> float:
@@ -4835,6 +4856,7 @@ class SimToolReal(VecTask):
 
         self._update_tyler_curriculum()
         self._update_disturbance_curriculum()
+        self._update_arm_reset_curriculum()
 
         self.populate_sim_buffers()
         rewards, is_success = self.compute_kuka_reward()
@@ -5152,6 +5174,21 @@ class SimToolReal(VecTask):
         )
         self._disturbance_curriculum_level = 0
 
+    def _init_arm_reset_curriculum(self):
+        self._arm_reset_curriculum_enabled = (
+            "armResetCurriculumStartMeanEpisodeReward" in self.cfg["env"]
+            and "armResetCurriculumFullMeanEpisodeReward" in self.cfg["env"]
+            and "resetDofPosRandomIntervalArmInitial" in self.cfg["env"]
+        )
+        self._arm_reset_curriculum_scale = (
+            0.0 if self._arm_reset_curriculum_enabled else 1.0
+        )
+        self._reset_dof_pos_noise_arm_initial = float(
+            self.cfg["env"].get(
+                "resetDofPosRandomIntervalArmInitial", self.reset_dof_pos_noise_arm
+            )
+        )
+
     def _update_disturbance_curriculum(self):
         if not self._disturbance_curriculum_enabled:
             return
@@ -5209,6 +5246,34 @@ class SimToolReal(VecTask):
         )
         self.extras["applied_ang_vel_impulse_scale"] = (
             self.applied_ang_vel_impulse_scale
+        )
+
+    def _update_arm_reset_curriculum(self):
+        if not self._arm_reset_curriculum_enabled:
+            return
+
+        start = float(self.cfg["env"]["armResetCurriculumStartMeanEpisodeReward"])
+        full = float(self.cfg["env"]["armResetCurriculumFullMeanEpisodeReward"])
+        assert full >= start, (
+            "armResetCurriculumFullMeanEpisodeReward must not be below start"
+        )
+
+        mean_episode_reward = self.prev_episode_total_reward.mean().item()
+        if full == start:
+            target_scale = 1.0 if mean_episode_reward >= start else 0.0
+        else:
+            target_scale = (mean_episode_reward - start) / (full - start)
+        target_scale = max(0.0, min(1.0, target_scale))
+
+        self._arm_reset_curriculum_scale = max(
+            self._arm_reset_curriculum_scale, target_scale
+        )
+        self.extras["arm_reset_curriculum_scale"] = self._arm_reset_curriculum_scale
+        self.extras["mean_episode_reward_for_arm_reset_curriculum"] = (
+            mean_episode_reward
+        )
+        self.extras["applied_reset_dof_pos_noise_arm"] = (
+            self.applied_reset_dof_pos_noise_arm
         )
 
     def _update_tyler_curriculum(self):

@@ -95,6 +95,21 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
    └── 00_train_50_cube_from_50h_
          Riparto da 50h, con tutti gli stessi valori per controllare che il training risegua la stessa strada. Questo per controllare che tutti i valori per fare ripresa del training siano stati salvati correttamente.
 
+00_train_06_sim2real_2026-05-27_14-20-50
+   Prima run esplicitamente orientata al sim2real (`training-preset real_dr`).
+   Include: tavolo abbassato con top a z≈[0, 5] cm (`tableResetZ=-0.125`, `tableResetZRange=0.025`),
+   cubo procedurale 5–7 cm con COM offset fino a 5 mm, DR su massa / friction / restitution di robot-oggetto-tavolo,
+   noise osservazioni/azioni con ramp lineare lunga, delay su osservazioni/azioni/stato oggetto,
+   curriculum dei disturbi sull’oggetto, shaping antioscillazione sulle action delta,
+   posa iniziale braccio aggiornata a `[-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]`.
+   Note di debug importanti: DR dei colori del robot disattivata (`color: null`);
+   DR delle `robot.dof_properties` disattivata perché causava il segmentation fault di PhysX / GPU.
+
+00_train_07_sim2real_progressive_start_error_(planned)
+   Variante di train_06 con errore iniziale del braccio progressivo: reset gaussiano attorno alla posa di default,
+   std del braccio in curriculum da 0.03 a 0.10, con aumento lineare al crescere della reward media di episodio
+   da 0 a 10000. Dita invariate (`resetDofPosRandomIntervalFingers: 0.08`), stesso assetto sim2real del train_06.
+
 
 
 ```
@@ -106,7 +121,7 @@ Oltre ai coefficienti che entrano nella somma in `compute_kuka_reward` e al curr
 Valori letti dai `**config.yaml`** risolti in ciascuna cartella `train_dir/.../runs/<00_nome>/` (generati da `train.py` all’avvio).  
 `—` = chiave **assente** in quel file (spesso equivale al default nel codice, es. shaping dita a 0).
 
-Percorsi usati: `train_dir/simtoolreal/2026-05-11/train_single_tool_from_zero_.../runs/...`, `.../2026-05-12/train_single_tool_from_chkpt1...`, `.../chkpt2...`, `.../2026-05-13/train_01_st...`, `.../train_02_st...`, `.../2026-05-16/train_2_cube_.../runs/00_train_2_cube_2026-05-16_11-58-42/`, `.../2026-05-18/train_3_cube_.../runs/00_train_3_cube_2026-05-18_10-45-49/`, `.../2026-05-21/train_30_cube_2026-05-21_11-57-27/runs/00_train_30_cube_2026-05-21_11-57-27/`, `.../2026-05-21/train_4_cube_2026-05-21_19-06-51/runs/00_train_4_cube_2026-05-21_19-06-51/`, `.../2026-05-22/train_5_cube_2026-05-22_17-27-47/runs/00_train_5_cube_2026-05-22_17-27-47/`.
+Percorsi usati: `train_dir/simtoolreal/2026-05-11/train_single_tool_from_zero_.../runs/...`, `.../2026-05-12/train_single_tool_from_chkpt1...`, `.../chkpt2...`, `.../2026-05-13/train_01_st...`, `.../train_02_st...`, `.../2026-05-16/train_2_cube_.../runs/00_train_2_cube_2026-05-16_11-58-42/`, `.../2026-05-18/train_3_cube_.../runs/00_train_3_cube_2026-05-18_10-45-49/`, `.../2026-05-21/train_30_cube_2026-05-21_11-57-27/runs/00_train_30_cube_2026-05-21_11-57-27/`, `.../2026-05-21/train_4_cube_2026-05-21_19-06-51/runs/00_train_4_cube_2026-05-21_19-06-51/`, `.../2026-05-22/train_5_cube_2026-05-22_17-27-47/runs/00_train_5_cube_2026-05-22_17-27-47/`, `.../2026-05-27/train_06_sim2real_2026-05-27_14-20-50/runs/00_train_06_sim2real_2026-05-27_14-20-50/`.
 
 ### Tabella run **cubo** (WandB `reward_step/*`, `episode_cumulative/*`)
 

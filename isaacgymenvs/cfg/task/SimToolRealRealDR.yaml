@@ -55,8 +55,11 @@ env:
   resetPositionNoiseZ: 0.02
   randomizeObjectRotation: True
   # Reset randomization selected for the real-transfer training.
-  resetDofPosRandomIntervalFingers: 0.1
-  resetDofPosRandomIntervalArm: 0.5
+  resetDofPosRandomIntervalArmInitial: 0.03
+  armResetCurriculumStartMeanEpisodeReward: 0.0
+  armResetCurriculumFullMeanEpisodeReward: 10000.0
+  resetDofPosRandomIntervalFingers: 0.08
+  resetDofPosRandomIntervalArm: 0.1
   resetDofVelRandomInterval: 0.15
   fixedSizeKeypointReward: False
   # Small smoothness cost: suppress rapid command reversals without impeding reach.
@@ -102,27 +105,10 @@ task:
 
     actor_params:
       robot:
-        dof_properties:
-          damping:
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "loguniform"
-          stiffness:
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "loguniform"
-          effort:
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "uniform"
-          friction:
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "uniform"
-          armature:
-            range: [0.7, 1.3]
-            operation: "scaling"
-            distribution: "uniform"
+        color: null
+        # DOF property DR makes GPU PhysX overflow contact-pair bookkeeping
+        # for this articulated hand at the first rollout step.
+        dof_properties: null
         rigid_body_properties:
           mass:
             range: [0.7, 1.3]
@@ -160,7 +146,7 @@ task:
             operation: "additive"
             distribution: "uniform"
 
-      table:
+      table_object:
         rigid_shape_properties:
           friction:
             num_buckets: 100

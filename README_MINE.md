@@ -2,6 +2,7 @@
 Launch: 
 ```bash 
 source /home/simone/.venv/bin/activate
+cd ~/simtoolreal
 python dextoolbench/eval_interactive.py   --config-path pretrained_policy/config.yaml   --checkpoint-path pretrained_policy/model.pth  
 
 #optional: add the argument "--plot-rewards"
@@ -26,7 +27,8 @@ After that, logs show HTTP 200 and Connection opened, so it is resolved.
 
 # Launch Training
 ```bash 
-source ../.venv/bin/activate
+source /home/simone/.venv/bin/activate
+cd ~/simtoolreal
 python isaacgymenvs/launch_training.py \
   --custom_experiment_name my_experiment \
   --num_envs 12288
