@@ -447,7 +447,7 @@ def compute_joint_pos_targets(
     prev_targets: np.ndarray,
     hand_moving_average: float,
     arm_moving_average: float,
-    hand_dof_speed_scale: float,
+    arm_action_speed_scale: float,
     dt: float,
 ) -> np.ndarray:
     N = actions.shape[0]
@@ -490,7 +490,7 @@ def compute_joint_pos_targets(
 
     # arm
     cur_targets[:, :7] = (
-        prev_targets[:, :7] + hand_dof_speed_scale * dt * actions[:, :7]
+        prev_targets[:, :7] + arm_action_speed_scale * dt * actions[:, :7]
     )
     cur_targets[:, :7] = tensor_clamp(
         cur_targets[:, :7],
@@ -694,7 +694,7 @@ Observation (140-dim):
 
 Action → Joint Position Targets:
   Hand (joints 7:29): scale action to joint limits, then EMA with hand_moving_average
-  Arm  (joints 0:7):  prev_targets + hand_dof_speed_scale * dt * action, then EMA with arm_moving_average
+  Arm  (joints 0:7):  prev_targets + arm_action_speed_scale * dt * action, then EMA with arm_moving_average
 
 Pseudocode (see rl_policy_node.py for full implementation)
 ==========================================================
@@ -725,7 +725,7 @@ Pseudocode (see rl_policy_node.py for full implementation)
       targets = compute_joint_pos_targets(
           actions=action, prev_targets=prev_targets,
           hand_moving_average=0.1, arm_moving_average=0.1,
-          hand_dof_speed_scale=1.5, dt=1/60,
+          arm_action_speed_scale=1.5, dt=1/60,
       )  # (1, 29)
 
       # Send targets to robot and update state

@@ -698,9 +698,12 @@ class VecTask(Env):
                 else:
                     sched_scaling = 1
 
-                if dist == 'gaussian':
-                    mu, var = dr_params[nonphysical_param]["range"]
-                    mu_corr, var_corr = dr_params[nonphysical_param].get("range_correlated", [0., 0.])
+                def scale_gaussian_params(param_cfg):
+                    mu, var = param_cfg.get("range", dr_params[nonphysical_param]["range"])
+                    mu_corr, var_corr = param_cfg.get(
+                        "range_correlated",
+                        dr_params[nonphysical_param].get("range_correlated", [0., 0.]),
+                    )
 
                     if op_type == 'additive':
                         mu *= sched_scaling
@@ -715,6 +718,38 @@ class VecTask(Env):
                         var_corr = var_corr * sched_scaling  # scale up var over time
                         mu_corr = mu_corr * sched_scaling + 1.0 * \
                             (1.0 - sched_scaling)  # linearly interpolate
+                    return mu, var, mu_corr, var_corr
+
+                def expand_slice_param(tensor, default_value, slices, key):
+                    if not slices:
+                        return default_value
+                    values = torch.full_like(tensor, float(default_value))
+                    for slice_params in slices:
+                        values[:, slice_params['start']:slice_params['end']] = float(
+                            slice_params[key]
+                        )
+                    return values
+
+                if dist == 'gaussian':
+                    mu, var, mu_corr, var_corr = scale_gaussian_params(
+                        dr_params[nonphysical_param]
+                    )
+                    slices = []
+                    for slice_cfg in dr_params[nonphysical_param].get("slices", []):
+                        slice_mu, slice_var, slice_mu_corr, slice_var_corr = (
+                            scale_gaussian_params(slice_cfg)
+                        )
+                        slices.append(
+                            {
+                                'name': slice_cfg.get('name', ''),
+                                'start': int(slice_cfg['start']),
+                                'end': int(slice_cfg['end']),
+                                'mu': slice_mu,
+                                'var': slice_var,
+                                'mu_corr': slice_mu_corr,
+                                'var_corr': slice_var_corr,
+                            }
+                        )
 
                     def noise_lambda(tensor, param_name=nonphysical_param):
                         params = self.dr_randomizations[param_name]
@@ -722,11 +757,26 @@ class VecTask(Env):
                         if corr is None:
                             corr = torch.randn_like(tensor)
                             params['corr'] = corr
-                        corr = corr * params['var_corr'] + params['mu_corr']
+                        var = expand_slice_param(tensor, params['var'], params['slices'], 'var')
+                        mu = expand_slice_param(tensor, params['mu'], params['slices'], 'mu')
+                        var_corr = expand_slice_param(
+                            tensor, params['var_corr'], params['slices'], 'var_corr'
+                        )
+                        mu_corr = expand_slice_param(
+                            tensor, params['mu_corr'], params['slices'], 'mu_corr'
+                        )
+                        corr = corr * var_corr + mu_corr
                         return op(
-                            tensor, corr + torch.randn_like(tensor) * params['var'] + params['mu'])
+                            tensor, corr + torch.randn_like(tensor) * var + mu)
 
-                    self.dr_randomizations[nonphysical_param] = {'mu': mu, 'var': var, 'mu_corr': mu_corr, 'var_corr': var_corr, 'noise_lambda': noise_lambda}
+                    self.dr_randomizations[nonphysical_param] = {
+                        'mu': mu,
+                        'var': var,
+                        'mu_corr': mu_corr,
+                        'var_corr': var_corr,
+                        'slices': slices,
+                        'noise_lambda': noise_lambda,
+                    }
 
                 elif dist == 'uniform':
                     lo, hi = dr_params[nonphysical_param]["range"]

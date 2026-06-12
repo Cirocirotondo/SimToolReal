@@ -2957,7 +2957,7 @@ class SimToolReal(VecTask):
             "fingertip_thumb_index": int(self.fingertip_thumb_index),
             "arm_moving_average": float(self.arm_moving_average),
             "hand_moving_average": float(self.hand_moving_average),
-            "dof_speed_scale": float(self.hand_dof_speed_scale),
+            "arm_action_speed_scale": float(self.arm_action_speed_scale),
             "reset_dof_pos_noise_arm": float(self.applied_reset_dof_pos_noise_arm),
             "arm_reset_curriculum_scale": float(
                 getattr(self, "_arm_reset_curriculum_scale", 1.0)
@@ -4066,7 +4066,7 @@ class SimToolReal(VecTask):
             # arm relative to current position
             targets = (
                 self.arm_hand_dof_pos[:, : self.num_arm_dofs]
-                + self.hand_dof_speed_scale
+                + self.arm_action_speed_scale
                 * self.dt
                 * self.actions[:, : self.num_arm_dofs]
             )
@@ -4079,7 +4079,7 @@ class SimToolReal(VecTask):
             # arm relative to previous target
             targets = (
                 self.prev_targets[:, : self.num_arm_dofs]
-                + self.hand_dof_speed_scale
+                + self.arm_action_speed_scale
                 * self.dt
                 * self.actions[:, : self.num_arm_dofs]
             )
@@ -4123,7 +4123,7 @@ class SimToolReal(VecTask):
                 prev_targets=self.prev_targets.cpu().numpy(),
                 hand_moving_average=self.hand_moving_average,
                 arm_moving_average=self.arm_moving_average,
-                hand_dof_speed_scale=self.hand_dof_speed_scale,
+                arm_action_speed_scale=self.arm_action_speed_scale,
                 dt=self.dt,
             )
             computed_joint_pos_targets = (
@@ -4772,7 +4772,7 @@ class SimToolReal(VecTask):
             )
 
     @property
-    def hand_dof_speed_scale(self) -> float:
+    def arm_action_speed_scale(self) -> float:
         if self.cfg["env"]["dofSpeedScaleFinal"] is None or not hasattr(
             self, "_tyler_curriculum_scale"
         ):

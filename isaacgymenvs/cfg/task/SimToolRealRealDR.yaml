@@ -1,7 +1,7 @@
 # Training preset for learning a policy intended for real-world transfer.
 # Starts from the corrected UR5e + Delto cube task and combines observation /
 # action latency, procedural object variation, disturbances, and physics DR.
-# Restitution is kept moderate to avoid unrealistic pinch-and-launch.
+# Restitution is kept low to avoid unrealistic pinch-and-launch.
 defaults:
   - SimToolReal
   - _self_
@@ -59,7 +59,7 @@ env:
   armResetCurriculumStartMeanEpisodeReward: 0.0
   armResetCurriculumFullMeanEpisodeReward: 10000.0
   resetDofPosRandomIntervalFingers: 0.08
-  resetDofPosRandomIntervalArm: 0.1
+  resetDofPosRandomIntervalArm: 0.05
   resetDofVelRandomInterval: 0.15
   fixedSizeKeypointReward: False
   # Small smoothness cost: suppress rapid command reversals without impeding reach.
@@ -92,6 +92,17 @@ task:
     actions:
       range: [0.0, 0.01]
       range_correlated: [0.0, 0.01]
+      slices:
+        - name: arm
+          start: 0
+          end: 6
+          range: [0.0, 0.01]
+          range_correlated: [0.0, 0.01]
+        - name: fingers
+          start: 6
+          end: 26
+          range: [0.0, 0.001]
+          range_correlated: [0.0, 0.001]
       operation: "additive"
       distribution: "gaussian"
       schedule: "linear"
@@ -123,7 +134,7 @@ task:
             distribution: "uniform"
           restitution:
             num_buckets: 20
-            range: [0.0, 0.10]
+            range: [0.0, 0.07]
             operation: "additive"
             distribution: "uniform"
 
@@ -142,7 +153,7 @@ task:
             distribution: "uniform"
           restitution:
             num_buckets: 20
-            range: [0.0, 0.10]
+            range: [0.0, 0.07]
             operation: "additive"
             distribution: "uniform"
 
@@ -155,6 +166,6 @@ task:
             distribution: "uniform"
           restitution:
             num_buckets: 20
-            range: [0.0, 0.10]
+            range: [0.0, 0.07]
             operation: "additive"
             distribution: "uniform"
