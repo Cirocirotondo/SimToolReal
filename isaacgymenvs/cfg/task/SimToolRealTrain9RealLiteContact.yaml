@@ -1,0 +1,101 @@
+# Train 9: intermediate preset between train_5 and the heavier sim2real runs.
+# Keep the simpler train_5-style reward/disturbance setup, the lower table,
+# the 5-7 cm cube family, and the updated UR5e start pose; then add only
+# light contact/material DR plus slightly stronger grasp-contact shaping.
+defaults:
+  - SimToolRealRealDR
+  - _self_
+
+env:
+  # Use the actual cube size for keypoint-based terms when size varies.
+  fixedSizeKeypointReward: False
+
+  # Keep a small family of procedural cubes instead of the single fixed one.
+  useSingleHandleHeadTemplate: True
+  numObjectsPerType: 20
+
+  # Mildly strengthen the grasp-stability shaping, but stay well below train_7.
+  fingertipSpreadPenaltyScale: 0.6
+  fingertipMultiContactBonusScale: 0.15
+
+task:
+  randomize: True
+  randomization_params:
+    frequency: 720
+
+    observations:
+      range: [0.0, 0.01]
+      range_correlated: [0.0, 0.01]
+      operation: "additive"
+      distribution: "gaussian"
+      schedule: "constant"
+      schedule_steps: 5000
+
+    actions:
+      range: [0.0, 0.01]
+      range_correlated: [0.0, 0.01]
+      operation: "additive"
+      distribution: "gaussian"
+      schedule: "linear"
+      schedule_steps: 5000
+
+    sim_params:
+      gravity:
+        range: [0.0, 0.3]
+        operation: "additive"
+        distribution: "gaussian"
+
+    actor_params:
+      robot:
+        # Avoid the color DR and articulated-DOF DR that made debugging noisy.
+        color: null
+        dof_properties: null
+        rigid_body_properties:
+          mass:
+            range: [0.85, 1.15]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.85, 1.15]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.05]
+            operation: "additive"
+            distribution: "uniform"
+
+      object:
+        rigid_body_properties:
+          mass:
+            range: [0.85, 1.15]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.75, 1.50]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.05]
+            operation: "additive"
+            distribution: "uniform"
+
+      table_object:
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.75, 1.50]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.05]
+            operation: "additive"
+            distribution: "uniform"

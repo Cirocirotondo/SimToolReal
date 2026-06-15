@@ -6,7 +6,7 @@ from typing import List, Literal, Optional
 
 import tyro
 
-_TRAINING_PRESETS = ("default", "clean_dr", "real_dr")
+_TRAINING_PRESETS = ("default", "clean_dr", "real_dr", "train_9_real_lite_contact")
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
     ("hammer", "screwdriver", "marker", "spatula", "eraser", "brush", "cube")
@@ -27,15 +27,17 @@ class LaunchTrainingArgs:
     checkpoint: Optional[Path] = None
     """Path to checkpoint .pth file for finetuning. If None, trains from scratch."""
 
-    training_preset: Literal["default", "clean_dr", "real_dr"] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = physics, sensor, latency, and object DR for sim-to-real training."""
+    training_preset: Literal[
+        "default", "clean_dr", "real_dr", "train_9_real_lite_contact"
+    ] = "default"
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_9_real_lite_contact = intermediate preset with light contact/material DR."""
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
-    """Force scale override. If unset: default=6.0, real_dr=20.0."""
+    """Force scale override. If unset: default/train_9_real_lite_contact=6.0, real_dr=20.0."""
 
     torque_scale: Optional[float] = None
-    """Torque scale override. If unset: default=0.5, real_dr=2.0."""
+    """Torque scale override. If unset: default/train_9_real_lite_contact=0.5, real_dr=2.0."""
 
     handle_head_type: Optional[str] = None
     """If set, only this procedural tool family is used (see task env handleHeadTypes)."""
@@ -146,10 +148,14 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "default": "SimToolRealLSTMAsymmetric",
         "clean_dr": "SimToolRealLSTMAsymmetricCleanDR",
         "real_dr": "SimToolRealLSTMAsymmetricRealDR",
+        "train_9_real_lite_contact": "SimToolRealLSTMAsymmetricTrain9RealLiteContact",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
     if args.training_preset == "default":
+        force_scale = 6.0 if force_scale is None else force_scale
+        torque_scale = 0.5 if torque_scale is None else torque_scale
+    elif args.training_preset == "train_9_real_lite_contact":
         force_scale = 6.0 if force_scale is None else force_scale
         torque_scale = 0.5 if torque_scale is None else torque_scale
     elif args.training_preset == "real_dr":
