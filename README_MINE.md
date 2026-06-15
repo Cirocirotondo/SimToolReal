@@ -241,6 +241,19 @@ Grafici WandB: `reward_step/<termine>` (un solo tag per termine; asse X = `globa
     `lj_dg_1_3` e `lj_dg_1_4` a [-90°, 0°] invece di [0°, 90°].
 ```
 
+### Sim2Real
+
+```text
+00_train_06_sim2real_2026-05-27_14-20-50
+00_train_07_sim2real_2026-05-28_15-39-00
+Progressive start-pose error on the arm, same real_dr setup, but started from zero.
+Reward graphs were encouraging, but video inspection showed the arm becoming slower and slower over time.
+└── 00_train_07_sim2real_resume_2026-06-10_11-54-51
+    Resume after the late CUDA / PhysX crash of train_07.
+    └── 00_train_07_sim2real_resume_resume_2026-06-10_15-00-42
+        Second resume after accidental manual stop of the first resume run.
+```
+
 **Eval + grafici reward locali** (es. train_3 / train_30 checkpoint):
 
 ```bash

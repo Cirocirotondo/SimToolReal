@@ -105,10 +105,21 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
    Note di debug importanti: DR dei colori del robot disattivata (`color: null`);
    DR delle `robot.dof_properties` disattivata perché causava il segmentation fault di PhysX / GPU.
 
-00_train_07_sim2real_progressive_start_error_(planned)
-   Variante di train_06 con errore iniziale del braccio progressivo: reset gaussiano attorno alla posa di default,
-   std del braccio in curriculum da 0.03 a 0.10, con aumento lineare al crescere della reward media di episodio
-   da 0 a 10000. Dita invariate (`resetDofPosRandomIntervalFingers: 0.08`), stesso assetto sim2real del train_06.
+00_train_07_sim2real_2026-05-28_15-39-00
+   Nuovo training da zero, separato da train_06 ma con la stessa famiglia `real_dr`.
+   Differenza principale: errore iniziale del braccio progressivo, con reset gaussiano attorno alla posa di default
+   e std del braccio in curriculum da 0.03 a 0.10, con aumento lineare al crescere della reward media di episodio
+   da 0 a 10000. Dita invariate (`resetDofPosRandomIntervalFingers: 0.08`).
+   Dai grafici reward il training sembrava andare bene, ma dai video si vedeva che il braccio stava diventando
+   sempre piu' lento.
+   │
+   └── 00_train_07_sim2real_resume_2026-06-10_11-54-51
+       Resume da `.../train_07_sim2real_2026-05-28_15-39-00/.../last/model.pth` dopo il crash tardivo
+       con `CUDA error: unspecified launch failure`.
+       │
+       └── 00_train_07_sim2real_resume_resume_2026-06-10_15-00-42
+           Secondo resume della catena di train_07, lanciato dopo uno stop manuale accidentale
+           della prima run `resume`.
 
 
 
