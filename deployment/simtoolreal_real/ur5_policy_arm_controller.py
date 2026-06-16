@@ -187,9 +187,9 @@ def set_viewer_box(
 
 def update_viewer_markers(
     viewer,
+    table_pos: np.ndarray,
     object_pos: np.ndarray,
     goal_object_pos: np.ndarray,
-    table_z: float,
     target_palm_pos: Optional[np.ndarray] = None,
 ) -> None:
     mujoco = sys.modules["mujoco"]
@@ -197,7 +197,7 @@ def update_viewer_markers(
     set_viewer_box(
         viewer=viewer,
         geom_index=0,
-        pos=np.array([0.0, -0.6, table_z], dtype=np.float32),
+        pos=table_pos,
         size=np.array([0.475 / 2.0, 0.4 / 2.0, 0.3 / 2.0], dtype=np.float32),
         rgba=np.array([0.85, 0.85, 0.85, 0.35], dtype=np.float32),
         geom_type=mujoco.mjtGeom.mjGEOM_BOX,
@@ -328,15 +328,28 @@ def main() -> None:
         print(f"[debug] defaultArmDofPos_deg: {format_deg(default_joint_pos[:ARM_DOF])}", flush=True)
         print_model_pose_debug("after initial qpos/ctrl setup", model, data)
     wrist_3_body_id = model.body("wrist_3_link").id
+    robot_base_y = float(env_cfg.get("robotBaseY", 0.6))
+    table_pose_dy = float(env_cfg.get("tablePoseDy", -0.6))
+    table_y = robot_base_y + table_pose_dy
     table_z = float(env_cfg.get("tableResetZ", 0.38))
+    table_pos = np.array([0.0, table_y, table_z], dtype=np.float32)
     object_pos = np.array(
-        [0.0, -0.6, table_z + float(env_cfg.get("tableObjectZOffset", 0.25))],
+        [0.0, table_y, table_z + float(env_cfg.get("tableObjectZOffset", 0.25))],
         dtype=np.float32,
     )
     goal_object_pos = np.array(
-        [0.12, -0.6, table_z + 0.35],
+        [0.12, table_y, table_z + 0.35],
         dtype=np.float32,
     )
+    if args.debug_step:
+        print(
+            "[debug] table/object positions: "
+            f"robotBaseY={robot_base_y}, tablePoseDy={table_pose_dy}, "
+            f"table_center={table_pos.round(6).tolist()}, "
+            f"object_pos={object_pos.round(6).tolist()}, "
+            f"goal_object_pos={goal_object_pos.round(6).tolist()}",
+            flush=True,
+        )
     object_quat_wxyz = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     viewer = None
     if not args.no_viewer:
@@ -347,7 +360,7 @@ def main() -> None:
             show_right_ui=False,
         )
         mujoco.mjv_defaultFreeCamera(model, viewer.cam)
-        update_viewer_markers(viewer, object_pos, goal_object_pos, table_z)
+        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
         viewer.sync()
         if args.debug_step:
             print_model_pose_debug("after viewer launch/sync", model, data)
@@ -362,7 +375,7 @@ def main() -> None:
     data.ctrl[:ARM_DOF] = default_joint_pos[:ARM_DOF]
     mujoco.mj_forward(model, data)
     if viewer is not None:
-        update_viewer_markers(viewer, object_pos, goal_object_pos, table_z)
+        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
         viewer.sync()
     if args.debug_step:
         print_model_pose_debug("after policy load and resync", model, data)
@@ -426,7 +439,7 @@ def main() -> None:
             data.ctrl[:ARM_DOF] = q[:ARM_DOF]
             mujoco.mj_forward(model, data)
             if viewer is not None:
-                update_viewer_markers(viewer, object_pos, goal_object_pos, table_z)
+                update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
                 viewer.sync()
 
             palm_quat_wxyz = data.xquat[wrist_3_body_id].copy()
@@ -496,9 +509,9 @@ def main() -> None:
                 ].copy() + target_palm_rot.apply(np.array([0.0, 0.0, 0.16]))
                 update_viewer_markers(
                     viewer,
+                    table_pos,
                     object_pos,
                     goal_object_pos,
-                    table_z,
                     target_palm_pos=target_palm_pos,
                 )
                 viewer.sync()
