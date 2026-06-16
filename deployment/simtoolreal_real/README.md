@@ -85,6 +85,7 @@ uv run ur5_toggle_home_demo.py
 
 This second demo file shows how to get the information about the state:
 ```bash
+cd /home/duplo/simone/SimToolReal/deployment/simtoolreal_real
 # to just see the state: 
 uv run ur5_print_robot_state.py
 ```
@@ -101,7 +102,18 @@ uv run scripts/ur_ik_from_mjx.py
 To run the policy, you can use this:
 ```bash
 cd /home/duplo/simone/SimToolReal/deployment/simtoolreal_real
+
 # ATTENTION! Before running this command, read the safety procedures here below!
+# Dry run: does not send commands to the robot.
+uv run python ur5_policy_arm_controller.py
+
+# Step-by-step debug mode.
+uv run python ur5_policy_arm_controller.py --debug-step
+
+# Slow, short real-robot run.
+uv run python ur5_policy_arm_controller.py --control-hz 1 --max-steps 10 --send-to-robot
+
+# Full real-robot run. ATTENTION! Before running this command, read the safety procedures here below!
 uv run python ur5_policy_arm_controller.py --send-to-robot
 ```
 
@@ -110,7 +122,7 @@ Don't run a policy right away!
 - First, run just a dry run by removing the "--send-to-robot" arg 
 - Then, launch it with "--debug-step": this will make the controller proceed one step at a time, while printing some debug information
 - Then, run it with decreased frequency by setting "--control-hz 1" (this controls the frequency. Default is 60Hz)
-- Also will free to add the flag --max-steps 10 (or any other number of steps) to reduce the movement horizon 
+- Also feel free to add the flag "--max-steps 10" (or any other number of steps) to reduce the movement horizon 
 
 
 If all the previous steps have worked as expected, feel free to proceed.

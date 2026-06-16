@@ -18,11 +18,12 @@ SIMTOOLREAL_ROOT = Path(
     os.environ.get("SIMTOOLREAL_ROOT", HERE.parent.parent)
 ).expanduser()
 REPO_ROOT = SIMTOOLREAL_ROOT
-RUN_DIR = (
+DEFAULT_RUN_DIR = (
     REPO_ROOT
-    / "train_dir/simtoolreal/2026-05-22/train_5_cube_2026-05-22_17-27-47"
-    / "runs/00_train_5_cube_2026-05-22_17-27-47"
+    / "train_dir/simtoolreal/2026-06-10/train_07_sim2real_resume_resume_2026-06-10_15-00-42"
+    / "runs/00_train_07_sim2real_resume_resume_2026-06-10_15-00-42"
 )
+RUN_DIR = Path(os.environ.get("SIMTOOLREAL_RUN_DIR", DEFAULT_RUN_DIR)).expanduser()
 CONFIG_PATH = RUN_DIR / "config.yaml"
 NN_DIR = RUN_DIR / "nn"
 LOW_LEVEL_CONFIG_PATH = HERE / "pc_ur_new.json"
@@ -58,6 +59,10 @@ def best_checkpoint_path(nn_dir: Path) -> Path:
     best_path = RUN_DIR / "best" / "model.pth"
     if best_path.exists():
         return best_path
+    if best_path.is_symlink():
+        raise FileNotFoundError(
+            f"Default checkpoint symlink is broken: {best_path} -> {best_path.readlink()}"
+        )
 
     candidates = []
     pattern = re.compile(r"_rew_([-+]?\d+(?:\.\d+)?)\.pth$")
@@ -66,10 +71,15 @@ def best_checkpoint_path(nn_dir: Path) -> Path:
         if match is not None:
             candidates.append((float(match.group(1)), path))
     if not candidates:
-        fallback = nn_dir / "00_train_5_cube_2026-05-22_17-27-47.pth"
+        fallback = nn_dir / f"{RUN_DIR.name}.pth"
         if fallback.exists():
             return fallback
-        raise FileNotFoundError(f"No policy checkpoint found in {nn_dir}")
+        raise FileNotFoundError(
+            "No policy checkpoint found. Expected one of:\n"
+            f"  - {best_path}\n"
+            f"  - {fallback}\n"
+            f"  - any '*_rew_*.pth' file in {nn_dir}"
+        )
     return max(candidates, key=lambda item: item[0])[1]
 
 
@@ -120,6 +130,18 @@ def robot_state_to_policy_q(
 
 def format_deg(values: np.ndarray) -> list[float]:
     return np.rad2deg(values).round(3).tolist()
+
+
+def print_model_pose_debug(label: str, model, data) -> None:
+    print(f"[debug] {label}", flush=True)
+    print(f"[debug]   data.qpos_deg: {format_deg(data.qpos[:ARM_DOF])}", flush=True)
+    if model.nu >= ARM_DOF:
+        print(f"[debug]   data.ctrl_deg: {format_deg(data.ctrl[:ARM_DOF])}", flush=True)
+    if model.nkey > 0:
+        print(
+            f"[debug]   home.qpos_deg: {format_deg(model.key_qpos[0, :ARM_DOF])}",
+            flush=True,
+        )
 
 
 def wait_for_debug_step() -> None:
@@ -228,6 +250,11 @@ def main() -> None:
         action="store_true",
         help="Print every step and wait for Space/Enter before sending/continuing.",
     )
+    parser.add_argument(
+        "--ignore-robot-state",
+        action="store_true",
+        help="Use the config default joint pose instead of Q from the low-level state publisher.",
+    )
     parser.add_argument("--print-every", type=float, default=PRINT_PERIOD_S)
     args = parser.parse_args()
 
@@ -265,6 +292,16 @@ def main() -> None:
             f"This controller expects a UR5e+Delto policy with {N_OBS}/{N_ACT} "
             f"obs/actions, got {num_obs}/{num_act}"
         )
+    default_joint_pos = DEFAULT_JOINT_POS.copy()
+    default_arm_dof_pos = np.asarray(
+        env_cfg.get("defaultArmDofPos", default_joint_pos[:ARM_DOF]),
+        dtype=np.float32,
+    )
+    if default_arm_dof_pos.shape[0] != ARM_DOF:
+        raise ValueError(
+            f"defaultArmDofPos has shape {default_arm_dof_pos.shape}; expected {ARM_DOF}"
+        )
+    default_joint_pos[:ARM_DOF] = default_arm_dof_pos
 
     with args.low_level_config_path.open(encoding="utf-8") as f:
         low_level_cfg = json.load(f)
@@ -274,12 +311,22 @@ def main() -> None:
     print(f"Policy checkpoint: {checkpoint_path}")
     print(f"Listening state:   tcp://127.0.0.1:{low_level_cfg['publisher_port']}")
     print(f"Publishing target: tcp://*:{low_level_cfg['socket_port']}")
+    print("Robot state input: IGNORED." if args.ignore_robot_state else "Robot state input: ENABLED.")
     print("Robot publishing is ENABLED." if args.send_to_robot else "Dry run: not sending robot commands.")
 
     model_path = HERE / "assets" / "universal_robots_ur5e" / "scene.xml"
     model = mujoco.MjModel.from_xml_path(str(model_path))
     data = mujoco.MjData(model)
     target_data = mujoco.MjData(model)
+    data.qpos[:ARM_DOF] = default_joint_pos[:ARM_DOF]
+    target_data.qpos[:ARM_DOF] = default_joint_pos[:ARM_DOF]
+    data.ctrl[:ARM_DOF] = default_joint_pos[:ARM_DOF]
+    target_data.ctrl[:ARM_DOF] = default_joint_pos[:ARM_DOF]
+    mujoco.mj_forward(model, data)
+    mujoco.mj_forward(model, target_data)
+    if args.debug_step:
+        print(f"[debug] defaultArmDofPos_deg: {format_deg(default_joint_pos[:ARM_DOF])}", flush=True)
+        print_model_pose_debug("after initial qpos/ctrl setup", model, data)
     wrist_3_body_id = model.body("wrist_3_link").id
     table_z = float(env_cfg.get("tableResetZ", 0.38))
     object_pos = np.array(
@@ -302,6 +349,8 @@ def main() -> None:
         mujoco.mjv_defaultFreeCamera(model, viewer.cam)
         update_viewer_markers(viewer, object_pos, goal_object_pos, table_z)
         viewer.sync()
+        if args.debug_step:
+            print_model_pose_debug("after viewer launch/sync", model, data)
 
     player = create_rl_player(
         simtoolreal_root=REPO_ROOT,
@@ -309,6 +358,14 @@ def main() -> None:
         checkpoint_path=checkpoint_path,
         device=args.device,
     )
+    data.qpos[:ARM_DOF] = default_joint_pos[:ARM_DOF]
+    data.ctrl[:ARM_DOF] = default_joint_pos[:ARM_DOF]
+    mujoco.mj_forward(model, data)
+    if viewer is not None:
+        update_viewer_markers(viewer, object_pos, goal_object_pos, table_z)
+        viewer.sync()
+    if args.debug_step:
+        print_model_pose_debug("after policy load and resync", model, data)
 
     obs_list = env_cfg["obsList"]
     if args.control_hz <= 0.0:
@@ -320,15 +377,27 @@ def main() -> None:
 
     prev_q = None
     prev_targets = None
-    latest_state = None
-    deadline = time.monotonic() + STATE_TIMEOUT_S
-    while time.monotonic() < deadline:
-        latest_state = receive_latest_robot_state(state_socket)
-        if latest_state is not None and "Q" in latest_state:
-            break
-        time.sleep(0.01)
-    if latest_state is None or "Q" not in latest_state:
-        raise TimeoutError("No robot state received. Is the low-level controller running?")
+    latest_state = {
+        "Q": default_joint_pos[:ARM_DOF].tolist(),
+        "Qd": [0.0] * ARM_DOF,
+        "source": "config_default",
+    }
+    if not args.ignore_robot_state:
+        latest_state = None
+        deadline = time.monotonic() + STATE_TIMEOUT_S
+        while time.monotonic() < deadline:
+            latest_state = receive_latest_robot_state(state_socket)
+            if latest_state is not None and "Q" in latest_state:
+                break
+            time.sleep(0.01)
+        if latest_state is None or "Q" not in latest_state:
+            raise TimeoutError("No robot state received. Is the low-level controller running?")
+        if args.debug_step:
+            print(f"[debug] initial robot state keys: {sorted(latest_state.keys())}", flush=True)
+            print(
+                f"[debug] initial robot Q_deg: {format_deg(np.asarray(latest_state['Q'])[:ARM_DOF])}",
+                flush=True,
+            )
 
     # Give the C++ subscriber a moment to connect before sending targets.
     time.sleep(1.0)
@@ -341,19 +410,20 @@ def main() -> None:
             if viewer is not None and not viewer.is_running():
                 break
 
-            state = receive_latest_robot_state(state_socket)
+            state = None if args.ignore_robot_state else receive_latest_robot_state(state_socket)
             if state is not None:
                 latest_state = state
 
             q, qd = robot_state_to_policy_q(
                 latest_state,
                 previous_q=prev_q,
-                default_joint_pos=DEFAULT_JOINT_POS,
+                default_joint_pos=default_joint_pos,
             )
             prev_q = q
 
             data.qpos[:ARM_DOF] = q[:ARM_DOF]
             data.qvel[:ARM_DOF] = qd[:ARM_DOF]
+            data.ctrl[:ARM_DOF] = q[:ARM_DOF]
             mujoco.mj_forward(model, data)
             if viewer is not None:
                 update_viewer_markers(viewer, object_pos, goal_object_pos, table_z)
@@ -415,6 +485,7 @@ def main() -> None:
             if viewer is not None:
                 target_data.qpos[:ARM_DOF] = targets[:ARM_DOF]
                 target_data.qvel[:ARM_DOF] = 0.0
+                target_data.ctrl[:ARM_DOF] = targets[:ARM_DOF]
                 mujoco.mj_forward(model, target_data)
                 target_palm_quat_wxyz = target_data.xquat[wrist_3_body_id].copy()
                 target_palm_rot = Rotation.from_quat(
@@ -444,6 +515,9 @@ def main() -> None:
                 print(f"qd_rad_s:         {qd[:ARM_DOF].round(6).tolist()}")
                 print(f"action_arm:       {action_arm.round(6).tolist()}")
                 print(f"object_pos:       {object_pos.round(6).tolist()}")
+                print(f"state_source:     {latest_state.get('source', 'robot_state_publisher')}")
+                if "timestamp_ms" in latest_state:
+                    print(f"state_timestamp:  {latest_state['timestamp_ms']}")
                 if target_palm_pos is not None:
                     print(f"target_palm_pos:  {target_palm_pos.round(6).tolist()}")
                 wait_for_debug_step()
