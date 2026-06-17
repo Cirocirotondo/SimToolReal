@@ -1,0 +1,3 @@
+the source of the impedence controller can be found here: 
+
+src/robot_ipc_control/controller/impedance_controller.cpp

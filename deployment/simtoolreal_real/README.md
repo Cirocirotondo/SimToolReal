@@ -2,6 +2,11 @@
 
 ## HAND (Tesollo Delto 5-fingers 20-DoF)
 
+### Switch-on & connect
+- First, power the hand using the bench power supply. Set Voltage=24V and max current=10A
+- Then, connect it with the Ethernet cable to the PC
+- Open Settings > Network > Ethernet (Enxa0cec...) > tesollo (IPv4 Address = 169.254.186.0, IPv6 Address = fe80::dd7a:2975:1a50:d162 and Hardware Address = 0C:37:96:85:9A:30)
+
 Driver:
 
 ```bash
@@ -29,9 +34,11 @@ ros2 run dg5f_driver dg5f_right_cmd_receiver.py
 
 ## ARM
 
-First of all, you have to connect to the robot. To do so, plug in the robot's ethernet cable to your PC. Then, open Settings > Network > Ethernet (Enxa0cec...) > ur5 (select the second one, with IPv4 Address = 192.168.1.10 and IPv6 Address = fe80::c9d:6272:134d:8e7b)
+### Switch-on & connect
 
-From the robot tablet controller: select "Remote Control" on the top-right, next to the burger button.
+- First of all, you have to connect to the robot. To do so, plug in the robot's ethernet cable to your PC. 
+- Then, open Settings > Network > Ethernet (Enxa0cec...) > ur5 (select the second one, with IPv4 Address = 192.168.1.10 and IPv6 Address = fe80::c9d:6272:134d:8e7b)
+- From the robot tablet controller: select "Remote Control" on the top-right, next to the burger button.
 
 ### Low-level controller:
 First of all, you have to run the low-level controller that actually moves the robot. Here is the code to do so:

@@ -5,6 +5,7 @@ import json
 import os
 import re
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
@@ -39,6 +40,12 @@ N_OBS = 131
 # Policy-side cube scale used by the existing UR5e+Delto MuJoCo adapter.
 CUBE_OBJECT_SCALES = np.array([1.25, 1.25, 1.25], dtype=np.float32)
 OBJECT_BASE_SIZE_M = 0.04
+FAKE_OBJECT_X_OFFSET_M = -0.30
+FAKE_OBJECT_Y_OFFSET_M = 0.15
+FAKE_OBJECT_Z_OFFSET_M = 0.175
+GOAL_OBJECT_OFFSET_M = np.array([0.0, 0.0, 0.124], dtype=np.float32)
+ROBOT_BASE_QUAT_WXYZ = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+PALM_LOCAL_OFFSET_M = np.array([0.0, 0.16, 0.0], dtype=np.float64)
 
 
 class SimpleRateLimiter:
@@ -53,6 +60,47 @@ class SimpleRateLimiter:
             time.sleep(sleep_dt)
         else:
             self.next_time = time.monotonic()
+
+
+class CommandStreamer:
+    def __init__(self, command_socket: zmq.Socket, frequency: float) -> None:
+        if frequency <= 0.0:
+            raise ValueError(f"Command stream frequency must be positive, got {frequency}")
+        self.command_socket = command_socket
+        self.period = 1.0 / frequency
+        self.lock = threading.Lock()
+        self.stop_event = threading.Event()
+        self.target_q: Optional[list[float]] = None
+        self.thread = threading.Thread(target=self._run, name="command-streamer", daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def set_target(self, target_q: np.ndarray) -> None:
+        target = np.asarray(target_q, dtype=float)
+        if target.shape[0] != ARM_DOF:
+            raise ValueError(f"target_q has shape {target.shape}; expected {ARM_DOF}")
+        with self.lock:
+            self.target_q = target.tolist()
+
+    def stop(self) -> None:
+        self.stop_event.set()
+        self.thread.join(timeout=1.0)
+
+    def _run(self) -> None:
+        next_send = time.monotonic()
+        while not self.stop_event.is_set():
+            with self.lock:
+                target_q = None if self.target_q is None else list(self.target_q)
+            if target_q is not None:
+                self.command_socket.send_json({"target_q": target_q})
+
+            next_send += self.period
+            sleep_dt = next_send - time.monotonic()
+            if sleep_dt > 0:
+                self.stop_event.wait(sleep_dt)
+            else:
+                next_send = time.monotonic()
 
 
 def best_checkpoint_path(nn_dir: Path) -> Path:
@@ -165,6 +213,44 @@ def wait_for_debug_step() -> None:
         raise KeyboardInterrupt
 
 
+def wait_for_space(prompt: str) -> None:
+    print(prompt, end="", flush=True)
+    if sys.stdin.isatty():
+        import termios
+        import tty
+
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setcbreak(fd)
+            while True:
+                key = sys.stdin.read(1)
+                if key == " ":
+                    print()
+                    return
+                if key.lower() == "q":
+                    raise KeyboardInterrupt
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    else:
+        while True:
+            key = input().strip().lower()
+            if key in ("", "space"):
+                return
+            if key == "q":
+                raise KeyboardInterrupt
+
+
+def print_home_confirmation(state_q: np.ndarray, home_q: np.ndarray) -> None:
+    print()
+    print("state")
+    print(f"  q_rad: {state_q.round(6).tolist()}")
+    print(f"  q_deg: {format_deg(state_q)}")
+    print("target home position")
+    print(f"  q_rad: {home_q.round(6).tolist()}")
+    print(f"  q_deg: {format_deg(home_q)}")
+
+
 def set_viewer_box(
     viewer,
     geom_index: int,
@@ -240,6 +326,7 @@ def main() -> None:
     parser.add_argument("--send-to-robot", action="store_true")
     parser.add_argument("--max-steps", type=int, default=0, help="0 means run forever.")
     parser.add_argument("--control-hz", type=float, default=CONTROL_HZ)
+    parser.add_argument("--command-stream-hz", type=float, default=CONTROL_HZ)
     parser.add_argument(
         "--no-viewer",
         action="store_true",
@@ -313,9 +400,22 @@ def main() -> None:
     print(f"Publishing target: tcp://*:{low_level_cfg['socket_port']}")
     print("Robot state input: IGNORED." if args.ignore_robot_state else "Robot state input: ENABLED.")
     print("Robot publishing is ENABLED." if args.send_to_robot else "Dry run: not sending robot commands.")
+    print(f"Command stream:    {args.command_stream_hz:g} Hz" if args.send_to_robot else "Command stream:    disabled")
+    command_streamer = None
+    if args.send_to_robot:
+        command_streamer = CommandStreamer(command_socket, args.command_stream_hz)
+        command_streamer.start()
+
+    robot_base_y = 0.6 #float(env_cfg.get("robotBaseY", 0.6))
+    table_pose_dy = -0.6 # float(env_cfg.get("tablePoseDy", -0.6))
+    table_y = robot_base_y + table_pose_dy
+    table_z = float(env_cfg.get("tableResetZ", 0.38))
 
     model_path = HERE / "assets" / "universal_robots_ur5e" / "scene.xml"
     model = mujoco.MjModel.from_xml_path(str(model_path))
+    base_body_id = model.body("base").id
+    model.body_pos[base_body_id] = np.array([0.0, robot_base_y, 0.0], dtype=np.float64)
+    model.body_quat[base_body_id] = ROBOT_BASE_QUAT_WXYZ
     data = mujoco.MjData(model)
     target_data = mujoco.MjData(model)
     data.qpos[:ARM_DOF] = default_joint_pos[:ARM_DOF]
@@ -326,21 +426,26 @@ def main() -> None:
     mujoco.mj_forward(model, target_data)
     if args.debug_step:
         print(f"[debug] defaultArmDofPos_deg: {format_deg(default_joint_pos[:ARM_DOF])}", flush=True)
+        print(
+            f"[debug] robot base world pos: {model.body_pos[base_body_id].round(6).tolist()}",
+            flush=True,
+        )
+        print(
+            f"[debug] robot base world quat_wxyz: {model.body_quat[base_body_id].round(6).tolist()}",
+            flush=True,
+        )
         print_model_pose_debug("after initial qpos/ctrl setup", model, data)
     wrist_3_body_id = model.body("wrist_3_link").id
-    robot_base_y = float(env_cfg.get("robotBaseY", 0.6))
-    table_pose_dy = float(env_cfg.get("tablePoseDy", -0.6))
-    table_y = robot_base_y + table_pose_dy
-    table_z = float(env_cfg.get("tableResetZ", 0.38))
     table_pos = np.array([0.0, table_y, table_z], dtype=np.float32)
     object_pos = np.array(
-        [0.0, table_y, table_z + float(env_cfg.get("tableObjectZOffset", 0.25))],
+        [
+            FAKE_OBJECT_X_OFFSET_M,
+            table_y + FAKE_OBJECT_Y_OFFSET_M,
+            table_z + FAKE_OBJECT_Z_OFFSET_M,
+        ],
         dtype=np.float32,
     )
-    goal_object_pos = np.array(
-        [0.12, table_y, table_z + 0.35],
-        dtype=np.float32,
-    )
+    goal_object_pos = object_pos + GOAL_OBJECT_OFFSET_M
     if args.debug_step:
         print(
             "[debug] table/object positions: "
@@ -365,31 +470,6 @@ def main() -> None:
         if args.debug_step:
             print_model_pose_debug("after viewer launch/sync", model, data)
 
-    player = create_rl_player(
-        simtoolreal_root=REPO_ROOT,
-        config_path=args.config_path,
-        checkpoint_path=checkpoint_path,
-        device=args.device,
-    )
-    data.qpos[:ARM_DOF] = default_joint_pos[:ARM_DOF]
-    data.ctrl[:ARM_DOF] = default_joint_pos[:ARM_DOF]
-    mujoco.mj_forward(model, data)
-    if viewer is not None:
-        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
-        viewer.sync()
-    if args.debug_step:
-        print_model_pose_debug("after policy load and resync", model, data)
-
-    obs_list = env_cfg["obsList"]
-    if args.control_hz <= 0.0:
-        raise ValueError(f"--control-hz must be positive, got {args.control_hz}")
-    control_dt = 1.0 / args.control_hz
-    dof_speed_scale = float(env_cfg["dofSpeedScale"])
-    arm_moving_average = float(env_cfg["armMovingAverage"])
-    hand_moving_average = float(env_cfg["handMovingAverage"])
-
-    prev_q = None
-    prev_targets = None
     latest_state = {
         "Q": default_joint_pos[:ARM_DOF].tolist(),
         "Qd": [0.0] * ARM_DOF,
@@ -412,15 +492,71 @@ def main() -> None:
                 flush=True,
             )
 
-    # Give the C++ subscriber a moment to connect before sending targets.
+    home_q = default_joint_pos[:ARM_DOF].copy()
+    state_q = np.asarray(latest_state["Q"], dtype=np.float32)[:ARM_DOF]
+    # Give the C++ subscriber a moment to connect before the first target.
     time.sleep(1.0)
+    print_home_confirmation(state_q=state_q, home_q=home_q)
+    wait_for_space("Press Space to send the home command, or q to stop: ")
+    if command_streamer is not None:
+        command_streamer.set_target(home_q)
+        print("Home command streaming.")
+    else:
+        print("Dry run: home command not sent.")
+
+    data.qpos[:ARM_DOF] = home_q
+    data.qvel[:ARM_DOF] = 0.0
+    data.ctrl[:ARM_DOF] = home_q
+    mujoco.mj_forward(model, data)
+    if viewer is not None:
+        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
+        viewer.sync()
+
+    wait_for_space("Press Space after the robot is at home to start the policy, or q to stop: ")
+    latest_home_state = None if args.ignore_robot_state else receive_latest_robot_state(state_socket)
+    if latest_home_state is not None and "Q" in latest_home_state:
+        latest_state = latest_home_state
+    else:
+        latest_state = {
+            "Q": home_q.tolist(),
+            "Qd": [0.0] * ARM_DOF,
+            "source": "home_target",
+        }
+
+    player = create_rl_player(
+        simtoolreal_root=REPO_ROOT,
+        config_path=args.config_path,
+        checkpoint_path=checkpoint_path,
+        device=args.device,
+    )
+    data.qpos[:ARM_DOF] = home_q
+    data.ctrl[:ARM_DOF] = home_q
+    mujoco.mj_forward(model, data)
+    if viewer is not None:
+        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
+        viewer.sync()
+    if args.debug_step:
+        print_model_pose_debug("after policy load and resync", model, data)
+
+    obs_list = env_cfg["obsList"]
+    if args.control_hz <= 0.0:
+        raise ValueError(f"--control-hz must be positive, got {args.control_hz}")
+    control_dt = 1.0 / args.control_hz
+    dof_speed_scale = float(env_cfg["dofSpeedScale"])
+    arm_moving_average = float(env_cfg["armMovingAverage"])
+    hand_moving_average = float(env_cfg["handMovingAverage"])
+
+    prev_q = None
+    prev_targets = None
     rate = SimpleRateLimiter(frequency=args.control_hz)
     last_print = 0.0
     step = 0
+    stopped_by_viewer = False
 
     try:
         while args.max_steps <= 0 or step < args.max_steps:
             if viewer is not None and not viewer.is_running():
+                stopped_by_viewer = True
                 break
 
             state = None if args.ignore_robot_state else receive_latest_robot_state(state_socket)
@@ -444,9 +580,7 @@ def main() -> None:
 
             palm_quat_wxyz = data.xquat[wrist_3_body_id].copy()
             palm_rot = Rotation.from_quat(palm_quat_wxyz[[1, 2, 3, 0]])
-            palm_pos = data.xpos[wrist_3_body_id].copy() + palm_rot.apply(
-                np.array([0.0, 0.0, 0.16])
-            )
+            palm_pos = data.xpos[wrist_3_body_id].copy() + palm_rot.apply(PALM_LOCAL_OFFSET_M)
             fingertip_positions = palm_pos[None, :] + palm_rot.apply(
                 FINGERTIP_LOCAL_OFFSETS
             )
@@ -470,6 +604,7 @@ def main() -> None:
                 prev_targets=prev_targets,
             )
             obs_t = torch.from_numpy(obs).float().to(args.device)
+            # print("OBSERVATIONS: ", obs_t)
             with torch.no_grad():
                 action = player.get_normalized_action(obs_t, deterministic_actions=True)
 
@@ -506,7 +641,7 @@ def main() -> None:
                 )
                 target_palm_pos = target_data.xpos[
                     wrist_3_body_id
-                ].copy() + target_palm_rot.apply(np.array([0.0, 0.0, 0.16]))
+                ].copy() + target_palm_rot.apply(PALM_LOCAL_OFFSET_M)
                 update_viewer_markers(
                     viewer,
                     table_pos,
@@ -515,6 +650,9 @@ def main() -> None:
                     target_palm_pos=target_palm_pos,
                 )
                 viewer.sync()
+
+            if command_streamer is not None:
+                command_streamer.set_target(targets[:ARM_DOF])
 
             if args.debug_step:
                 print()
@@ -529,14 +667,12 @@ def main() -> None:
                 print(f"action_arm:       {action_arm.round(6).tolist()}")
                 print(f"object_pos:       {object_pos.round(6).tolist()}")
                 print(f"state_source:     {latest_state.get('source', 'robot_state_publisher')}")
+                
                 if "timestamp_ms" in latest_state:
                     print(f"state_timestamp:  {latest_state['timestamp_ms']}")
                 if target_palm_pos is not None:
                     print(f"target_palm_pos:  {target_palm_pos.round(6).tolist()}")
                 wait_for_debug_step()
-
-            if args.send_to_robot:
-                command_socket.send_json({"target_q": targets[:ARM_DOF].tolist()})
 
             prev_targets = targets
             now = time.monotonic()
@@ -552,9 +688,62 @@ def main() -> None:
             step += 1
             if not args.debug_step:
                 rate.sleep()
+
+        if args.max_steps > 0 and step >= args.max_steps and not stopped_by_viewer:
+            if prev_targets is not None and command_streamer is not None:
+                command_streamer.set_target(prev_targets[:ARM_DOF])
+            print(
+                f"Reached --max-steps={args.max_steps}. "
+                "Holding the last target position; close the viewer or press Ctrl+C to stop."
+            )
+            hold_rate = SimpleRateLimiter(frequency=args.control_hz)
+            while viewer is None or viewer.is_running():
+                state = None if args.ignore_robot_state else receive_latest_robot_state(state_socket)
+                if state is not None:
+                    latest_state = state
+
+                q, qd = robot_state_to_policy_q(
+                    latest_state,
+                    previous_q=prev_q,
+                    default_joint_pos=default_joint_pos,
+                )
+                prev_q = q
+
+                data.qpos[:ARM_DOF] = q[:ARM_DOF]
+                data.qvel[:ARM_DOF] = qd[:ARM_DOF]
+                data.ctrl[:ARM_DOF] = q[:ARM_DOF]
+                mujoco.mj_forward(model, data)
+
+                target_palm_pos = None
+                if prev_targets is not None:
+                    target_data.qpos[:ARM_DOF] = prev_targets[:ARM_DOF]
+                    target_data.qvel[:ARM_DOF] = 0.0
+                    target_data.ctrl[:ARM_DOF] = prev_targets[:ARM_DOF]
+                    mujoco.mj_forward(model, target_data)
+                    target_palm_quat_wxyz = target_data.xquat[wrist_3_body_id].copy()
+                    target_palm_rot = Rotation.from_quat(
+                        target_palm_quat_wxyz[[1, 2, 3, 0]]
+                    )
+                    target_palm_pos = target_data.xpos[
+                        wrist_3_body_id
+                    ].copy() + target_palm_rot.apply(PALM_LOCAL_OFFSET_M)
+
+                if viewer is not None:
+                    update_viewer_markers(
+                        viewer,
+                        table_pos,
+                        object_pos,
+                        goal_object_pos,
+                        target_palm_pos=target_palm_pos,
+                    )
+                    viewer.sync()
+
+                hold_rate.sleep()
     except KeyboardInterrupt:
         pass
     finally:
+        if command_streamer is not None:
+            command_streamer.stop()
         if viewer is not None:
             viewer.close()
         command_socket.close()
