@@ -349,10 +349,10 @@ def _sim_episode(
         t0 = time.time()
 
         state = _sim_get_state(env, obs, joint_lower, joint_upper, n_act)
-        #print(f"obs: {obs}", flush=True)
+        # print(f"obs: {obs}", flush=True)
         action = policy.get_normalized_action(obs, deterministic_actions=True)
-        #print(f"action: {action}", flush=True)
-        #time.sleep(1)
+        # print(f"action: {action}", flush=True)
+        # time.sleep(1)
         obs_dict, _, done_tensor, extras = env.step(action)
         obs = obs_dict["obs"]
         done = done_tensor[0].item()
@@ -386,6 +386,7 @@ def sim_worker(
     table_urdf,
     config_path,
     checkpoint_path,
+    use_cpu: bool = False,
     plot_rewards: bool = False,
     reward_plot_dir: Optional[str] = None,
     plot_live_every: int = 5,
@@ -404,7 +405,7 @@ def sim_worker(
     from deployment.rl_player import RlPlayer
     from deployment.isaac.isaac_env import create_env
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = "cpu" if use_cpu else ("cuda" if torch.cuda.is_available() else "cpu")
 
     try:
         traj_data = load_trajectory(category, object_name, task_name, z_offset=Z_OFFSET)
@@ -475,6 +476,7 @@ class InteractiveDemo:
         checkpoint_path: str,
         port: int = 8080,
         debug_network: bool = False,
+        use_cpu: bool = False,
         plot_rewards: bool = False,
         reward_plot_dir: Optional[str] = None,
         plot_live_every: int = 5,
@@ -483,6 +485,7 @@ class InteractiveDemo:
         self.config_path = config_path
         self.checkpoint_path = checkpoint_path
         self.debug_network = debug_network
+        self.use_cpu = use_cpu
         self.plot_rewards = plot_rewards
         self.reward_plot_dir = (
             Path(reward_plot_dir)
@@ -850,6 +853,7 @@ class InteractiveDemo:
                 table_urdf_rel,
                 self.config_path,
                 self.checkpoint_path,
+                self.use_cpu,
                 self.plot_rewards,
                 str(self.reward_plot_dir),
                 self.plot_live_every,
@@ -1023,6 +1027,11 @@ if __name__ == "__main__":
         help="Print extra diagnostics for HTTP/WebSocket connectivity.",
     )
     parser.add_argument(
+        "--use-cpu",
+        action="store_true",
+        help="Force Isaac Gym evaluation to run on CPU.",
+    )
+    parser.add_argument(
         "--config-path", type=str, default="pretrained_policy/config.yaml",
         help="Path to the policy config YAML",
     )
@@ -1053,6 +1062,7 @@ if __name__ == "__main__":
         checkpoint_path=args.checkpoint_path,
         port=args.port,
         debug_network=args.debug_network,
+        use_cpu=args.use_cpu,
         plot_rewards=args.plot_rewards,
         reward_plot_dir=args.reward_plot_dir,
         plot_live_every=args.plot_live_every,

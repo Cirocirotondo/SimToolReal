@@ -236,6 +236,7 @@ class Ur5eDeltoMujocoSim:
             geom.density = 400.0
             geom.rgba = rgba
             geom.friction = np.array([1.0, 0.005, 0.0001])
+            self._set_low_bounce_contact(geom)
             geoms = [geom]
 
         if disable_contact:
@@ -245,6 +246,15 @@ class Ur5eDeltoMujocoSim:
 
         if add_frame:
             self._add_local_frame(body, frame_name)
+
+    @staticmethod
+    def _set_low_bounce_contact(geom) -> None:
+        # MuJoCo has no direct "restitution" scalar here; contact bounce is
+        # shaped through solref/solimp. Keep this only mildly more damped than
+        # the default contact settings so the cube is less springy without
+        # becoming unnaturally "dead".
+        geom.solref = np.array([0.03, 1.2])
+        geom.solimp = np.array([0.90, 0.95, 0.01, 0.5, 2.0])
 
     def _add_local_frame(self, body, frame_name: str) -> None:
         axis_length = 0.09
@@ -287,6 +297,7 @@ class Ur5eDeltoMujocoSim:
         handle.density = 400.0
         handle.rgba = rgba
         handle.friction = np.array([1.0, 0.005, 0.0001])
+        self._set_low_bounce_contact(handle)
 
         head = body.add_geom()
         head.name = f"{name}_hammer_head"
@@ -296,6 +307,7 @@ class Ur5eDeltoMujocoSim:
         head.density = 400.0
         head.rgba = rgba
         head.friction = np.array([1.0, 0.005, 0.0001])
+        self._set_low_bounce_contact(head)
         return [handle, head]
 
     def _add_position_actuators(self, spec: mujoco.MjSpec) -> None:

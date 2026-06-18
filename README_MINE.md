@@ -252,6 +252,13 @@ Reward graphs were encouraging, but video inspection showed the arm becoming slo
     Resume after the late CUDA / PhysX crash of train_07.
     └── 00_train_07_sim2real_resume_resume_2026-06-10_15-00-42
         Second resume after accidental manual stop of the first resume run.
+
+00_train_10_real_mid_combined_2026-06-15_14-42-50
+New training from zero with preset `train_10_real_mid_combined`.
+Intermediate sim2real setup: easier than full `real_dr`, harder than the lite contact-only setup.
+Keeps the low table, 5-7 cm cubes, updated UR5e start pose, and cube COM offset DR.
+Uses moderate obs/action/object-state delays, moderate contact/physics DR, and a disturbance curriculum
+from force/torque/impulse levels 4.0/0.3/0.0 to 12.0/1.0/0.01.
 ```
 
 **Eval + grafici reward locali** (es. train_3 / train_30 checkpoint):

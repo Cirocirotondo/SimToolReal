@@ -1,0 +1,296 @@
+MUJOCO SIM2SIM SCENE LAYOUT FOR TRAIN_07
+========================================
+
+Scope
+-----
+This note describes where the main scene elements are placed when running:
+
+  python deployment/mujoco_ur5e_delto/run_policy_no_ros.py \
+    --config-path train_dir/simtoolreal/2026-06-10/train_07_sim2real_resume_resume_2026-06-10_15-00-42/runs/00_train_07_sim2real_resume_resume_2026-06-10_15-00-42/config.yaml \
+    --checkpoint-path ... \
+    --object-name cube
+
+It summarizes the positions / poses used by:
+- deployment/mujoco_ur5e_delto/run_policy_no_ros.py
+- deployment/mujoco_ur5e_delto/mujoco_sim.py
+- deployment/mujoco_ur5e_delto/policy_adapter.py
+
+
+1. WORLD FRAME
+==============
+
+The MuJoCo world frame is the root frame.
+
+Important conventions:
+- Robot base is at the world origin.
+- Positive z is upward.
+- Table / cube workspace is shifted along y by workspace_y = -0.6.
+
+Relevant code:
+- deployment/mujoco_ur5e_delto/mujoco_sim.py
+  - Ur5eDeltoMujocoConfig.workspace_y = -0.6
+
+
+2. ROBOT
+========
+
+Robot asset:
+- assets/urdf/ur5e_delto_description/ur5e_left_dg5f.urdf
+
+Robot base pose:
+- position = [0.0, 0.0, 0.0]
+- orientation = identity
+
+Reason:
+- the URDF is loaded directly into the MuJoCo world
+- there is no extra base offset applied in mujoco_sim.py
+
+
+3. FLOOR
+========
+
+Floor geom:
+- name = floor
+- type = plane
+- size = [1.5, 1.5, 0.05]
+
+Interpretation:
+- infinite-ish support plane centered at the world origin
+- visually acts as ground
+
+
+4. TABLE
+========
+
+Table body:
+- name = table
+- position = [0.0, workspace_y, table_center_z]
+
+For train_07:
+- workspace_y = -0.6
+- table_center_z = tableResetZ from config = -0.125
+
+So the table body center is:
+- table center = [0.0, -0.6, -0.125]
+
+Table geometry:
+- type = box
+- size = [0.475 / 2, 0.4 / 2, 0.3 / 2]
+- size = [0.2375, 0.2, 0.15]
+
+Therefore:
+- table full dimensions = [0.475, 0.4, 0.3]
+- table top surface z = table_center_z + 0.15 = -0.125 + 0.15 = 0.025
+- table bottom surface z = table_center_z - 0.15 = -0.125 - 0.15 = -0.275
+
+
+5. MOVABLE CUBE
+===============
+
+Object body:
+- name = object
+- movable = yes (free joint)
+- default quaternion = [1.0, 0.0, 0.0, 0.0] in wxyz
+
+Object default local start position before workspace shift:
+- object_start_pos = [0.0, 0.0, table_center_z + table_object_z_offset]
+
+For train_07:
+- table_center_z = -0.125
+- table_object_z_offset = 0.25
+
+So before workspace shift:
+- object_start_pos = [0.0, 0.0, 0.125]
+
+Then mujoco_sim.py applies:
+- y += workspace_y
+
+Final cube center position in world:
+- object center = [0.0, -0.6, 0.125]
+
+Distance above table top:
+- cube center z - table top z = 0.125 - 0.025 = 0.10 m
+
+Cube geometry:
+- geom type = box
+- base size = 0.04 * object_scales / 2
+
+For object_name = cube:
+- object_scales = [1.25, 1.25, 1.25]
+
+So:
+- half-size = 0.04 * 1.25 / 2 = 0.025
+- full cube size = [0.05, 0.05, 0.05]
+
+Cube default orientation:
+- quaternion wxyz = [1, 0, 0, 0]
+- this is no rotation
+
+
+6. GOAL CUBE / GOAL MARKER
+==========================
+
+Goal body:
+- name = goal_object
+- movable = no
+- contacts disabled
+- default quaternion = [1.0, 0.0, 0.0, 0.0] in wxyz
+
+Goal default local start position before workspace shift:
+- goal_object_start_pos = [0.12, 0.0, table_center_z + goal_object_z_offset]
+
+Defaults used here:
+- goal_object_z_offset = 0.35
+- table_center_z = -0.125
+
+So before workspace shift:
+- goal_object_start_pos = [0.12, 0.0, 0.225]
+
+Then workspace shift adds y = -0.6.
+
+Final goal center position in world:
+- goal center = [0.12, -0.6, 0.225]
+
+Distance above table top:
+- 0.225 - 0.025 = 0.20 m
+
+Goal marker appearance:
+- translucent green cube
+- optional local RGB axes if show_goal_marker = True
+
+
+7. ROBOT INITIAL JOINT POSE
+===========================
+
+The MuJoCo runner builds the initial joint pose as:
+- start from DEFAULT_JOINT_POS from policy_adapter.py
+- overwrite the first 6 arm joints with defaultArmDofPos from the policy config
+- keep the 20 hand joints at zero
+
+For train_07:
+- defaultArmDofPos = [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+
+So the full 26-D initial joint pose is:
+- shoulder_pan_joint  = -1.5708
+- shoulder_lift_joint = -1.2
+- elbow_joint         =  1.8
+- wrist_1_joint       = -0.6
+- wrist_2_joint       =  1.571
+- wrist_3_joint       = -1.571
+- lj_dg_1_1           =  0.0
+- lj_dg_1_2           =  0.0
+- lj_dg_1_3           =  0.0
+- lj_dg_1_4           =  0.0
+- lj_dg_2_1           =  0.0
+- lj_dg_2_2           =  0.0
+- lj_dg_2_3           =  0.0
+- lj_dg_2_4           =  0.0
+- lj_dg_3_1           =  0.0
+- lj_dg_3_2           =  0.0
+- lj_dg_3_3           =  0.0
+- lj_dg_3_4           =  0.0
+- lj_dg_4_1           =  0.0
+- lj_dg_4_2           =  0.0
+- lj_dg_4_3           =  0.0
+- lj_dg_4_4           =  0.0
+- lj_dg_5_1           =  0.0
+- lj_dg_5_2           =  0.0
+- lj_dg_5_3           =  0.0
+- lj_dg_5_4           =  0.0
+
+
+8. ROBOT CONTROL TARGETS
+========================
+
+At startup:
+- robot_joint_pos_targets = initial_joint_pos
+
+During rollout:
+- the policy outputs a 26-D normalized action
+- compute_targets(...) converts it into joint position targets
+- MuJoCo position actuators track those targets
+
+So there are two useful robot poses:
+- current joint positions q
+- current joint targets q_target
+
+
+9. PALM AND FINGERTIPS
+======================
+
+Palm body used by the MuJoCo runner:
+- wrist_3_link
+
+Observed palm center used for the observation:
+- palm_center_pos = wrist_3_link position + rotated [0.0, 0.0, 0.16]
+
+Important:
+- this is not a separate MuJoCo body
+- it is a computed point offset from wrist_3_link
+
+Fingertips:
+- computed from the bodies
+  - ll_dg_1_4
+  - ll_dg_2_4
+  - ll_dg_3_4
+  - ll_dg_4_4
+  - ll_dg_5_4
+- with local offsets:
+  - thumb  = [0.0, 0.0363, 0.0]
+  - index  = [0.0, 0.0, 0.0255]
+  - middle = [0.0, 0.0, 0.0255]
+  - ring   = [0.0, 0.0, 0.0255]
+  - pinky  = [0.0, 0.0, 0.0255]
+
+These are again computed points, not extra free scene objects.
+
+
+10. LIGHT
+=========
+
+Directional light:
+- name = key_light
+- position = [0.0, -1.0, 1.5]
+- direction = [0.0, 0.5, -1.0]
+
+
+11. CONTACT / MATERIAL SETTINGS
+===============================
+
+Table friction:
+- table_geom.friction = [1.0, 0.005, 0.0001]
+
+Cube friction:
+- object cube geom friction = [1.0, 0.005, 0.0001]
+
+Cube bounce shaping:
+- solref = [0.03, 1.2]
+- solimp = [0.90, 0.95, 0.01, 0.5, 2.0]
+
+So the MuJoCo runner is using a mildly damped, low-bounce contact model.
+
+
+12. SUMMARY OF ACTUAL TRAIN_07 DEFAULT WORLD POSES
+==================================================
+
+Robot:
+- base pose = position [0.0, 0.0, 0.0], identity orientation
+
+Table:
+- center = [0.0, -0.6, -0.125]
+- top surface z = 0.025
+
+Cube:
+- center = [0.0, -0.6, 0.125]
+- orientation = identity
+- size = 5 cm cube
+
+Goal cube:
+- center = [0.12, -0.6, 0.225]
+- orientation = identity
+
+Initial UR5e arm joint pose:
+- [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+
+Initial hand joint pose:
+- all zeros

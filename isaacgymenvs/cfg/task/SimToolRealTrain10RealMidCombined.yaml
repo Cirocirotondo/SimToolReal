@@ -1,0 +1,143 @@
+# Train 10: intermediate combined sim2real preset.
+# Stronger than the light contact-only setup, but still meaningfully easier
+# than the full RealDR preset. Keeps the low table, 5-7 cm cubes, updated arm
+# start pose, and adds moderate delay/noise/contact/randomization.
+defaults:
+  - SimToolRealRealDR
+  - _self_
+
+env:
+  # Moderate sensor / actuator uncertainty.
+  useObsDelay: True
+  obsDelayMax: 2
+  useActionDelay: True
+  actionDelayMax: 2
+  useObjectStateDelayNoise: True
+  objectStateDelayMax: 6
+  objectStateXyzNoiseStd: 0.0075
+  objectStateRotationNoiseDegrees: 3.0
+  jointVelocityObsNoiseStd: 0.05
+  objectScaleNoiseMultiplierRange: [0.95, 1.05]
+
+  # Moderate disturbance curriculum.
+  disturbanceCurriculumStartMeanEpisodeReward: 7000.0
+  disturbanceCurriculumFullMeanEpisodeReward: 15000.0
+  disturbanceCurriculumRewardPerLevel: 1000.0
+  disturbanceForceScaleLevels: [4.0, 4.9, 5.8, 6.7, 7.6, 8.4, 9.3, 10.2, 11.1, 12.0]
+  disturbanceTorqueScaleLevels: [0.30, 0.38, 0.46, 0.53, 0.61, 0.69, 0.77, 0.84, 0.92, 1.00]
+  disturbanceLinVelImpulseScaleLevels: [0.000, 0.0011, 0.0022, 0.0033, 0.0044, 0.0056, 0.0067, 0.0078, 0.0089, 0.0100]
+  disturbanceAngVelImpulseScaleLevels: [0.000, 0.0011, 0.0022, 0.0033, 0.0044, 0.0056, 0.0067, 0.0078, 0.0089, 0.0100]
+  forceScaleInitial: 4.0
+  forceScale: 12.0
+  torqueScaleInitial: 0.3
+  torqueScale: 1.0
+  linVelImpulseScaleInitial: 0.0
+  linVelImpulseScale: 0.01
+  angVelImpulseScaleInitial: 0.0
+  angVelImpulseScale: 0.01
+
+  # Keep reset randomization, but narrower than the heavy sim2real preset.
+  resetPositionNoiseX: 0.05
+  resetPositionNoiseY: 0.05
+  resetPositionNoiseZ: 0.02
+  randomizeObjectRotation: True
+  resetDofPosRandomIntervalArmInitial: 0.03
+  armResetCurriculumStartMeanEpisodeReward: 0.0
+  armResetCurriculumFullMeanEpisodeReward: 7000.0
+  resetDofPosRandomIntervalFingers: 0.06
+  resetDofPosRandomIntervalArm: 0.06
+  resetDofVelRandomInterval: 0.15
+
+  # Use actual cube size in the keypoint reward; keep a small COM offset DR.
+  fixedSizeKeypointReward: False
+  cubeComOffsetRange: [-0.003, 0.003]
+  useSingleHandleHeadTemplate: True
+  numObjectsPerType: 20
+
+  # Mild smoothness and grasp-contact shaping.
+  armActionDeltaPenaltyScale: 0.0015
+  handActionDeltaPenaltyScale: 0.00015
+  actionDeltaPenaltyLiftedMultiplier: 2.0
+  fingertipSpreadPenaltyScale: 0.9
+  fingertipMultiContactBonusScale: 0.15
+
+task:
+  randomize: True
+  randomization_params:
+    frequency: 720
+
+    observations:
+      range: [0.0, 0.01]
+      range_correlated: [0.0, 0.01]
+      operation: "additive"
+      distribution: "gaussian"
+      schedule: "linear"
+      schedule_steps: 406901
+
+    actions:
+      range: [0.0, 0.01]
+      range_correlated: [0.0, 0.01]
+      operation: "additive"
+      distribution: "gaussian"
+      schedule: "linear"
+      schedule_steps: 406901
+
+    sim_params:
+      gravity:
+        range: [0.0, 0.3]
+        operation: "additive"
+        distribution: "gaussian"
+
+    actor_params:
+      robot:
+        color: null
+        dof_properties: null
+        rigid_body_properties:
+          mass:
+            range: [0.85, 1.15]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.85, 1.15]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.05]
+            operation: "additive"
+            distribution: "uniform"
+
+      object:
+        rigid_body_properties:
+          mass:
+            range: [0.8, 1.2]
+            operation: "scaling"
+            distribution: "uniform"
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.7, 1.6]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.08]
+            operation: "additive"
+            distribution: "uniform"
+
+      table_object:
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.7, 1.6]
+            operation: "scaling"
+            distribution: "uniform"
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.08]
+            operation: "additive"
+            distribution: "uniform"

@@ -121,6 +121,21 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
            Secondo resume della catena di train_07, lanciato dopo uno stop manuale accidentale
            della prima run `resume`.
 
+00_train_10_real_mid_combined_2026-06-15_14-42-50
+   Nuovo training da zero con preset `train_10_real_mid_combined`.
+   Configurazione intermedia per sim2real: piu' robusta di train_5 / setup leggero, ma meno aggressiva del
+   `real_dr` completo di train_07. Mantiene tavolo basso, cubi procedurali 5-7 cm, posa iniziale UR5e aggiornata,
+   `fixedSizeKeypointReward: False`, 20 cubi template e COM offset del cubo ridotto a 3 mm.
+   Delay e rumori sono moderati: `obsDelayMax: 2`, `actionDelayMax: 2`, `objectStateDelayMax: 6`,
+   `objectStateXyzNoiseStd: 0.0075`, rotazione oggetto 3 gradi, rumore velocita' giunti 0.05.
+   Il curriculum dei disturbi parte a reward media 7000 e arriva pieno a 15000:
+   forza 4.0 -> 12.0, torque 0.30 -> 1.00, impulsi lineari/angolari 0.0 -> 0.01.
+   DR fisica moderata: massa robot [0.85, 1.15], massa cubo [0.8, 1.2],
+   friction cubo/tavolo [0.7, 1.6], restitution cubo/tavolo [0.0, 0.08],
+   robot restitution [0.0, 0.05], senza DR sui colori e senza DR sulle `robot.dof_properties`.
+   Shaping piu' morbido del full real_dr: `fingertipSpreadPenaltyScale: 0.9`,
+   `fingertipMultiContactBonusScale: 0.15`, action-delta penalty arm/hand 0.0015 / 0.00015.
+
 
 
 ```

@@ -87,6 +87,14 @@ def create_env_from_cfg(
     if episode_length is not None:
         cfg.task.env.episodeLength = episode_length
 
+    # If eval is requested on CPU, force the full Isaac Gym stack to CPU as
+    # well; otherwise Hydra defaults would keep pipeline/sim/rl devices on CUDA.
+    if str(cfg.sim_device).startswith("cpu") or str(cfg.rl_device).startswith("cpu"):
+        cfg.pipeline = "cpu"
+        cfg.sim_device = "cpu"
+        cfg.rl_device = "cpu"
+        cfg.num_threads = max(int(cfg.num_threads), 4)
+
     # HACK: Assume that graphics_device_id should be 0
     # This is a pretty reasonable assumption because we are typically doing this testing on a workstation with 1 GPU
     cfg.graphics_device_id = 0
