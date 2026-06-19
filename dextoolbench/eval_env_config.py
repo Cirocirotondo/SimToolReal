@@ -13,7 +13,10 @@ CUBE_TASK_LIFT_DELTA = "lift_delta"
 
 CUBE_EVAL_URDF = REPO_ROOT / "assets/urdf/eval_cube/cube_5cm.urdf"
 CUBE_FIXED_SIZE = [0.05, 0.05, 0.05]
-EVAL_DEFAULT_ARM_DOF = [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+#EVAL_DEFAULT_ARM_DOF = [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+EVAL_DEFAULT_ARM_DOF = [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
+
+
 
 # Matches SimToolReal.yaml robotBaseY / tablePoseDy (60 cm spacing, table at y=0).
 ISAAC_ROBOT_BASE_Y = 0.6
@@ -202,10 +205,12 @@ def load_trajectory(
     traj_data = dict(traj_data)
     traj_data["start_pose"] = list(traj_data["start_pose"])
     traj_data["goals"] = [list(g) for g in traj_data["goals"]]
-    trajectory_z_shift = (
-        CUBE_EVAL_TRAJECTORY_Z_SHIFT if is_cube_eval(category, object_name) else 0.0
-    )
-    traj_data["start_pose"][2] += z_offset + trajectory_z_shift
+    cube_eval = is_cube_eval(category, object_name)
+    trajectory_z_shift = CUBE_EVAL_TRAJECTORY_Z_SHIFT if cube_eval else 0.0
+    if cube_eval:
+        traj_data["start_pose"][2] += CUBE_EVAL_TABLE_SURFACE_Z
+    else:
+        traj_data["start_pose"][2] += z_offset
     for goal in traj_data["goals"]:
         goal[2] += trajectory_z_shift
     return traj_data

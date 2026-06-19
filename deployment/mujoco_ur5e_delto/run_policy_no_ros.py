@@ -47,6 +47,12 @@ class Args:
     max_steps: int = 0
     """Maximum policy steps to run. Use 0 to run forever."""
 
+    policy_start_delay_sec: float = 0.0
+    """Seconds to wait before starting policy inference."""
+
+    wait_for_enter: bool = False
+    """Wait for Enter in the terminal before starting policy inference."""
+
 
 def object_scales_for(name: str) -> np.ndarray:
     if name == "hammer":
@@ -63,8 +69,12 @@ def scene_config_for(scene_height: str, env_cfg: dict) -> dict:
 
     if scene_height == "high_table":
         table_center_z = 0.38
+        table_size_x = 0.475
+        table_size_y = 0.4
     elif scene_height in {"default", "train7", "from-config"}:
         table_center_z = float(env_cfg.get("tableResetZ", -0.125))
+        table_size_x = 0.8
+        table_size_y = 0.8
     else:
         raise ValueError(
             f"Unsupported scene_height={scene_height!r}; "
@@ -74,6 +84,8 @@ def scene_config_for(scene_height: str, env_cfg: dict) -> dict:
     return {
         "table_center_z": table_center_z,
         "table_object_z_offset": float(env_cfg.get("tableObjectZOffset", 0.25)),
+        "table_size_x": table_size_x,
+        "table_size_y": table_size_y,
         "initial_joint_pos": initial_joint_pos,
     }
 
@@ -124,6 +136,16 @@ def main() -> None:
         f"object={args.object_name}, scene-height={args.scene_height}, "
         f"device={args.device}, obs/actions={N_OBS}/{N_ACT}"
     )
+    if args.policy_start_delay_sec > 0:
+        print(f"Waiting {args.policy_start_delay_sec:.1f}s before starting the policy")
+        delay_start = time.time()
+        while time.time() - delay_start < args.policy_start_delay_sec:
+            sim.step_for(control_dt)
+            time.sleep(control_dt)
+
+    if args.wait_for_enter:
+        input("Press Enter to start the policy...")
+
     try:
         while args.max_steps <= 0 or step < args.max_steps:
             start = time.time()

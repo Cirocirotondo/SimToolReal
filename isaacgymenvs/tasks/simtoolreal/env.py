@@ -3679,6 +3679,14 @@ class SimToolReal(VecTask):
             USE_FIXED_INIT_OBJECT_POSE = self.cfg["env"]["useFixedInitObjectPose"]
             if USE_FIXED_INIT_OBJECT_POSE:
                 rand_pos_floats[:] = 0.0
+                fixed_object_pose = self.cfg["env"].get("objectStartPose")
+                if fixed_object_pose is not None:
+                    fixed_object_pose = torch.tensor(
+                        fixed_object_pose,
+                        dtype=self.object_init_state.dtype,
+                        device=self.device,
+                    )
+                    self.object_init_state[env_ids, 0:7] = fixed_object_pose
             self.root_state_tensor[obj_indices] = self.object_init_state[
                 env_ids
             ].clone()

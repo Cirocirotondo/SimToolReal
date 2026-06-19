@@ -39,6 +39,12 @@ class Ur5eDeltoMujocoConfig:
     """Object center height above the table body center."""
     goal_object_z_offset: float = 0.35
     """Goal object center height above the table body center."""
+    table_size_x: float = 0.8
+    """Full table size along the MuJoCo x axis."""
+    table_size_y: float = 0.8
+    """Full table size along the MuJoCo y axis."""
+    table_size_z: float = 0.3
+    """Full table size along the MuJoCo z axis."""
     show_goal_marker: bool = True
     """Display the visual-only goal body and frame in the MuJoCo viewer."""
     show_object_frame: bool = True
@@ -142,9 +148,16 @@ class Ur5eDeltoMujocoSim:
         table_geom = table.add_geom()
         table_geom.name = "table_geom"
         table_geom.type = mujoco.mjtGeom.mjGEOM_BOX
-        table_geom.size = np.array([0.475 / 2.0, 0.4 / 2.0, 0.3 / 2.0])
+        table_geom.size = np.array(
+            [
+                self.config.table_size_x / 2.0,
+                self.config.table_size_y / 2.0,
+                self.config.table_size_z / 2.0,
+            ]
+        )
         table_geom.rgba = np.array([0.9, 0.9, 0.9, 1.0])
         table_geom.friction = np.array([1.0, 0.005, 0.0001])
+        self._set_low_bounce_contact(table_geom)
 
         self._add_object(
             spec=spec,
@@ -250,11 +263,10 @@ class Ur5eDeltoMujocoSim:
     @staticmethod
     def _set_low_bounce_contact(geom) -> None:
         # MuJoCo has no direct "restitution" scalar here; contact bounce is
-        # shaped through solref/solimp. Keep this only mildly more damped than
-        # the default contact settings so the cube is less springy without
-        # becoming unnaturally "dead".
-        geom.solref = np.array([0.03, 1.2])
-        geom.solimp = np.array([0.90, 0.95, 0.01, 0.5, 2.0])
+        # shaped through solref/solimp. Use a stiff, damped contact so the cube
+        # does not visibly sink into the table while keeping bounce low.
+        geom.solref = np.array([0.012, 1.4])
+        geom.solimp = np.array([0.95, 0.99, 0.002, 0.5, 2.0])
 
     def _add_local_frame(self, body, frame_name: str) -> None:
         axis_length = 0.09

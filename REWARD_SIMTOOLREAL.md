@@ -136,6 +136,18 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
    Shaping piu' morbido del full real_dr: `fingertipSpreadPenaltyScale: 0.9`,
    `fingertipMultiContactBonusScale: 0.15`, action-delta penalty arm/hand 0.0015 / 0.00015.
 
+00_train_11_simple_2026-06-19_...
+   Nuovo training da zero con preset `train_11_simple`.
+   Versione semplice/controllata per riallineare il training all'eval: eredita il setup train_5-like con
+   tavolo basso e cubo 5-7 cm, ma usa posa iniziale UR5e `[-1.5708, -1, 2, -1, 1.571, -1.571]`.
+   La posa iniziale del cubo e' fissa e uguale all'eval:
+   `objectStartPose=[0.09, -0.12, 0.03, 0, 0, 0, 1]`, con `useFixedInitObjectPose=True`.
+   Randomizzazione della posa iniziale del cubo rimossa: `resetPositionNoiseX/Y/Z=0`,
+   `tableResetZRange=0`, `randomizeObjectRotation=False`.
+   Delay osservazioni/azioni disattivati (`useObsDelay=False`, `useActionDelay=False`) ma code minime
+   a lunghezza 1 per evitare crash runtime (`obsDelayMax=1`, `actionDelayMax=1`).
+   Mantiene disturbi leggeri train_5-like (`forceScale=6.0`, `torqueScale=0.5`) e senza PhysX DR pesante.
+
 
 
 ```
@@ -147,7 +159,48 @@ Oltre ai coefficienti che entrano nella somma in `compute_kuka_reward` e al curr
 Valori letti dai `**config.yaml`** risolti in ciascuna cartella `train_dir/.../runs/<00_nome>/` (generati da `train.py` all’avvio).  
 `—` = chiave **assente** in quel file (spesso equivale al default nel codice, es. shaping dita a 0).
 
-Percorsi usati: `train_dir/simtoolreal/2026-05-11/train_single_tool_from_zero_.../runs/...`, `.../2026-05-12/train_single_tool_from_chkpt1...`, `.../chkpt2...`, `.../2026-05-13/train_01_st...`, `.../train_02_st...`, `.../2026-05-16/train_2_cube_.../runs/00_train_2_cube_2026-05-16_11-58-42/`, `.../2026-05-18/train_3_cube_.../runs/00_train_3_cube_2026-05-18_10-45-49/`, `.../2026-05-21/train_30_cube_2026-05-21_11-57-27/runs/00_train_30_cube_2026-05-21_11-57-27/`, `.../2026-05-21/train_4_cube_2026-05-21_19-06-51/runs/00_train_4_cube_2026-05-21_19-06-51/`, `.../2026-05-22/train_5_cube_2026-05-22_17-27-47/runs/00_train_5_cube_2026-05-22_17-27-47/`, `.../2026-05-27/train_06_sim2real_2026-05-27_14-20-50/runs/00_train_06_sim2real_2026-05-27_14-20-50/`.
+Percorsi usati: `train_dir/simtoolreal/2026-05-11/train_single_tool_from_zero_.../runs/...`, `.../2026-05-12/train_single_tool_from_chkpt1...`, `.../chkpt2...`, `.../2026-05-13/train_01_st...`, `.../train_02_st...`, `.../2026-05-16/train_2_cube_.../runs/00_train_2_cube_2026-05-16_11-58-42/`, `.../2026-05-18/train_3_cube_.../runs/00_train_3_cube_2026-05-18_10-45-49/`, `.../2026-05-21/train_30_cube_2026-05-21_11-57-27/runs/00_train_30_cube_2026-05-21_11-57-27/`, `.../2026-05-21/train_4_cube_2026-05-21_19-06-51/runs/00_train_4_cube_2026-05-21_19-06-51/`, `.../2026-05-22/train_5_cube_2026-05-22_17-27-47/runs/00_train_5_cube_2026-05-22_17-27-47/`, `.../2026-05-27/train_06_sim2real_2026-05-27_14-20-50/runs/00_train_06_sim2real_2026-05-27_14-20-50/`, `.../2026-05-28/train_07_sim2real_2026-05-28_15-39-00/runs/00_train_07_sim2real_2026-05-28_15-39-00/`, `.../2026-06-15/train_10_real_mid_combined_2026-06-15_14-42-50/runs/00_train_10_real_mid_combined_2026-06-15_14-42-50/`.
+
+### Tabella run **Sim2Real / cubo** (train_5 baseline, train_06/07 full RealDR, train_10 intermedio)
+
+Questa tabella tiene insieme le modifiche che contano per il passaggio da train_5, che imparava bene ma aveva poca robustezza sim2real, ai preset piu' robusti. Valori letti dai `config.yaml` salvati nelle cartelle `runs/`.
+
+| Parametro | `00_train_5_cube_…_17-27-47` | `00_train_06_sim2real_…_14-20-50` | `00_train_07_sim2real_…_15-39-00` | `00_train_10_real_mid_combined_…_14-42-50` |
+| --- | --- | --- | --- | --- |
+| Parent / checkpoint | da zero | da zero | da zero, separato da train_06 | da zero |
+| Preset / intent | cube baseline robusto in sim | `real_dr`, full sim2real | `real_dr` + reset arm progressivo | `train_10_real_mid_combined`, sim2real intermedio |
+| Tavolo | alto: `tableResetZ=0.38`, range 1 cm | basso: `-0.125`, range 2.5 cm | basso: `-0.125`, range 2.5 cm | basso: `-0.125`, range 2.5 cm |
+| Posa iniziale UR5e | `[-1.5708, -1.571, 1.0, 0.5, 1.571, -1.571]` | `[-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]` | stessa train_06 | stessa train_06 |
+| `objectFallResetZ` | default alto / non abbassato | `-0.05` | `-0.05` | `-0.05` |
+| `fixedSizeKeypointReward` | `true` | `false` | `false` | `false` |
+| Cubi procedurali | 1 cubo | 20 cubi | 20 cubi | 20 cubi |
+| `cubeSizeRange` | assente nel config salvato | `[0.05, 0.07]` | `[0.05, 0.07]` | `[0.05, 0.07]` |
+| `cubeComOffsetRange` | assente | `[-0.005, 0.005]` | `[-0.005, 0.005]` | `[-0.003, 0.003]` |
+| Densita' cubo procedurale | singolo template | `[300, 600] kg/m^3` | `[300, 600] kg/m^3` | `[300, 600] kg/m^3` |
+| `objectScaleNoiseMultiplierRange` | `[0.9, 1.1]` | `[0.9, 1.1]` | `[0.9, 1.1]` | `[0.95, 1.05]` |
+| Reset pos oggetto XYZ | `0.1 / 0.1 / 0.02` | `0.05 / 0.05 / 0.02` | `0.05 / 0.05 / 0.02` | `0.05 / 0.05 / 0.02` |
+| Reset DOF dita / arm | `0.03 / 0.03` | `0.1 / 0.5` | `0.08 / 0.1` | `0.06 / 0.06` |
+| Curriculum reset arm | no | no | `0.03 -> 0.1`, reward 0 -> 10000 | `0.03 -> 0.06`, reward 0 -> 7000 |
+| Obs/action delay | `3 / 3` | `3 / 3` | `3 / 3` | `2 / 2` |
+| Object-state delay | 10 | 10 | 10 | 6 |
+| Object-state noise | 1 cm, 5 deg | 1 cm, 5 deg | 1 cm, 5 deg | 0.75 cm, 3 deg |
+| Joint velocity obs noise | 0.1 | 0.1 | 0.1 | 0.05 |
+| Obs/action generic DR | `task.randomize=false`; schedule presente ma non attivo | gaussian `[0, 0.01]`, 10G transitions | gaussian `[0, 0.01]`, 10G transitions | gaussian `[0, 0.01]`, ~5G transitions |
+| `forceScale` / `torqueScale` | `6.0 / 0.5` | `20.0 / 2.0` | `20.0 / 2.0` | `12.0 / 1.0` |
+| Linear/angular impulse | `0.0 / 0.0` | `0.02 / 0.02` | `0.02 / 0.02` | `0.01 / 0.01` |
+| Disturbance curriculum | no esplicito | reward 10000 -> 19000 | reward 10000 -> 19000 | reward 7000 -> 15000 |
+| `fingertipSpreadPenaltyScale` | 0.25 | 1.25 | 1.25 | 0.9 |
+| `fingertipMultiContactBonusScale` | 0.1 | 0.2 | 0.2 | 0.15 |
+| Action-delta penalty arm / hand | assente o 0 nel vecchio config | `0.003 / 0.0003` | `0.003 / 0.0003` | `0.0015 / 0.00015` |
+| Robot mass DR | `task.randomize=false`; config legacy `[0.7, 1.3]` non attivo | `[0.7, 1.3]` | `[0.7, 1.3]` | `[0.85, 1.15]` |
+| Robot rigid-shape friction DR | non attivo | `[0.7, 1.3]` scaling | `[0.7, 1.3]` scaling | `[0.85, 1.15]` scaling |
+| Robot restitution DR | non attivo | `[0.0, 0.1]` additive | `[0.0, 0.1]` additive | `[0.0, 0.05]` additive |
+| Robot DOF-property DR | non attivo | disattivato (`null`) | disattivato (`null`) | disattivato (`null`) |
+| Object mass DR | non attivo | `[0.7, 1.3]` | `[0.7, 1.3]` | `[0.8, 1.2]` |
+| Object/table friction DR | non attivo | `[0.5, 2.0]` scaling | `[0.5, 2.0]` scaling | `[0.7, 1.6]` scaling |
+| Object/table restitution DR | non attivo | `[0.0, 0.1]` additive | `[0.0, 0.1]` additive | `[0.0, 0.08]` additive |
+| Colori asset | robot color DR nel config legacy ma non attivo | `color: true` nel config salvato | `color: null` nella versione corretta del preset | `color: null` |
+| Note comportamento | buon grasp in sim; poca robustezza sim2real | full DR molto difficile | reward bene, video: braccio sempre piu' lento | intermedio per ridurre difficolta' mantenendo robustezza |
 
 ### Tabella run **cubo** (WandB `reward_step/*`, `episode_cumulative/*`)
 
@@ -190,6 +243,9 @@ Confronto rapido per leggere i grafici WandB / TensorBoard. Nomi run = cartella 
 | `fixedSizeKeypointReward`                                               | True                                                                | True                                                 | True                                                   | True                                                   | True                                 | True                                 |
 | `kukaActionsPenaltyScale`                                               | 0.03                                                                | 0.03                                                 | 0.03                                                   | **0.012**                                              | **0.001**                            | **0.0**                              |
 | `handActionsPenaltyScale`                                               | 0.003                                                               | 0.003                                                | 0.003                                                  | 0.003                                                  | 0.003                                | 0.003                                |
+| `armActionDeltaPenaltyScale`                                            | 0.0                                                                 | —                                                    | —                                                      | —                                                      | —                                    | 0.0                                  |
+| `handActionDeltaPenaltyScale`                                           | 0.0                                                                 | —                                                    | —                                                      | —                                                      | —                                    | 0.0                                  |
+| `actionDeltaPenaltyLiftedMultiplier`                                    | 1.0                                                                 | —                                                    | —                                                      | —                                                      | —                                    | 1.0                                  |
 | `objectLinVelPenaltyScale`                                              | 0.0                                                                 | 0.0                                                  | 0.0                                                    | 0.0                                                    | 0.0                                  | 0.0                                  |
 | `objectAngVelPenaltyScale`                                              | 0.0                                                                 | 0.0                                                  | 0.0                                                    | 0.0                                                    | 0.0                                  | 0.0                                  |
 | `fingertipSpreadPenaltyScale`                                           | —                                                                   | —                                                    | **0.0025**                                             | **0.0025**                                             | **0.0025**                           | **0.25** (repo attuale)              |

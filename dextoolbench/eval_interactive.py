@@ -275,14 +275,43 @@ def _sim_get_state(env, obs, joint_lower, joint_upper, n_act):
     )
 
 
+def _sim_restore_default_arm_pose(env):
+    """Force the arm back to the deterministic eval reset pose after sim warm-up."""
+    import torch
+
+    env_ids = torch.arange(env.num_envs, dtype=torch.long, device=env.device)
+    n_arm = int(env.num_arm_dofs)
+    default_arm = env.hand_arm_default_dof_pos[:n_arm].unsqueeze(0)
+    default_arm = default_arm.expand(env.num_envs, n_arm)
+
+    env.arm_hand_dof_pos[:, :n_arm] = default_arm
+    env.arm_hand_dof_vel[:, :n_arm] = 0.0
+    env.prev_targets[:, :n_arm] = default_arm
+    env.cur_targets[:, :n_arm] = default_arm
+
+    robot_indices = env.robot_indices[env_ids].to(torch.int32)
+    env.deferred_set_dof_state_tensor_indexed([robot_indices])
+    env.set_dof_state_tensor_indexed()
+
+    # Rebuild observations so the policy and visualizer both see the restored
+    # start pose before any episode action is taken.
+    env.populate_sim_buffers()
+    env.populate_obs_and_states_buffers()
+    return torch.clamp(env.obs_buf, -env.clip_obs, env.clip_obs).to(env.rl_device)
+
+
 def _sim_reset(env, n_act, device):
     import torch
     env.reset_idx(
         torch.arange(env.num_envs, dtype=torch.long, device=env.device),
         tensor_reset=True,
     )
-    obs, _, _, _ = env.step(torch.zeros((env.num_envs, n_act), device=device))
-    return obs["obs"]
+    reset_targets = env.prev_targets[:, :n_act].clone()
+    _, _, _, _ = env.step(
+        torch.zeros((env.num_envs, n_act), device=device),
+        joint_pos_targets=reset_targets,
+    )
+    return _sim_restore_default_arm_pose(env)
 
 
 def _sim_episode(

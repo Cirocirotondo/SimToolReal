@@ -6,7 +6,14 @@ from typing import List, Literal, Optional
 
 import tyro
 
-_TRAINING_PRESETS = ("default", "clean_dr", "real_dr", "train_10_real_mid_combined")
+_TRAINING_PRESETS = (
+    "default",
+    "clean_dr",
+    "real_dr",
+    "train_5_low_table",
+    "train_11_simple",
+    "train_10_real_mid_combined",
+)
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
     ("hammer", "screwdriver", "marker", "spatula", "eraser", "brush", "cube")
@@ -28,16 +35,21 @@ class LaunchTrainingArgs:
     """Path to checkpoint .pth file for finetuning. If None, trains from scratch."""
 
     training_preset: Literal[
-        "default", "clean_dr", "real_dr", "train_10_real_mid_combined"
+        "default",
+        "clean_dr",
+        "real_dr",
+        "train_5_low_table",
+        "train_11_simple",
+        "train_10_real_mid_combined",
     ] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR."""
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR."""
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
-    """Force scale override. If unset: default=6.0, train_10_real_mid_combined=12.0, real_dr=20.0."""
+    """Force scale override. If unset: default/train_5_low_table/train_11_simple=6.0, train_10_real_mid_combined=12.0, real_dr=20.0."""
 
     torque_scale: Optional[float] = None
-    """Torque scale override. If unset: default=0.5, train_10_real_mid_combined=1.0, real_dr=2.0."""
+    """Torque scale override. If unset: default/train_5_low_table/train_11_simple=0.5, train_10_real_mid_combined=1.0, real_dr=2.0."""
 
     handle_head_type: Optional[str] = None
     """If set, only this procedural tool family is used (see task env handleHeadTypes)."""
@@ -148,11 +160,13 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "default": "SimToolRealLSTMAsymmetric",
         "clean_dr": "SimToolRealLSTMAsymmetricCleanDR",
         "real_dr": "SimToolRealLSTMAsymmetricRealDR",
+        "train_5_low_table": "SimToolRealLSTMAsymmetricTrain5LowTable",
+        "train_11_simple": "SimToolRealLSTMAsymmetricTrain11Simple",
         "train_10_real_mid_combined": "SimToolRealLSTMAsymmetricTrain10RealMidCombined",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
-    if args.training_preset == "default":
+    if args.training_preset in {"default", "train_5_low_table", "train_11_simple"}:
         force_scale = 6.0 if force_scale is None else force_scale
         torque_scale = 0.5 if torque_scale is None else torque_scale
     elif args.training_preset == "train_10_real_mid_combined":

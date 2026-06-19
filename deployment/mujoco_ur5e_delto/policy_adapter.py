@@ -131,9 +131,9 @@ UPPER_LIMITS = np.array(
 DEFAULT_JOINT_POS = np.array(
     [
         -1.5708,
-        -1.571,
-        1.0,
-        0.5,
+        -1.0,
+        2.0,
+        -1.0,
         1.571,
         -1.571,
         *([0.0] * 20),
@@ -291,4 +291,3 @@ def compute_targets(
         + (1.0 - hand_moving_average) * prev[ARM_DOF:]
     )
     return np.clip(targets, LOWER_LIMITS, UPPER_LIMITS).astype(np.float32)
-

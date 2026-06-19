@@ -254,11 +254,20 @@ Reward graphs were encouraging, but video inspection showed the arm becoming slo
         Second resume after accidental manual stop of the first resume run.
 
 00_train_10_real_mid_combined_2026-06-15_14-42-50
-New training from zero with preset `train_10_real_mid_combined`.
-Intermediate sim2real setup: easier than full `real_dr`, harder than the lite contact-only setup.
-Keeps the low table, 5-7 cm cubes, updated UR5e start pose, and cube COM offset DR.
-Uses moderate obs/action/object-state delays, moderate contact/physics DR, and a disturbance curriculum
-from force/torque/impulse levels 4.0/0.3/0.0 to 12.0/1.0/0.01.
+Da zero con preset `train_10_real_mid_combined`.
+Setup sim2real intermedio: piu' difficile di train_5 / lite contact-only, meno aggressivo del full `real_dr`.
+Mantiene tavolo basso, cubi 5-7 cm, posa iniziale UR5e aggiornata e COM offset cubo ridotto a ±3 mm.
+Usa delay/rumori moderati, contact/physics DR moderata e curriculum disturbi
+da force/torque/impulse 4.0/0.3/0.0 fino a 12.0/1.0/0.01.
+Tabella parametri: vedi `REWARD_SIMTOOLREAL.md` → “Tabella run Sim2Real / cubo”.
+
+00_train_11_simple_2026-06-19_...
+Da zero con preset `train_11_simple`.
+Setup semplice per riallineare training ed eval: tavolo basso, cubo 5-7 cm, posa UR5e
+`[-1.5708, -1, 2, -1, 1.571, -1.571]`, cubo iniziale fisso come eval
+`[0.09, -0.12, 0.03, 0, 0, 0, 1]`.
+Niente randomizzazione della posa iniziale del cubo, niente rotazione random, delay obs/action spenti
+con queue minima a 1 (`obsDelayMax=1`, `actionDelayMax=1`).
 ```
 
 **Eval + grafici reward locali** (es. train_3 / train_30 checkpoint):

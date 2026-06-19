@@ -1,0 +1,24 @@
+# Train 11: simple train-5-like low-table preset without action delay.
+defaults:
+  - SimToolRealTrain5LowTable
+  - _self_
+
+env:
+
+  defaultArmDofPos: [-1.5708, -1, 2, -1, 1.571, -1.571]
+  tableResetZRange: 0.0
+  useFixedInitObjectPose: True
+  objectStartPose: [0.09, -0.12, 0.03, 0.0, 0.0, 0.0, 1.0]
+
+  useObsDelay: False
+  obsDelayMax: 1
+  useActionDelay: False
+  actionDelayMax: 1
+  resetPositionNoiseX: 0.0
+  resetPositionNoiseY: 0.0
+  resetPositionNoiseZ: 0.0
+  randomizeObjectRotation: False
+
+  # Random forces / torques on the object (sim2real-style). Original strong: 20; mild default below.
+  forceScale: 6.0
+  torqueScale: 0.5
