@@ -23,7 +23,9 @@ env:
   stiffnessScale: 1.0
   forceLimitScale: 1.0
   useRelativeControl: False
+  useRelativeHandControl: False
   dofSpeedScale: 1.5  # often set to 1.0
+  handDofSpeedScale: 1.5  # used only when useRelativeHandControl=True
   handMovingAverage: 0.1  # often set to 0.1 or 1.0
   armMovingAverage: 0.1  # often set to 0.1 or 1.0
   armDofs: 6
@@ -31,7 +33,14 @@ env:
   palmLinkName: "wrist_3_link"
   palmOffset: [0.0, 0.0, 0.16]
   defaultArmDofPos: [-1.5708, -1.571, 1, 0.5, 1.571, -1.571]
+  useMixedArmReset: False
+  mixedArmResetFixedProbability: 0.5
+  mixedArmResetFixedArmDofPos: null
+  mixedArmResetRandomCenterArmDofPos: null
+  mixedArmResetRandomArmDofPosMins: null
+  mixedArmResetRandomArmDofPosMaxs: null
   dofSpeedScaleFinal: ${eval:"None"}  # often set to 1.0
+  handDofSpeedScaleFinal: ${eval:"None"}
   armMovingAverageFinal: ${eval:"None"}  # often set to 0.1
   handMovingAverageFinal: ${eval:"None"}  # often set to 0.1
 

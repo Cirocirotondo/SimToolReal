@@ -1,0 +1,54 @@
+# Train B = we use, as finger actions, the delta positions instead of the raw positions.
+# Train 1: simplest training possible.
+defaults:
+  - SimToolReal
+  - _self_
+
+env:
+
+  defaultArmDofPos: [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
+  useMixedArmReset: True
+  mixedArmResetFixedProbability: 0.5
+  mixedArmResetFixedArmDofPos: [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
+  mixedArmResetRandomCenterArmDofPos: [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+  resetDofPosRandomIntervalArm: 0.03
+  resetDofPosRandomIntervalFingers: 0.0
+  resetDofVelRandomInterval: 0.0
+  useRelativeHandControl: True
+  handDofSpeedScale: 50
+  handActionDeltaPenaltyScale: 0.00003
+
+  # Low table
+  tableResetZ: -0.125
+  tableResetZRange: 0.0
+  objectFallResetZ: -0.05
+  targetVolumeMins: [-0.35, -0.2, 0.07]
+  targetVolumeMaxs: [0.35, 0.2, 0.42]
+
+  # disturbances
+  useObsDelay: False
+  obsDelayMax: 1
+  useActionDelay: False
+  actionDelayMax: 1
+  useObjectStateDelayNoise: False
+  jointVelocityObsNoiseStd: 0.0
+  # Random forces / torques on the object (sim2real-style). Original strong: 20; mild default below.
+  forceScale: 6.0
+  torqueScale: 0.5
+
+  # object 
+  fixedSizeKeypointReward: True  # default in SimtoolReal
+  handleHeadTypes: ["cube"]
+  cubeSizeRange: [0.05, 0.051]
+  useSingleHandleHeadTemplate: True
+  numObjectsPerType: 1  # default in SimtoolReal
+  # object pose
+  useFixedInitObjectPose: True
+  objectStartPose: [0.12, -0.12, 0.03, 0.0, 0.0, 0.0, 1.0]
+  resetPositionNoiseX: 0.0
+  resetPositionNoiseY: 0.0
+  resetPositionNoiseZ: 0.0
+  randomizeObjectRotation: False
+  # success tolerance
+  successTolerance: 0.0075
+  targetSuccessTolerance: 0.0075

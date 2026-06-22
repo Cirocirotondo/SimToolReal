@@ -449,6 +449,8 @@ def compute_joint_pos_targets(
     arm_moving_average: float,
     hand_dof_speed_scale: float,
     dt: float,
+    use_relative_hand_control: bool = False,
+    hand_relative_dof_speed_scale=None,
 ) -> np.ndarray:
     N = actions.shape[0]
     J = 29
@@ -471,13 +473,27 @@ def compute_joint_pos_targets(
         f"arm_moving_average: {arm_moving_average}, expected: (0.0, 1.0)"
     )
 
-    # hand
     cur_targets = prev_targets.copy()
-    cur_targets[:, 7:29] = scale(
-        actions[:, 7:29],
-        q_lower_limits[7:29],
-        q_upper_limits[7:29],
-    )
+
+    # hand
+    if hand_relative_dof_speed_scale is None:
+        hand_relative_dof_speed_scale = hand_dof_speed_scale
+    if use_relative_hand_control:
+        cur_targets[:, 7:29] = (
+            prev_targets[:, 7:29]
+            + hand_relative_dof_speed_scale * dt * actions[:, 7:29]
+        )
+        cur_targets[:, 7:29] = tensor_clamp(
+            cur_targets[:, 7:29],
+            q_lower_limits[7:29],
+            q_upper_limits[7:29],
+        )
+    else:
+        cur_targets[:, 7:29] = scale(
+            actions[:, 7:29],
+            q_lower_limits[7:29],
+            q_upper_limits[7:29],
+        )
     cur_targets[:, 7:29] = (
         hand_moving_average * cur_targets[:, 7:29]
         + (1.0 - hand_moving_average) * prev_targets[:, 7:29]

@@ -224,6 +224,9 @@ class SimToolReal(VecTask):
         )
 
         self.use_relative_control = self.cfg["env"]["useRelativeControl"]
+        self.use_relative_hand_control = self.cfg["env"].get(
+            "useRelativeHandControl", False
+        )
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
 
@@ -2958,6 +2961,8 @@ class SimToolReal(VecTask):
             "arm_moving_average": float(self.arm_moving_average),
             "hand_moving_average": float(self.hand_moving_average),
             "dof_speed_scale": float(self.hand_dof_speed_scale),
+            "use_relative_hand_control": bool(self.use_relative_hand_control),
+            "hand_dof_speed_scale": float(self.relative_hand_dof_speed_scale),
             "reset_dof_pos_noise_arm": float(self.applied_reset_dof_pos_noise_arm),
             "arm_reset_curriculum_scale": float(
                 getattr(self, "_arm_reset_curriculum_scale", 1.0)
@@ -3794,6 +3799,81 @@ class SimToolReal(VecTask):
 
         self.set_dof_state_object_indices = []
 
+    def sample_reset_robot_base_pos(self, num_resets: int):
+        base_pos = self.hand_arm_default_dof_pos.unsqueeze(0).repeat(num_resets, 1)
+        randomize_arm = torch.ones(
+            (num_resets, 1), dtype=torch.bool, device=self.device
+        )
+        if not self.cfg["env"].get("useMixedArmReset", False):
+            return base_pos, randomize_arm
+
+        fixed_probability = float(
+            self.cfg["env"].get("mixedArmResetFixedProbability", 0.5)
+        )
+        assert 0.0 <= fixed_probability <= 1.0, (
+            "mixedArmResetFixedProbability must be in [0, 1]"
+        )
+
+        fixed_arm_dof_pos = self.cfg["env"].get("mixedArmResetFixedArmDofPos")
+        if fixed_arm_dof_pos is None:
+            fixed_arm_dof_pos = self.hand_arm_default_dof_pos[
+                : self.num_arm_dofs
+            ].tolist()
+        fixed_arm = torch.tensor(
+            fixed_arm_dof_pos, dtype=base_pos.dtype, device=self.device
+        )
+
+        random_center_arm_dof_pos = self.cfg["env"].get(
+            "mixedArmResetRandomCenterArmDofPos"
+        )
+        if random_center_arm_dof_pos is not None:
+            assert (
+                len(fixed_arm_dof_pos)
+                == len(random_center_arm_dof_pos)
+                == self.num_arm_dofs
+            ), "mixed arm reset poses must have one value per arm DOF"
+            random_arm = torch.tensor(
+                random_center_arm_dof_pos, dtype=base_pos.dtype, device=self.device
+            ).unsqueeze(0).repeat(num_resets, 1)
+        else:
+            random_arm_mins = self.cfg["env"].get("mixedArmResetRandomArmDofPosMins")
+            random_arm_maxs = self.cfg["env"].get("mixedArmResetRandomArmDofPosMaxs")
+            assert random_arm_mins is not None and random_arm_maxs is not None, (
+                "mixed arm reset requires mixedArmResetRandomCenterArmDofPos, or "
+                "mixedArmResetRandomArmDofPosMins and "
+                "mixedArmResetRandomArmDofPosMaxs"
+            )
+            assert (
+                len(fixed_arm_dof_pos)
+                == len(random_arm_mins)
+                == len(random_arm_maxs)
+                == self.num_arm_dofs
+            ), "mixed arm reset pose/ranges must have one value per arm DOF"
+            random_mins = torch.tensor(
+                random_arm_mins, dtype=base_pos.dtype, device=self.device
+            )
+            random_maxs = torch.tensor(
+                random_arm_maxs, dtype=base_pos.dtype, device=self.device
+            )
+            assert torch.all(random_mins <= random_maxs), (
+                "mixedArmResetRandomArmDofPosMins must be <= Maxs"
+            )
+            random_alpha = torch.rand(
+                (num_resets, self.num_arm_dofs),
+                dtype=base_pos.dtype,
+                device=self.device,
+            )
+            random_arm = random_mins + random_alpha * (random_maxs - random_mins)
+
+        use_fixed = (
+            torch.rand((num_resets, 1), dtype=base_pos.dtype, device=self.device)
+            < fixed_probability
+        )
+        base_pos[:, : self.num_arm_dofs] = torch.where(
+            use_fixed, fixed_arm.unsqueeze(0), random_arm
+        )
+        return base_pos, ~use_fixed
+
     def reset_idx(
         self,
         env_ids: Tensor,
@@ -3888,15 +3968,22 @@ class SimToolReal(VecTask):
 
         # reset robot
         if len(env_ids) > 0 and reset_buf_idxs is None and tensor_reset:
-            delta_max = self.arm_hand_dof_upper_limits - self.hand_arm_default_dof_pos
-            delta_min = self.arm_hand_dof_lower_limits - self.hand_arm_default_dof_pos
+            reset_base_pos, randomize_arm_reset = self.sample_reset_robot_base_pos(
+                len(env_ids)
+            )
+            delta_max = self.arm_hand_dof_upper_limits - reset_base_pos
+            delta_min = self.arm_hand_dof_lower_limits - reset_base_pos
 
-            noise_coeff = torch.zeros_like(
-                self.hand_arm_default_dof_pos, device=self.device
+            noise_coeff = torch.zeros(
+                (len(env_ids), self.num_hand_arm_dofs),
+                dtype=reset_base_pos.dtype,
+                device=self.device,
             )
 
-            noise_coeff[: self.num_arm_dofs] = self.applied_reset_dof_pos_noise_arm
-            noise_coeff[self.num_arm_dofs : self.num_hand_arm_dofs] = (
+            noise_coeff[:, : self.num_arm_dofs] = (
+                self.applied_reset_dof_pos_noise_arm * randomize_arm_reset
+            )
+            noise_coeff[:, self.num_arm_dofs : self.num_hand_arm_dofs] = (
                 self.reset_dof_pos_noise_fingers
             )
 
@@ -3910,7 +3997,7 @@ class SimToolReal(VecTask):
             )
             rand_delta = noise_coeff * dist_to_closest_limit * rand_dof_gaussian
 
-            robot_pos = self.hand_arm_default_dof_pos + rand_delta
+            robot_pos = reset_base_pos + rand_delta
             robot_pos = tensor_clamp(
                 robot_pos,
                 self.arm_hand_dof_lower_limits,
@@ -4105,11 +4192,29 @@ class SimToolReal(VecTask):
         )
 
         # hand
-        self.cur_targets[:, self.num_arm_dofs : self.num_hand_arm_dofs] = scale(
-            actions[:, self.num_arm_dofs : self.num_hand_arm_dofs],
-            self.arm_hand_dof_lower_limits[self.num_arm_dofs : self.num_hand_arm_dofs],
-            self.arm_hand_dof_upper_limits[self.num_arm_dofs : self.num_hand_arm_dofs],
-        )
+        hand_dof_slice = slice(self.num_arm_dofs, self.num_hand_arm_dofs)
+        if self.use_relative_hand_control:
+            if self.use_relative_control:
+                hand_reference = self.arm_hand_dof_pos[:, hand_dof_slice]
+            else:
+                hand_reference = self.prev_targets[:, hand_dof_slice]
+            hand_targets = (
+                hand_reference
+                + self.relative_hand_dof_speed_scale
+                * self.dt
+                * actions[:, hand_dof_slice]
+            )
+            self.cur_targets[:, hand_dof_slice] = tensor_clamp(
+                hand_targets,
+                self.arm_hand_dof_lower_limits[hand_dof_slice],
+                self.arm_hand_dof_upper_limits[hand_dof_slice],
+            )
+        else:
+            self.cur_targets[:, hand_dof_slice] = scale(
+                actions[:, hand_dof_slice],
+                self.arm_hand_dof_lower_limits[hand_dof_slice],
+                self.arm_hand_dof_upper_limits[hand_dof_slice],
+            )
         self.cur_targets[:, self.num_arm_dofs : self.num_hand_arm_dofs] = (
             self.hand_moving_average
             * self.cur_targets[:, self.num_arm_dofs : self.num_hand_arm_dofs]
@@ -4132,6 +4237,8 @@ class SimToolReal(VecTask):
                 hand_moving_average=self.hand_moving_average,
                 arm_moving_average=self.arm_moving_average,
                 hand_dof_speed_scale=self.hand_dof_speed_scale,
+                use_relative_hand_control=self.use_relative_hand_control,
+                hand_relative_dof_speed_scale=self.relative_hand_dof_speed_scale,
                 dt=self.dt,
             )
             computed_joint_pos_targets = (
@@ -4789,6 +4896,20 @@ class SimToolReal(VecTask):
             return self.interpolate(
                 init=self.cfg["env"]["dofSpeedScale"],
                 final=self.cfg["env"]["dofSpeedScaleFinal"],
+                alpha=self._tyler_curriculum_scale,
+            )
+
+    @property
+    def relative_hand_dof_speed_scale(self) -> float:
+        initial = self.cfg["env"].get("handDofSpeedScale", self.hand_dof_speed_scale)
+        if self.cfg["env"].get("handDofSpeedScaleFinal") is None or not hasattr(
+            self, "_tyler_curriculum_scale"
+        ):
+            return initial
+        else:
+            return self.interpolate(
+                init=initial,
+                final=self.cfg["env"]["handDofSpeedScaleFinal"],
                 alpha=self._tyler_curriculum_scale,
             )
 

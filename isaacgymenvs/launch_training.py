@@ -12,6 +12,7 @@ _TRAINING_PRESETS = (
     "real_dr",
     "train_5_low_table",
     "train_11_simple",
+    "train_b1_simple",
     "train_10_real_mid_combined",
 )
 
@@ -40,9 +41,10 @@ class LaunchTrainingArgs:
         "real_dr",
         "train_5_low_table",
         "train_11_simple",
+        "train_b1_simple",
         "train_10_real_mid_combined",
     ] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR."""
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR."""
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
@@ -162,11 +164,17 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "real_dr": "SimToolRealLSTMAsymmetricRealDR",
         "train_5_low_table": "SimToolRealLSTMAsymmetricTrain5LowTable",
         "train_11_simple": "SimToolRealLSTMAsymmetricTrain11Simple",
+        "train_b1_simple": "SimToolRealLSTMAsymmetricTrainB1Simple",
         "train_10_real_mid_combined": "SimToolRealLSTMAsymmetricTrain10RealMidCombined",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
-    if args.training_preset in {"default", "train_5_low_table", "train_11_simple"}:
+    if args.training_preset in {
+        "default",
+        "train_5_low_table",
+        "train_11_simple",
+        "train_b1_simple",
+    }:
         force_scale = 6.0 if force_scale is None else force_scale
         torque_scale = 0.5 if torque_scale is None else torque_scale
     elif args.training_preset == "train_10_real_mid_combined":
