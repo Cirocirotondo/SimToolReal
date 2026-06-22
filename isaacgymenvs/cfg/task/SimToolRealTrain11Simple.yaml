@@ -5,15 +5,19 @@ defaults:
 
 env:
 
-  defaultArmDofPos: [-1.5708, -1, 2, -1, 1.571, -1.571]
+  defaultArmDofPos: [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
   tableResetZRange: 0.0
-  useFixedInitObjectPose: True
-  objectStartPose: [0.09, -0.12, 0.03, 0.0, 0.0, 0.0, 1.0]
-
+  resetDofPosRandomIntervalArm: 0.0
+  resetDofPosRandomIntervalFingers: 0.0
+  resetDofVelRandomInterval: 0.0
+  
   useObsDelay: False
   obsDelayMax: 1
   useActionDelay: False
   actionDelayMax: 1
+
+  useFixedInitObjectPose: True
+  objectStartPose: [0.09, -0.12, 0.03, 0.0, 0.0, 0.0, 1.0]
   resetPositionNoiseX: 0.0
   resetPositionNoiseY: 0.0
   resetPositionNoiseZ: 0.0
