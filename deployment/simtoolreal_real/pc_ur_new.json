@@ -1,0 +1,21 @@
+{
+    "robot_ip": "192.168.1.100",
+    "reset_pose": [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571],
+    "socket_port": 5555,
+    "publisher_port": 5556,
+
+    "frequency": 500,
+    "verbose": false,
+
+    "kpd_values": [8.0, 0.1, 6.0, 0.05],
+    "position_delta": 0.03,
+    "orientation_delta": 0.1,
+    "deadspace_speed": 0.0001,
+    "exponential_filter": 0.93,
+    "position_acceleration": 0.8,
+    "orientation_acceleration": 4.0,
+
+    "joint_acceleration": 3.0,
+    "max_joint_velocity": 10.0,
+    "path_tracking_p_gain": 3.0
+}
