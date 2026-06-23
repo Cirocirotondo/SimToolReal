@@ -1,0 +1,89 @@
+# Train C = Policy for only the hand, for a super simple goal (grasp cube and lift it up)
+# Train 1: simplest training possible.
+defaults:
+  - SimToolReal
+  - _self_
+
+name: SimToolRealHandOnly
+
+env:
+  controlHandOnly: True
+  useScriptedArmTrajectory: True
+  phaseObsSize: 4
+  stateList: ["joint_pos", "joint_vel", "prev_action_targets", "palm_pos", "palm_rot", "palm_vel", "object_rot", "object_vel", "fingertip_pos_rel_palm", "keypoints_rel_palm", "keypoints_rel_goal", "object_scales", "closest_keypoint_max_dist", "closest_fingertip_dist", "lifted_object", "progress", "successes", "reward", "phase"]
+  obsList: ["joint_pos", "joint_vel", "prev_action_targets", "palm_pos", "palm_rot", "object_rot", "fingertip_pos_rel_palm", "keypoints_rel_palm", "keypoints_rel_goal", "object_scales", "progress", "phase"]
+
+  
+  defaultArmDofPos: [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+  useMixedArmReset: False
+  resetDofPosRandomIntervalArm: 0.0
+  resetDofPosRandomIntervalFingers: 0.0
+  resetDofVelRandomInterval: 0.0
+  useRelativeHandControl: True
+  handDofSpeedScale: 50
+ 
+  scriptedArmTrajectory:
+    waypoints:
+      - step: 0
+        q: [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
+      - step: 120
+        q: [-1.5708, -1.0, 2.02, -1.02, 1.571, -1.571]
+      - step: 240
+        q: [-1.5708, -1.0, 2.02, -1.02, 1.571, -1.571]
+      - step: 420
+        q: [-1.5708, -1.3, 1.65, -0.35, 1.571, -1.571]
+      - step: 600
+        q: [-1.5708, -1.3, 1.65, -0.35, 1.571, -1.571]
+
+  # Low table
+  groundPlaneZ: -0.10
+  tableResetZ: -0.15
+  tableResetZRange: 0.0
+  targetVolumeMins: [-0.35, -0.2, 0.07]
+  targetVolumeMaxs: [0.35, 0.2, 0.42]
+
+  # disturbances
+  useObsDelay: False
+  obsDelayMax: 1
+  useActionDelay: False
+  actionDelayMax: 1
+  useObjectStateDelayNoise: False
+  jointVelocityObsNoiseStd: 0.0
+  # Random forces / torques on the object (sim2real-style). Original strong: 20; mild default below.
+  forceScale: 6.0
+  torqueScale: 0.5
+
+  # object 
+  fixedSizeKeypointReward: True  # default in SimtoolReal
+  handleHeadTypes: ["cube"]
+  cubeSizeRange: [0.05, 0.051]
+  useSingleHandleHeadTemplate: True
+  numObjectsPerType: 1  # default in SimtoolReal
+  # object pose
+  useFixedInitObjectPose: True
+  objectStartPose: [0.12, -0.12, 0.03, 0.0, 0.0, 0.0, 1.0]
+  goalObjectPose: [0.12, -0.12, 0.23, 0.0, 0.0, 0.0, 1.0]
+  resetPositionNoiseX: 0.0
+  resetPositionNoiseY: 0.0
+  resetPositionNoiseZ: 0.0
+  randomizeObjectRotation: False
+  # success tolerance
+  keypointScale: 1.0
+  successTolerance: 0.04
+  targetSuccessTolerance: 0.04
+  maxConsecutiveSuccesses: 1
+  successSteps: 5
+  forceConsecutiveNearGoalSteps: True
+
+  # Reward terms
+  kukaActionsPenaltyScale: 0.0
+  handActionDeltaPenaltyScale: 0.00003
+  fingertipSpreadPenaltyScale: 0.0
+  fingertipMultiContactBonusScale: 0.0
+  fingertipThumbBonusScale: 0.0
+
+  # Early termination
+  resetWhenDropped: True
+  objectFallResetZ: -0.05
+
+

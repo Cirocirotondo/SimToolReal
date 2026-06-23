@@ -7,7 +7,7 @@ defaults:
 env:
 
   defaultArmDofPos: [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
-  useMixedArmReset: True
+  useMixedArmReset: False
   mixedArmResetFixedProbability: 0.5
   mixedArmResetFixedArmDofPos: [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
   mixedArmResetRandomCenterArmDofPos: [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
@@ -19,7 +19,7 @@ env:
   handActionDeltaPenaltyScale: 0.00003
 
   # Low table
-  tableResetZ: -0.125
+  tableResetZ: -0.149
   tableResetZRange: 0.0
   objectFallResetZ: -0.05
   targetVolumeMins: [-0.35, -0.2, 0.07]

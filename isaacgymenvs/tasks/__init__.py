@@ -27,8 +27,10 @@
 # OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 from .simtoolreal.env import SimToolReal
+from .simtoolreal.env_hand_only import SimToolRealHandOnly
 
 # Mappings from strings to environments
 isaacgym_task_map = {
     "SimToolReal": SimToolReal,
+    "SimToolRealHandOnly": SimToolRealHandOnly,
 }

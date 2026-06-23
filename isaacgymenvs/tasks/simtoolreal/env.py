@@ -356,6 +356,7 @@ class SimToolReal(VecTask):
             "progress": 1,
             "successes": 1,
             "reward": 1,
+            "phase": self.cfg["env"].get("phaseObsSize", 4),
         }
 
         self.state_list = self.cfg["env"]["stateList"]
@@ -1715,6 +1716,7 @@ class SimToolReal(VecTask):
     def _create_ground_plane(self):
         plane_params = gymapi.PlaneParams()
         plane_params.normal = gymapi.Vec3(0.0, 0.0, 1.0)
+        plane_params.distance = float(self.cfg["env"].get("groundPlaneZ", 0.0))
         self.gym.add_ground(self.sim, plane_params)
 
     def _handle_head_primitives(self, generated_assets_dir):
@@ -2662,7 +2664,7 @@ class SimToolReal(VecTask):
             # - And there is 0.1 gap above the table surface, so dropping the object on the table will be detected as dropped
             dropped_z = self.object_init_state[:, 2]
             dropped = (
-                torch.where(self.object_pos[:, 2] < dropped_z, ones, zeros)
+                torch.where(self.object_pos[:, 2] < dropped_z + 0.01, ones, zeros)
                 * self.lifted_object
             )
         else:
@@ -3393,6 +3395,11 @@ class SimToolReal(VecTask):
         # this is where we will add the reward observation
         reward_obs_scale = 0.01
         obs_dict["reward"] = reward_obs_scale * self.rew_buf
+        obs_dict["phase"] = torch.zeros(
+            (self.num_envs, self.obs_type_size_dict["phase"]),
+            dtype=torch.float32,
+            device=self.device,
+        )
 
         # ##############################################################################################################
         # Create state_buf
@@ -3456,6 +3463,11 @@ class SimToolReal(VecTask):
         reward_obs_scale = 0.01
         obs_dict["reward"] = (
             reward_obs_scale * self.rew_buf * self.turn_off_extra_obs_scale
+        )
+        obs_dict["phase"] = torch.zeros(
+            (self.num_envs, self.obs_type_size_dict["phase"]),
+            dtype=torch.float32,
+            device=self.device,
         )
 
         # ##############################################################################################################
