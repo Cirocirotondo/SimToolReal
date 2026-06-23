@@ -1,0 +1,9 @@
+[submodule "assets/urdf/delto_m_ros2"]
+	path = assets/urdf/delto_m_ros2
+	url = https://github.com/tesollodelto/delto_m_ros2.git
+[submodule "assets/urdf/universal_robot"]
+	path = assets/urdf/universal_robot
+	url = https://github.com/ros-industrial/universal_robot.git
+[submodule "assets/urdf/universal_robot_ros1"]
+	path = assets/urdf/universal_robot_ros1
+	url = https://github.com/ros-industrial/universal_robot.git
