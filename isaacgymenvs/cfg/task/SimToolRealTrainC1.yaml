@@ -85,5 +85,9 @@ env:
   # Early termination
   resetWhenDropped: True
   objectFallResetZ: -0.05
-
-
+  resetIfNotLiftedByDeadline: True
+  notLiftedDeadlineStep: 420
+  notLiftedHeightThreshold: 0.05
+  resetIfFingertipsFarAfterGrasp: True
+  fingertipsFarDistanceThreshold: 0.12
+  fingertipsFarPatienceSteps: 30
