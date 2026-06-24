@@ -50,27 +50,6 @@ class SimToolRealHandOnly(SimToolReal):
             np.ones(self.num_actions) * 1.0,
         )
         self._init_scripted_arm_trajectory()
-        self.reset_if_not_lifted_by_deadline = self.cfg["env"].get(
-            "resetIfNotLiftedByDeadline", False
-        )
-        self.not_lifted_deadline_step = int(
-            self.cfg["env"].get("notLiftedDeadlineStep", 420)
-        )
-        self.not_lifted_height_threshold = float(
-            self.cfg["env"].get("notLiftedHeightThreshold", 0.05)
-        )
-        self.reset_if_fingertips_far_after_grasp = self.cfg["env"].get(
-            "resetIfFingertipsFarAfterGrasp", False
-        )
-        self.fingertips_far_distance_threshold = float(
-            self.cfg["env"].get("fingertipsFarDistanceThreshold", 0.12)
-        )
-        self.fingertips_far_patience_steps = int(
-            self.cfg["env"].get("fingertipsFarPatienceSteps", 30)
-        )
-        self.fingertips_far_counter = torch.zeros(
-            self.num_envs, dtype=torch.long, device=self.device
-        )
 
     def _init_scripted_arm_trajectory(self) -> None:
         trajectory_cfg = self.cfg["env"].get("scriptedArmTrajectory", {})
@@ -214,46 +193,6 @@ class SimToolRealHandOnly(SimToolReal):
                 self.obs_buf, self.obs_list, obs_dict
             )
             self.obs_queue[:, 0] = self.obs_buf.clone()
-
-    def _extra_reset_rules(self, resets: torch.Tensor) -> torch.Tensor:
-        resets = super()._extra_reset_rules(resets)
-        zeros = torch.zeros_like(self.reset_buf)
-
-        if not self.reset_if_not_lifted_by_deadline:
-            not_lifted_by_deadline = zeros
-        else:
-            not_lifted_by_deadline = (
-                (self.progress_buf >= self.not_lifted_deadline_step)
-                & (
-                    self.object_pos[:, 2]
-                    < self.object_init_state[:, 2] + self.not_lifted_height_threshold
-                )
-            )
-            not_lifted_by_deadline = not_lifted_by_deadline.to(resets.dtype)
-
-        if not self.reset_if_fingertips_far_after_grasp:
-            fingertips_far_too_long = zeros
-        else:
-            grasp_started = self.progress_buf >= int(self.scripted_arm_steps[1].item())
-            all_fingertips_far = (
-                self.curr_fingertip_distances.min(dim=-1).values
-                > self.fingertips_far_distance_threshold
-            )
-            fingertips_far = grasp_started & all_fingertips_far
-            self.fingertips_far_counter = torch.where(
-                fingertips_far,
-                self.fingertips_far_counter + 1,
-                torch.zeros_like(self.fingertips_far_counter),
-            )
-            fingertips_far_too_long = (
-                self.fingertips_far_counter >= self.fingertips_far_patience_steps
-            ).to(resets.dtype)
-
-        self.extras["reset/not_lifted_by_deadline"] = not_lifted_by_deadline.float().mean()
-        self.extras["reset/fingertips_far_after_grasp"] = (
-            fingertips_far_too_long.float().mean()
-        )
-        return resets | not_lifted_by_deadline | fingertips_far_too_long
 
     def _replace_buffer_from_obs_dict(
         self, buffer: torch.Tensor, keys: List[str], obs_dict: Dict[str, torch.Tensor]

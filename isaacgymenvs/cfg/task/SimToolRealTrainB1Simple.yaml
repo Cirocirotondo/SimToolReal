@@ -19,9 +19,9 @@ env:
   handActionDeltaPenaltyScale: 0.00003
 
   # Low table
+  groundPlaneZ: 0.10
   tableResetZ: -0.149
   tableResetZRange: 0.0
-  objectFallResetZ: -0.05
   targetVolumeMins: [-0.35, -0.2, 0.07]
   targetVolumeMaxs: [0.35, 0.2, 0.42]
 
@@ -33,8 +33,8 @@ env:
   useObjectStateDelayNoise: False
   jointVelocityObsNoiseStd: 0.0
   # Random forces / torques on the object (sim2real-style). Original strong: 20; mild default below.
-  forceScale: 6.0
-  torqueScale: 0.5
+  forceScale: 0
+  torqueScale: 0
 
   # object 
   fixedSizeKeypointReward: True  # default in SimtoolReal
@@ -52,3 +52,14 @@ env:
   # success tolerance
   successTolerance: 0.0075
   targetSuccessTolerance: 0.0075
+
+  # Early termination
+  resetWhenDropped: True
+  objectFallResetZ: -0.05
+  resetIfNotLiftedByDeadline: True
+  notLiftedDeadlineStep: 420
+  notLiftedHeightThreshold: 0.05
+  resetIfFingertipsFarAfterGrasp: True
+  fingertipsFarStartStep: 120
+  fingertipsFarDistanceThreshold: 0.12
+  fingertipsFarPatienceSteps: 30

@@ -148,6 +148,22 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
    a lunghezza 1 per evitare crash runtime (`obsDelayMax=1`, `actionDelayMax=1`).
    Mantiene disturbi leggeri train_5-like (`forceScale=6.0`, `torqueScale=0.5`) e senza PhysX DR pesante.
 
+00_train_b1_simple_2026-06-...
+   Nuovo training da zero con preset `train_b1_simple`.
+   Variante B del setup semplice: mantiene cubo fisso e tavolo basso, ma cambia il controllo dita in
+   target relativi/delta (`useRelativeHandControl=True`, `handDofSpeedScale=50`) con penalty sulle
+   variazioni mano molto ridotta (`handActionDeltaPenaltyScale=0.00003`).
+   Cubo iniziale fisso: `objectStartPose=[0.12, -0.12, 0.03, 0, 0, 0, 1]`; cubo 5 cm; no obs/action delay.
+
+   └── 00_train_b2_no_omnireset_early_terminations_2026-06-...
+       Run derivata da B1 per testare la stessa configurazione senza omnireset/good-reset e con le
+       early termination esplicite attive (`resetWhenDropped`, `resetIfNotLiftedByDeadline`,
+       `resetIfFingertipsFarAfterGrasp`).
+       │
+       └── 00_train_b3_no_cube_disturbances_early_termination_logging_2026-06-...
+           Uguale a B2, ma senza disturbi sul cubo (`forceScale=0`, `torqueScale=0`) e con logging
+           delle ragioni delle early termination (`reset_count/*`, `reset_current/*`, `reset/*`).
+
 
 
 ```
@@ -165,42 +181,45 @@ Percorsi usati: `train_dir/simtoolreal/2026-05-11/train_single_tool_from_zero_..
 
 Questa tabella tiene insieme le modifiche che contano per il passaggio da train_5, che imparava bene ma aveva poca robustezza sim2real, ai preset piu' robusti. Valori letti dai `config.yaml` salvati nelle cartelle `runs/`.
 
-| Parametro | `00_train_5_cube_…_17-27-47` | `00_train_06_sim2real_…_14-20-50` | `00_train_07_sim2real_…_15-39-00` | `00_train_10_real_mid_combined_…_14-42-50` |
-| --- | --- | --- | --- | --- |
-| Parent / checkpoint | da zero | da zero | da zero, separato da train_06 | da zero |
-| Preset / intent | cube baseline robusto in sim | `real_dr`, full sim2real | `real_dr` + reset arm progressivo | `train_10_real_mid_combined`, sim2real intermedio |
-| Tavolo | alto: `tableResetZ=0.38`, range 1 cm | basso: `-0.125`, range 2.5 cm | basso: `-0.125`, range 2.5 cm | basso: `-0.125`, range 2.5 cm |
-| Posa iniziale UR5e | `[-1.5708, -1.571, 1.0, 0.5, 1.571, -1.571]` | `[-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]` | stessa train_06 | stessa train_06 |
-| `objectFallResetZ` | default alto / non abbassato | `-0.05` | `-0.05` | `-0.05` |
-| `fixedSizeKeypointReward` | `true` | `false` | `false` | `false` |
-| Cubi procedurali | 1 cubo | 20 cubi | 20 cubi | 20 cubi |
-| `cubeSizeRange` | assente nel config salvato | `[0.05, 0.07]` | `[0.05, 0.07]` | `[0.05, 0.07]` |
-| `cubeComOffsetRange` | assente | `[-0.005, 0.005]` | `[-0.005, 0.005]` | `[-0.003, 0.003]` |
-| Densita' cubo procedurale | singolo template | `[300, 600] kg/m^3` | `[300, 600] kg/m^3` | `[300, 600] kg/m^3` |
-| `objectScaleNoiseMultiplierRange` | `[0.9, 1.1]` | `[0.9, 1.1]` | `[0.9, 1.1]` | `[0.95, 1.05]` |
-| Reset pos oggetto XYZ | `0.1 / 0.1 / 0.02` | `0.05 / 0.05 / 0.02` | `0.05 / 0.05 / 0.02` | `0.05 / 0.05 / 0.02` |
-| Reset DOF dita / arm | `0.03 / 0.03` | `0.1 / 0.5` | `0.08 / 0.1` | `0.06 / 0.06` |
-| Curriculum reset arm | no | no | `0.03 -> 0.1`, reward 0 -> 10000 | `0.03 -> 0.06`, reward 0 -> 7000 |
-| Obs/action delay | `3 / 3` | `3 / 3` | `3 / 3` | `2 / 2` |
-| Object-state delay | 10 | 10 | 10 | 6 |
-| Object-state noise | 1 cm, 5 deg | 1 cm, 5 deg | 1 cm, 5 deg | 0.75 cm, 3 deg |
-| Joint velocity obs noise | 0.1 | 0.1 | 0.1 | 0.05 |
-| Obs/action generic DR | `task.randomize=false`; schedule presente ma non attivo | gaussian `[0, 0.01]`, 10G transitions | gaussian `[0, 0.01]`, 10G transitions | gaussian `[0, 0.01]`, ~5G transitions |
-| `forceScale` / `torqueScale` | `6.0 / 0.5` | `20.0 / 2.0` | `20.0 / 2.0` | `12.0 / 1.0` |
-| Linear/angular impulse | `0.0 / 0.0` | `0.02 / 0.02` | `0.02 / 0.02` | `0.01 / 0.01` |
-| Disturbance curriculum | no esplicito | reward 10000 -> 19000 | reward 10000 -> 19000 | reward 7000 -> 15000 |
-| `fingertipSpreadPenaltyScale` | 0.25 | 1.25 | 1.25 | 0.9 |
-| `fingertipMultiContactBonusScale` | 0.1 | 0.2 | 0.2 | 0.15 |
-| Action-delta penalty arm / hand | assente o 0 nel vecchio config | `0.003 / 0.0003` | `0.003 / 0.0003` | `0.0015 / 0.00015` |
-| Robot mass DR | `task.randomize=false`; config legacy `[0.7, 1.3]` non attivo | `[0.7, 1.3]` | `[0.7, 1.3]` | `[0.85, 1.15]` |
-| Robot rigid-shape friction DR | non attivo | `[0.7, 1.3]` scaling | `[0.7, 1.3]` scaling | `[0.85, 1.15]` scaling |
-| Robot restitution DR | non attivo | `[0.0, 0.1]` additive | `[0.0, 0.1]` additive | `[0.0, 0.05]` additive |
-| Robot DOF-property DR | non attivo | disattivato (`null`) | disattivato (`null`) | disattivato (`null`) |
-| Object mass DR | non attivo | `[0.7, 1.3]` | `[0.7, 1.3]` | `[0.8, 1.2]` |
-| Object/table friction DR | non attivo | `[0.5, 2.0]` scaling | `[0.5, 2.0]` scaling | `[0.7, 1.6]` scaling |
-| Object/table restitution DR | non attivo | `[0.0, 0.1]` additive | `[0.0, 0.1]` additive | `[0.0, 0.08]` additive |
-| Colori asset | robot color DR nel config legacy ma non attivo | `color: true` nel config salvato | `color: null` nella versione corretta del preset | `color: null` |
-| Note comportamento | buon grasp in sim; poca robustezza sim2real | full DR molto difficile | reward bene, video: braccio sempre piu' lento | intermedio per ridurre difficolta' mantenendo robustezza |
+| Parametro | `00_train_5_cube_…_17-27-47` | `00_train_06_sim2real_…_14-20-50` | `00_train_07_sim2real_…_15-39-00` | `00_train_10_real_mid_combined_…_14-42-50` | `00_train_b2_no_omnireset_early_terminations_2026-06-...` | `00_train_b3_no_cube_disturbances_early_termination_logging_2026-06-...` |
+| --- | --- | --- | --- | --- | --- | --- |
+| Parent / checkpoint | da zero | da zero | da zero, separato da train_06 | da zero | da zero, famiglia B1 | da zero / stessa famiglia B2 |
+| Preset / intent | cube baseline robusto in sim | `real_dr`, full sim2real | `real_dr` + reset arm progressivo | `train_10_real_mid_combined`, sim2real intermedio | `train_b1_simple`, controllo mano relativo + early termination | come B2, senza disturbi sul cubo e con logging ragioni early termination |
+| Tavolo | alto: `tableResetZ=0.38`, range 1 cm | basso: `-0.125`, range 2.5 cm | basso: `-0.125`, range 2.5 cm | basso: `-0.125`, range 2.5 cm | basso: `tableResetZ=-0.149`, range 0 | stessa B2 |
+| Posa iniziale UR5e | `[-1.5708, -1.571, 1.0, 0.5, 1.571, -1.571]` | `[-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]` | stessa train_06 | stessa train_06 | `[-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]` | stessa B2 |
+| `objectFallResetZ` | default alto / non abbassato | `-0.05` | `-0.05` | `-0.05` | `-0.05` | `-0.05` |
+| `fixedSizeKeypointReward` | `true` | `false` | `false` | `false` | `true` | `true` |
+| Cubi procedurali | 1 cubo | 20 cubi | 20 cubi | 20 cubi | 1 cubo fisso | 1 cubo fisso |
+| `cubeSizeRange` | assente nel config salvato | `[0.05, 0.07]` | `[0.05, 0.07]` | `[0.05, 0.07]` | `[0.05, 0.051]` | `[0.05, 0.051]` |
+| `cubeComOffsetRange` | assente | `[-0.005, 0.005]` | `[-0.005, 0.005]` | `[-0.003, 0.003]` | assente / default | assente / default |
+| Densita' cubo procedurale | singolo template | `[300, 600] kg/m^3` | `[300, 600] kg/m^3` | `[300, 600] kg/m^3` | singolo template | singolo template |
+| `objectScaleNoiseMultiplierRange` | `[0.9, 1.1]` | `[0.9, 1.1]` | `[0.9, 1.1]` | `[0.95, 1.05]` | default/fisso | default/fisso |
+| Reset pos oggetto XYZ | `0.1 / 0.1 / 0.02` | `0.05 / 0.05 / 0.02` | `0.05 / 0.05 / 0.02` | `0.05 / 0.05 / 0.02` | `0.0 / 0.0 / 0.0`, `objectStartPose=[0.12,-0.12,0.03,...]` | stessa B2 |
+| Reset DOF dita / arm | `0.03 / 0.03` | `0.1 / 0.5` | `0.08 / 0.1` | `0.06 / 0.06` | `0.0 / 0.03`, vel `0.0` | stessa B2 |
+| Curriculum reset arm | no | no | `0.03 -> 0.1`, reward 0 -> 10000 | `0.03 -> 0.06`, reward 0 -> 7000 | no | no |
+| Obs/action delay | `3 / 3` | `3 / 3` | `3 / 3` | `2 / 2` | off: `useObsDelay=False`, `useActionDelay=False`, max `1 / 1` | stessa B2 |
+| Object-state delay | 10 | 10 | 10 | 6 | off: `useObjectStateDelayNoise=False` | stessa B2 |
+| Object-state noise | 1 cm, 5 deg | 1 cm, 5 deg | 1 cm, 5 deg | 0.75 cm, 3 deg | off | off |
+| Joint velocity obs noise | 0.1 | 0.1 | 0.1 | 0.05 | `0.0` | `0.0` |
+| Obs/action generic DR | `task.randomize=false`; schedule presente ma non attivo | gaussian `[0, 0.01]`, 10G transitions | gaussian `[0, 0.01]`, 10G transitions | gaussian `[0, 0.01]`, ~5G transitions | no delay/noise DR nel task; launcher standard | stessa B2 |
+| `forceScale` / `torqueScale` | `6.0 / 0.5` | `20.0 / 2.0` | `20.0 / 2.0` | `12.0 / 1.0` | `6.0 / 0.5` | `0.0 / 0.0` |
+| Linear/angular impulse | `0.0 / 0.0` | `0.02 / 0.02` | `0.02 / 0.02` | `0.01 / 0.01` | default / assente | default / assente |
+| Disturbance curriculum | no esplicito | reward 10000 -> 19000 | reward 10000 -> 19000 | reward 7000 -> 15000 | no esplicito | no disturbi cubo |
+| `fingertipSpreadPenaltyScale` | 0.25 | 1.25 | 1.25 | 0.9 | default/inherited | default/inherited |
+| `fingertipMultiContactBonusScale` | 0.1 | 0.2 | 0.2 | 0.15 | default/inherited | default/inherited |
+| Action-delta penalty arm / hand | assente o 0 nel vecchio config | `0.003 / 0.0003` | `0.003 / 0.0003` | `0.0015 / 0.00015` | arm default/0, hand `0.00003`; `useRelativeHandControl=True`, `handDofSpeedScale=50` | stessa B2 |
+| Robot mass DR | `task.randomize=false`; config legacy `[0.7, 1.3]` non attivo | `[0.7, 1.3]` | `[0.7, 1.3]` | `[0.85, 1.15]` | non attivo | non attivo |
+| Robot rigid-shape friction DR | non attivo | `[0.7, 1.3]` scaling | `[0.7, 1.3]` scaling | `[0.85, 1.15]` scaling | non attivo | non attivo |
+| Robot restitution DR | non attivo | `[0.0, 0.1]` additive | `[0.0, 0.1]` additive | `[0.0, 0.05]` additive | non attivo | non attivo |
+| Robot DOF-property DR | non attivo | disattivato (`null`) | disattivato (`null`) | disattivato (`null`) | non attivo | non attivo |
+| Object mass DR | non attivo | `[0.7, 1.3]` | `[0.7, 1.3]` | `[0.8, 1.2]` | non attivo | non attivo |
+| Object/table friction DR | non attivo | `[0.5, 2.0]` scaling | `[0.5, 2.0]` scaling | `[0.7, 1.6]` scaling | non attivo | non attivo |
+| Object/table restitution DR | non attivo | `[0.0, 0.1]` additive | `[0.0, 0.1]` additive | `[0.0, 0.08]` additive | non attivo | non attivo |
+| Colori asset | robot color DR nel config legacy ma non attivo | `color: true` nel config salvato | `color: null` nella versione corretta del preset | `color: null` | non attivo | non attivo |
+| Early termination | standard | standard | standard + reset arm curriculum | standard | `resetWhenDropped=True`, not lifted by step 420, fingertips >12 cm for 30 steps after step 120 | stessa B2 |
+| Early termination logging | no extra logging | no extra logging | no extra logging | no extra logging | base fractions `reset/*` | `reset_count/*`, `reset_current/*`, `reset/*` |
+| Good reset / omnireset | dipende dal launcher storico | dipende dal launcher storico | curriculum/good reset storico | launcher con `good_reset_boundary=0` nelle run recenti | no omnireset/good-reset: `good_reset_boundary=0`, `task.env.goodResetBoundary=0` | stessa B2 |
+| Note comportamento | buon grasp in sim; poca robustezza sim2real | full DR molto difficile | reward bene, video: braccio sempre piu' lento | intermedio per ridurre difficolta' mantenendo robustezza | setup semplice B: cubo fisso, mano relativa, terminate early sugli episodi morti | come B2 ma senza push/torque sul cubo e con diagnosi reset piu' leggibile |
 
 ### Tabella run **cubo** (WandB `reward_step/*`, `episode_cumulative/*`)
 

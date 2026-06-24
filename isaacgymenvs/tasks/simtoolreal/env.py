@@ -207,6 +207,29 @@ class SimToolReal(VecTask):
             "torqueOnlyWhenLifted", False
         )
 
+        self.reset_if_not_lifted_by_deadline = self.cfg["env"].get(
+            "resetIfNotLiftedByDeadline", False
+        )
+        self.not_lifted_deadline_step = int(
+            self.cfg["env"].get("notLiftedDeadlineStep", 420)
+        )
+        self.not_lifted_height_threshold = float(
+            self.cfg["env"].get("notLiftedHeightThreshold", 0.05)
+        )
+        self.reset_if_fingertips_far_after_grasp = self.cfg["env"].get(
+            "resetIfFingertipsFarAfterGrasp", False
+        )
+        fingertips_far_start_step = self.cfg["env"].get("fingertipsFarStartStep")
+        self.fingertips_far_start_step = (
+            None if fingertips_far_start_step is None else int(fingertips_far_start_step)
+        )
+        self.fingertips_far_distance_threshold = float(
+            self.cfg["env"].get("fingertipsFarDistanceThreshold", 0.12)
+        )
+        self.fingertips_far_patience_steps = int(
+            self.cfg["env"].get("fingertipsFarPatienceSteps", 30)
+        )
+
         self.lin_vel_impulse_prob_range = self.cfg["env"].get(
             "linVelImpulseProbRange", [0.001, 0.1]
         )
@@ -408,6 +431,9 @@ class SimToolReal(VecTask):
             headless=headless,
             virtual_screen_capture=virtual_screen_capture,
             force_render=force_render,
+        )
+        self.fingertips_far_counter = torch.zeros(
+            self.num_envs, dtype=torch.long, device=self.device
         )
 
         # Index of environment to view in viewer and camera
@@ -1422,7 +1448,55 @@ class SimToolReal(VecTask):
         )
 
     def _extra_reset_rules(self, resets):
-        return resets
+        zeros = torch.zeros_like(self.reset_buf)
+
+        if self.reset_if_not_lifted_by_deadline:
+            not_lifted_by_deadline = (
+                (self.progress_buf >= self.not_lifted_deadline_step)
+                & (
+                    self.object_pos[:, 2]
+                    < self.object_init_state[:, 2] + self.not_lifted_height_threshold
+                )
+            ).to(resets.dtype)
+        else:
+            not_lifted_by_deadline = zeros
+
+        if self.reset_if_fingertips_far_after_grasp:
+            fingertips_far_start_step = self.fingertips_far_start_step
+            if fingertips_far_start_step is None and hasattr(self, "scripted_arm_steps"):
+                fingertips_far_start_step = int(self.scripted_arm_steps[1].item())
+            elif fingertips_far_start_step is None:
+                fingertips_far_start_step = 0
+
+            all_fingertips_far = (
+                self.curr_fingertip_distances.min(dim=-1).values
+                > self.fingertips_far_distance_threshold
+            )
+            fingertips_far = (
+                self.progress_buf >= fingertips_far_start_step
+            ) & all_fingertips_far
+            self.fingertips_far_counter = torch.where(
+                fingertips_far,
+                self.fingertips_far_counter + 1,
+                torch.zeros_like(self.fingertips_far_counter),
+            )
+            fingertips_far_too_long = (
+                self.fingertips_far_counter >= self.fingertips_far_patience_steps
+            ).to(resets.dtype)
+        else:
+            fingertips_far_too_long = zeros
+
+        self.extras["reset/not_lifted_by_deadline"] = (
+            not_lifted_by_deadline.float().mean().item()
+        )
+        self.extras["reset/fingertips_far_after_grasp"] = (
+            fingertips_far_too_long.float().mean().item()
+        )
+        self.extra_reset_reason_tensors = {
+            "not_lifted_by_deadline": not_lifted_by_deadline,
+            "fingertips_far_after_grasp": fingertips_far_too_long,
+        }
+        return resets | not_lifted_by_deadline | fingertips_far_too_long
 
     def _sample_delta_goal(
         self, goal_states, delta_goal_distance, delta_rotation_degrees
@@ -2712,6 +2786,8 @@ class SimToolReal(VecTask):
                 "table_force_too_high": 0,
                 "hand_far_from_object": 0,
                 "dropped": 0,
+                "not_lifted_by_deadline": 0,
+                "fingertips_far_after_grasp": 0,
             }
         # Current means this recent step (across all environments)
         # Recent means the last MAX_HISTORY_LENGTH resets
@@ -2728,9 +2804,15 @@ class SimToolReal(VecTask):
             "hand_far_from_object": hand_far_from_object.sum().item(),
             "dropped": dropped.sum().item(),
         }
+        for reason, reason_tensor in getattr(
+            self, "extra_reset_reason_tensors", {}
+        ).items():
+            current_reset_reason_counts[reason] = reason_tensor.sum().item()
 
         # Update counts
         for reason, count in current_reset_reason_counts.items():
+            if reason not in self.cumulative_reset_reason_counts:
+                self.cumulative_reset_reason_counts[reason] = 0
             self.cumulative_reset_reason_counts[reason] += count
         for reason, count in current_reset_reason_counts.items():
             self.recent_reset_reason_history.extend([reason] * count)
@@ -2743,6 +2825,31 @@ class SimToolReal(VecTask):
             self.extras[f"reset/{reason}"] = (
                 count / recent_total if recent_total > 0 else 0
             )
+        for reason, count in current_reset_reason_counts.items():
+            self.extras[f"reset_current/{reason}"] = count
+            self.extras[f"reset_count/{reason}"] = self.cumulative_reset_reason_counts[
+                reason
+            ]
+        self.extras["reset_current/early_termination_total"] = sum(
+            current_reset_reason_counts.get(reason, 0)
+            for reason in (
+                "not_lifted_by_deadline",
+                "fingertips_far_after_grasp",
+                "dropped",
+                "object_z_low",
+                "hand_far_from_object",
+            )
+        )
+        self.extras["reset_count/early_termination_total"] = sum(
+            self.cumulative_reset_reason_counts.get(reason, 0)
+            for reason in (
+                "not_lifted_by_deadline",
+                "fingertips_far_after_grasp",
+                "dropped",
+                "object_z_low",
+                "hand_far_from_object",
+            )
+        )
 
         PRINT = False
         if PRINT:
@@ -3910,6 +4017,7 @@ class SimToolReal(VecTask):
 
             self.prev_episode_true_objective[env_ids] = self.true_objective[env_ids]
             self.true_objective[env_ids] = 0
+            self.fingertips_far_counter[env_ids] = 0
             self.prev_episode_total_reward[env_ids] = self.rewards_episode[
                 "total_reward"
             ][env_ids]
