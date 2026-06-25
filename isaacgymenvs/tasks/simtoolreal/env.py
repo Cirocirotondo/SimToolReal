@@ -2738,7 +2738,7 @@ class SimToolReal(VecTask):
             # - And there is 0.1 gap above the table surface, so dropping the object on the table will be detected as dropped
             dropped_z = self.object_init_state[:, 2]
             dropped = (
-                torch.where(self.object_pos[:, 2] < dropped_z + 0.01, ones, zeros)
+                torch.where(self.object_pos[:, 2] < dropped_z , ones, zeros)
                 * self.lifted_object
             )
         else:

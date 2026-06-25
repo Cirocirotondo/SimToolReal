@@ -42,6 +42,10 @@ env:
   cubeSizeRange: [0.05, 0.051]
   useSingleHandleHeadTemplate: True
   numObjectsPerType: 1  # default in SimtoolReal
+  keypointScale: 1.0
+  # success tolerance
+  successTolerance: 0.075
+  targetSuccessTolerance: 0.075
   # object pose
   useFixedInitObjectPose: True
   objectStartPose: [0.12, -0.12, 0.03, 0.0, 0.0, 0.0, 1.0]
@@ -49,9 +53,7 @@ env:
   resetPositionNoiseY: 0.0
   resetPositionNoiseZ: 0.0
   randomizeObjectRotation: False
-  # success tolerance
-  successTolerance: 0.0075
-  targetSuccessTolerance: 0.0075
+
 
   # Early termination
   resetWhenDropped: True
