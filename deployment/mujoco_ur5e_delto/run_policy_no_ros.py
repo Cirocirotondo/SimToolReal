@@ -3,7 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import numpy as np
 import torch
@@ -68,6 +68,9 @@ class Args:
 
     wait_for_enter: bool = False
     """Wait for Enter in the terminal before starting policy inference."""
+
+    hand_side: Literal["right", "left"] = "right"
+    """Delto hand side. Use left for a legacy left-hand policy."""
 
 
 def object_scales_for(name: str) -> np.ndarray:
@@ -250,6 +253,7 @@ def main() -> None:
     sim = Ur5eDeltoMujocoSim(
         Ur5eDeltoMujocoConfig(
             enable_viewer=args.enable_viewer,
+            hand_side=args.hand_side,
             object_name=args.object_name,
             object_scales=object_scales,
             **scene_cfg,
@@ -299,6 +303,7 @@ def main() -> None:
     print(
         "Running MuJoCo UR5e+Delto policy: "
         f"object={args.object_name}, scene-height={args.scene_height}, "
+        f"hand={args.hand_side}, "
         f"device={args.device}, obs/actions={N_OBS}/{N_ACT}, "
         f"success-tolerance={success_tolerance:.3f} m, "
         f"success-steps={success_steps}"
@@ -349,6 +354,7 @@ def main() -> None:
                 object_scales=object_scales,
                 obs_list=obs_list,
                 prev_targets=prev_targets,
+                hand_side=args.hand_side,
             )
             obs_t = torch.from_numpy(obs).float().to(args.device)
             with torch.no_grad():
@@ -362,6 +368,7 @@ def main() -> None:
                 dof_speed_scale=dof_speed_scale,
                 arm_moving_average=arm_moving_average,
                 hand_moving_average=hand_moving_average,
+                hand_side=args.hand_side,
             )
             sim.set_robot_joint_pos_targets(targets)
             prev_targets = targets

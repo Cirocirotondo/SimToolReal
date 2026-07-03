@@ -11,7 +11,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Literal, Optional, Tuple
 
 import imageio
 import numpy as np
@@ -29,6 +29,7 @@ from dextoolbench.eval_env_config import (
     eval_table_center_pos,
     is_cube_eval,
     load_trajectory,
+    robot_urdf_path_for_hand,
     table_urdf_rel_for_eval,
 )
 from dextoolbench.viser_colored_cube import add_colored_cube_viser
@@ -65,6 +66,7 @@ class ViserServer:
         policy_name: str,
         object_category: str = "",
         port: int = 8080,
+        hand_side: Literal["right", "left"] = "right",
     ):
         self.port = port
         self.num_keypoints = num_keypoints
@@ -77,6 +79,7 @@ class ViserServer:
             task_name=task_name,
             policy_name=policy_name,
             object_category=object_category,
+            hand_side=hand_side,
         )
 
     def _setup_scene(
@@ -85,6 +88,7 @@ class ViserServer:
         task_name: str,
         policy_name: str,
         object_category: str = "",
+        hand_side: Literal["right", "left"] = "right",
     ):
         """Initialize the 3D scene with robot, table, object, and GUI elements."""
 
@@ -97,10 +101,7 @@ class ViserServer:
         self.server.scene.add_grid("/ground", width=2, height=2, cell_size=0.1)
 
         # Robot
-        robot_urdf = (
-            get_repo_root_dir()
-            / "assets/urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
-        )
+        robot_urdf = robot_urdf_path_for_hand(hand_side)
         self.server.scene.add_frame(
             "/robot",
             position=ISAAC_ROBOT_BASE_POS,
@@ -309,6 +310,7 @@ class EvalRunner:
         output_dir: Optional[Path] = None,
         record_video: bool = False,
         policy_name: str = None,
+        hand_side: Literal["right", "left"] = "right",
     ):
         self.env = env
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -361,6 +363,7 @@ class EvalRunner:
             table_urdf=table_urdf,
             policy_name=policy_name,
             object_category=object_category,
+            hand_side=hand_side,
         )
         self.obs = self._reset()
 
@@ -538,6 +541,9 @@ class EvalArgs:
     checkpoint_path: Path
     """Path to the policy checkpoint."""
 
+    hand_side: Literal["right", "left"] = "right"
+    """Delto hand side. Use left for checkpoints trained before right-hand support."""
+
     output_dir: Optional[Path] = None
     """Directory to save evaluation results."""
 
@@ -603,6 +609,7 @@ def main():
             selected_table_urdf,
             traj_data,
             z_offset=0.0,
+            hand_side=args.hand_side,
         ),
     )
 
@@ -616,6 +623,7 @@ def main():
         object_category=args.object_category,
         output_dir=args.output_dir,
         policy_name=args.policy_name,
+        hand_side=args.hand_side,
     )
 
     if args.interactive:

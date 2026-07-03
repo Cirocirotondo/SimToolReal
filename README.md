@@ -80,10 +80,28 @@ Then, run the interactive evaluation script with the pretrained policy:
 ```
 python dextoolbench/eval_interactive.py \
 --config-path pretrained_policy/config.yaml \
---checkpoint-path pretrained_policy/model.pth
+--checkpoint-path pretrained_policy/model.pth \
+--hand-side left
 ```
 
 This launches a web-based interactive demo (default at `http://localhost:8080`) where you can select the tool category, object instance, and task from dropdown menus, then load the environment and run episodes. You can optionally specify a custom port with `--port` for the viser server.
+
+### Delto Hand Side
+
+Training and evaluation use the right Delto hand by default. To run a legacy
+left-hand checkpoint, pass `--hand-side left`:
+
+```bash
+python dextoolbench/eval_interactive.py \
+  --config-path /path/to/config.yaml \
+  --checkpoint-path /path/to/model.pth \
+  --hand-side left
+```
+
+The same option is available in `isaacgymenvs/launch_training.py`,
+`dextoolbench/eval.py`, and the MuJoCo runners. Left- and right-hand policies
+are not directly interchangeable because the mirrored hand has different joint
+names, axes, and limits.
 
 https://github.com/user-attachments/assets/58eb188b-662c-4190-8148-29710c9eb20f
 

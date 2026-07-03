@@ -103,7 +103,9 @@ env:
   fingertipMultiContactDistThresholdM: 0.06  # fingertip–object distance (m) counted as "close" (6 cm; looser for 5 cm cube)
   fingertipMultiContactMinFingers: 5  # K for full bonus (all Delto fingertips)
   fingertipThumbBonusScale: 0.05  # while lifted: bonus if thumb within multi-contact distance threshold; 0 disables
-  fingertipThumbIndex: null  # optional fingertip index; null = auto (Delto ll_dg_1_4, or link name containing "thumb")
+  fingertipThumbIndex: null  # optional fingertip index; null = auto (Delto *_dg_1_4, or link name containing "thumb")
+  # Delto handedness. Right is the default; set to left for legacy policies.
+  handSide: right
 
   fallDistance: 0.24
   objectFallResetZ: 0.10  # absolute center-z threshold used to terminate after a fall
@@ -236,7 +238,10 @@ env:
   tableRestitution: 0.0
 
   asset:
-    robot: "urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
+    robot: "urdf/ur5e_delto_description/ur5e_right_dg5f.urdf"
+    deltoRobots:
+      right: "urdf/ur5e_delto_description/ur5e_right_dg5f.urdf"
+      left: "urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
     flipVisualAttachments: True
 
     table: "urdf/table_narrow.urdf"

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
 import math
+import xml.etree.ElementTree as ET
+from functools import lru_cache
 from pathlib import Path
-from typing import Optional
+from typing import Literal, Optional
 
 import numpy as np
 import torch
@@ -15,56 +17,19 @@ N_ACT = 26
 ARM_DOF = 6
 OBJECT_KEYPOINT_BASE_SIZE = 0.04
 OBJECT_KEYPOINT_SCALE = 1.5
+HandSide = Literal["right", "left"]
+DEFAULT_HAND_SIDE: HandSide = "right"
 
-JOINT_NAMES = [
+ARM_JOINT_NAMES = [
     "shoulder_pan_joint",
     "shoulder_lift_joint",
     "elbow_joint",
     "wrist_1_joint",
     "wrist_2_joint",
     "wrist_3_joint",
-    "lj_dg_1_1",
-    "lj_dg_1_2",
-    "lj_dg_1_3",
-    "lj_dg_1_4",
-    "lj_dg_2_1",
-    "lj_dg_2_2",
-    "lj_dg_2_3",
-    "lj_dg_2_4",
-    "lj_dg_3_1",
-    "lj_dg_3_2",
-    "lj_dg_3_3",
-    "lj_dg_3_4",
-    "lj_dg_4_1",
-    "lj_dg_4_2",
-    "lj_dg_4_3",
-    "lj_dg_4_4",
-    "lj_dg_5_1",
-    "lj_dg_5_2",
-    "lj_dg_5_3",
-    "lj_dg_5_4",
 ]
 
-FINGERTIP_BODY_NAMES = [
-    "ll_dg_1_4",
-    "ll_dg_2_4",
-    "ll_dg_3_4",
-    "ll_dg_4_4",
-    "ll_dg_5_4",
-]
-
-FINGERTIP_LOCAL_OFFSETS = np.array(
-    [
-        [0.0, 0.0363, 0.0],
-        [0.0, 0.0, 0.0255],
-        [0.0, 0.0, 0.0255],
-        [0.0, 0.0, 0.0255],
-        [0.0, 0.0, 0.0255],
-    ],
-    dtype=np.float32,
-)
-
-LOWER_LIMITS = np.array(
+ARM_LOWER_LIMITS = np.array(
     [
         -2 * math.pi,
         -2 * math.pi,
@@ -72,31 +37,11 @@ LOWER_LIMITS = np.array(
         -2 * math.pi,
         -2 * math.pi,
         -2 * math.pi,
-        -0.8901179185171081,
-        -0.0,
-        -math.pi / 2,
-        -math.pi / 2,
-        -0.6108652381980153,
-        -0.0,
-        0.0,
-        0.0,
-        -0.6108652381980153,
-        0.0,
-        0.0,
-        0.0,
-        -0.4188790204786391,
-        0.0,
-        0.0,
-        0.0,
-        -1.0471975511965976,
-        0.0,
-        0.0,
-        0.0,
     ],
     dtype=np.float32,
 )
 
-UPPER_LIMITS = np.array(
+ARM_UPPER_LIMITS = np.array(
     [
         2 * math.pi,
         2 * math.pi,
@@ -104,29 +49,98 @@ UPPER_LIMITS = np.array(
         2 * math.pi,
         2 * math.pi,
         2 * math.pi,
-        0.3839724354387525,
-        math.pi,
-        0.0,
-        0.0,
-        0.4188790204786391,
-        2.007128639793479,
-        math.pi / 2,
-        math.pi / 2,
-        0.6108652381980153,
-        1.9547687622336491,
-        math.pi / 2,
-        math.pi / 2,
-        0.6108652381980153,
-        1.9024088846738192,
-        math.pi / 2,
-        math.pi / 2,
-        0.017453292519943295,
-        0.4188790204786391,
-        math.pi / 2,
-        math.pi / 2,
     ],
     dtype=np.float32,
 )
+
+
+def validate_hand_side(hand_side: str) -> HandSide:
+    normalized = hand_side.lower()
+    if normalized not in {"right", "left"}:
+        raise ValueError(
+            f"hand_side must be 'right' or 'left', got {hand_side!r}"
+        )
+    return normalized
+
+
+def robot_urdf_path_for_hand(hand_side: HandSide = DEFAULT_HAND_SIDE) -> Path:
+    side = validate_hand_side(hand_side)
+    repo_root = Path(__file__).resolve().parents[2]
+    return (
+        repo_root
+        / "assets"
+        / "urdf"
+        / "ur5e_delto_description"
+        / f"ur5e_{side}_dg5f.urdf"
+    )
+
+
+def joint_names_for_hand(hand_side: HandSide = DEFAULT_HAND_SIDE) -> list[str]:
+    side = validate_hand_side(hand_side)
+    joint_prefix = "rj" if side == "right" else "lj"
+    hand_joint_names = [
+        f"{joint_prefix}_dg_{finger}_{joint}"
+        for finger in range(1, 6)
+        for joint in range(1, 5)
+    ]
+    return ARM_JOINT_NAMES + hand_joint_names
+
+
+def fingertip_body_names_for_hand(
+    hand_side: HandSide = DEFAULT_HAND_SIDE,
+) -> list[str]:
+    side = validate_hand_side(hand_side)
+    link_prefix = "rl" if side == "right" else "ll"
+    return [f"{link_prefix}_dg_{finger}_4" for finger in range(1, 6)]
+
+
+def fingertip_local_offsets_for_hand(
+    hand_side: HandSide = DEFAULT_HAND_SIDE,
+) -> np.ndarray:
+    side = validate_hand_side(hand_side)
+    thumb_y = 0.0363 if side == "right" else -0.0363
+    return np.array(
+        [
+            [0.0, thumb_y, 0.0],
+            [0.0, 0.0, 0.0255],
+            [0.0, 0.0, 0.0255],
+            [0.0, 0.0, 0.0255],
+            [0.0, 0.0, 0.0363],
+        ],
+        dtype=np.float32,
+    )
+
+
+@lru_cache(maxsize=2)
+def joint_limits_for_hand(
+    hand_side: HandSide = DEFAULT_HAND_SIDE,
+) -> tuple[np.ndarray, np.ndarray]:
+    side = validate_hand_side(hand_side)
+    root = ET.parse(robot_urdf_path_for_hand(side)).getroot()
+    limits_by_joint = {}
+    for joint in root.findall("joint"):
+        limit = joint.find("limit")
+        if limit is not None and joint.get("type") != "fixed":
+            limits_by_joint[joint.get("name")] = (
+                float(limit.get("lower")),
+                float(limit.get("upper")),
+            )
+
+    hand_names = joint_names_for_hand(side)[ARM_DOF:]
+    hand_limits = [limits_by_joint[name] for name in hand_names]
+    lower = np.concatenate(
+        [ARM_LOWER_LIMITS, np.array([limit[0] for limit in hand_limits])]
+    ).astype(np.float32)
+    upper = np.concatenate(
+        [ARM_UPPER_LIMITS, np.array([limit[1] for limit in hand_limits])]
+    ).astype(np.float32)
+    return lower, upper
+
+
+JOINT_NAMES = joint_names_for_hand()
+FINGERTIP_BODY_NAMES = fingertip_body_names_for_hand()
+FINGERTIP_LOCAL_OFFSETS = fingertip_local_offsets_for_hand()
+LOWER_LIMITS, UPPER_LIMITS = joint_limits_for_hand()
 
 DEFAULT_JOINT_POS = np.array(
     [
@@ -226,7 +240,9 @@ def build_observation(
     object_scales: np.ndarray,
     obs_list: list[str],
     prev_targets: Optional[np.ndarray],
+    hand_side: HandSide = DEFAULT_HAND_SIDE,
 ) -> np.ndarray:
+    lower_limits, upper_limits = joint_limits_for_hand(hand_side)
     q = sim_state["joint_positions"].astype(np.float32)
     qd = sim_state["joint_velocities"].astype(np.float32)
     palm_pos = sim_state["palm_pos"].astype(np.float32)
@@ -249,7 +265,7 @@ def build_observation(
     targets = prev_targets if prev_targets is not None else q
 
     obs_dict = {
-        "joint_pos": unscale(q, LOWER_LIMITS, UPPER_LIMITS),
+        "joint_pos": unscale(q, lower_limits, upper_limits),
         "joint_vel": qd,
         "prev_action_targets": targets.astype(np.float32),
         "palm_pos": palm_pos,
@@ -275,7 +291,9 @@ def compute_targets(
     dof_speed_scale: float,
     arm_moving_average: float,
     hand_moving_average: float,
+    hand_side: HandSide = DEFAULT_HAND_SIDE,
 ) -> np.ndarray:
+    lower_limits, upper_limits = joint_limits_for_hand(hand_side)
     if actions.shape != (N_ACT,):
         raise ValueError(f"actions.shape={actions.shape}, expected {(N_ACT,)}")
     prev = prev_targets if prev_targets is not None else q
@@ -284,15 +302,17 @@ def compute_targets(
         prev[:ARM_DOF] + dof_speed_scale * control_dt * actions[:ARM_DOF]
     )
     targets[:ARM_DOF] = np.clip(
-        targets[:ARM_DOF], LOWER_LIMITS[:ARM_DOF], UPPER_LIMITS[:ARM_DOF]
+        targets[:ARM_DOF], lower_limits[:ARM_DOF], upper_limits[:ARM_DOF]
     )
     targets[:ARM_DOF] = (
         arm_moving_average * targets[:ARM_DOF]
         + (1.0 - arm_moving_average) * prev[:ARM_DOF]
     )
-    targets[ARM_DOF:] = scale(actions[ARM_DOF:], LOWER_LIMITS[ARM_DOF:], UPPER_LIMITS[ARM_DOF:])
+    targets[ARM_DOF:] = scale(
+        actions[ARM_DOF:], lower_limits[ARM_DOF:], upper_limits[ARM_DOF:]
+    )
     targets[ARM_DOF:] = (
         hand_moving_average * targets[ARM_DOF:]
         + (1.0 - hand_moving_average) * prev[ARM_DOF:]
     )
-    return np.clip(targets, LOWER_LIMITS, UPPER_LIMITS).astype(np.float32)
+    return np.clip(targets, lower_limits, upper_limits).astype(np.float32)

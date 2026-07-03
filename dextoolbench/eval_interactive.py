@@ -58,6 +58,7 @@ from dextoolbench.eval_env_config import (
     eval_viser_default_arm_dof,
     is_cube_eval,
     load_trajectory,
+    robot_urdf_path_for_hand,
     table_urdf_rel_for_eval,
 )
 from dextoolbench.viser_colored_cube import add_colored_cube_viser
@@ -421,6 +422,7 @@ def sim_worker(
     reward_plot_dir: Optional[str] = None,
     plot_live_every: int = 5,
     use_training_goal_sampling: bool = True,
+    hand_side: str = "right",
 ):
     """Child process entry-point.  Creates the env, then waits for commands."""
     # ── Heavy imports (only in the subprocess) ────────────────
@@ -452,6 +454,7 @@ def sim_worker(
                 traj_data,
                 z_offset=0.0,
                 use_training_goal_sampling=use_training_goal_sampling,
+                hand_side=hand_side,
             ),
         )
         n_act = int(env.num_acts)
@@ -517,6 +520,7 @@ class InteractiveDemo:
         reward_plot_dir: Optional[str] = None,
         plot_live_every: int = 5,
         use_training_goal_sampling: bool = True,
+        hand_side: str = "right",
     ):
         self.port = port
         self.config_path = config_path
@@ -531,6 +535,7 @@ class InteractiveDemo:
         )
         self.plot_live_every = plot_live_every
         self.use_training_goal_sampling = use_training_goal_sampling
+        self.hand_side = hand_side
         if self.debug_network:
             _setup_network_debug_logging()
         self.server = viser.ViserServer(host="0.0.0.0", port=port)
@@ -623,13 +628,7 @@ class InteractiveDemo:
 
         self.server.scene.add_grid("/ground", width=2, height=2, cell_size=0.1)
 
-        robot_urdf = (
-            REPO_ROOT
-            / "assets"
-            / "urdf"
-            / "ur5e_delto_description"
-            / "ur5e_left_dg5f.urdf"
-        )
+        robot_urdf = robot_urdf_path_for_hand(self.hand_side)
         self.server.scene.add_frame(
             "/robot",
             position=ISAAC_ROBOT_BASE_POS,
@@ -896,6 +895,7 @@ class InteractiveDemo:
                 str(self.reward_plot_dir),
                 self.plot_live_every,
                 self.use_training_goal_sampling,
+                self.hand_side,
             ),
             daemon=True,
         )
@@ -1103,6 +1103,12 @@ if __name__ == "__main__":
         help="Update live matplotlib window every N sim steps (with --plot-rewards).",
     )
     parser.add_argument(
+        "--hand-side",
+        choices=("right", "left"),
+        default="right",
+        help="Delto hand side. Use left when evaluating a legacy left-hand policy.",
+    )
+    parser.add_argument(
         "--fixed-trajectory-goals",
         action="store_true",
         help="Use fixed goals from the DexToolBench trajectory JSON instead of training-style goal sampling.",
@@ -1118,4 +1124,5 @@ if __name__ == "__main__":
         reward_plot_dir=args.reward_plot_dir,
         plot_live_every=args.plot_live_every,
         use_training_goal_sampling=not args.fixed_trajectory_goals,
+        hand_side=args.hand_side,
     ).run()

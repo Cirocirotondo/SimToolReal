@@ -13,13 +13,16 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from deployment.mujoco_ur5e_delto.policy_adapter import (
+    DEFAULT_HAND_SIDE,
     DEFAULT_JOINT_POS,
-    FINGERTIP_BODY_NAMES,
-    FINGERTIP_LOCAL_OFFSETS,
-    JOINT_NAMES,
-    LOWER_LIMITS,
     N_ACT,
-    UPPER_LIMITS,
+    HandSide,
+    fingertip_body_names_for_hand,
+    fingertip_local_offsets_for_hand,
+    joint_limits_for_hand,
+    joint_names_for_hand,
+    robot_urdf_path_for_hand,
+    validate_hand_side,
 )
 from isaacgymenvs.utils.utils import get_repo_root_dir
 
@@ -28,9 +31,8 @@ from isaacgymenvs.utils.utils import get_repo_root_dir
 class Ur5eDeltoMujocoConfig:
     enable_viewer: bool = True
     sim_dt: float = 1.0 / 600.0
-    robot_urdf_path: Path = Path(
-        "assets/urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
-    )
+    hand_side: HandSide = DEFAULT_HAND_SIDE
+    robot_urdf_path: Optional[Path] = None
     workspace_y: float = -0.6
     """Table/object y position in front of the robot base."""
     table_center_z: float = 0.38
@@ -63,11 +65,26 @@ class Ur5eDeltoMujocoConfig:
         default_factory=lambda: np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     )
 
+    def __post_init__(self) -> None:
+        self.hand_side = validate_hand_side(self.hand_side)
+        if self.robot_urdf_path is None:
+            self.robot_urdf_path = robot_urdf_path_for_hand(self.hand_side)
+
 
 class Ur5eDeltoMujocoSim:
     def __init__(self, config: Ur5eDeltoMujocoConfig):
         self.config = config
         self.repo_root = get_repo_root_dir()
+        self.joint_names = joint_names_for_hand(self.config.hand_side)
+        self.fingertip_body_names = fingertip_body_names_for_hand(
+            self.config.hand_side
+        )
+        self.fingertip_local_offsets = fingertip_local_offsets_for_hand(
+            self.config.hand_side
+        )
+        self.lower_limits, self.upper_limits = joint_limits_for_hand(
+            self.config.hand_side
+        )
         self.robot_joint_pos_targets = self.config.initial_joint_pos.copy()
         self._tmp_dir = tempfile.TemporaryDirectory(prefix="simtoolreal_mujoco_")
         self._init_scene()
@@ -82,15 +99,16 @@ class Ur5eDeltoMujocoSim:
 
     def _make_mujoco_compatible_urdf(self) -> Path:
         urdf_path = self.config.robot_urdf_path
+        assert urdf_path is not None
         if not urdf_path.is_absolute():
             urdf_path = self.repo_root / urdf_path
         text = urdf_path.read_text(encoding="utf-8")
         if "<mujoco>" not in text:
-            text = text.replace(
-                '<robot name="ur5e_left_dg5f">',
-                '<robot name="ur5e_left_dg5f">\n'
-                '  <mujoco><compiler strippath="false"/></mujoco>',
-                1,
+            text = re.sub(
+                r'(<robot\s+name="[^"]+">)',
+                r'\1\n  <mujoco><compiler strippath="false"/></mujoco>',
+                text,
+                count=1,
             )
 
         def replace_mesh(match: re.Match[str]) -> str:
@@ -102,7 +120,10 @@ class Ur5eDeltoMujocoSim:
             return f'filename="{mesh_path}"'
 
         text = re.sub(r'filename="([^"]+)"', replace_mesh, text)
-        tmp_path = Path(self._tmp_dir.name) / "ur5e_left_dg5f_mujoco.urdf"
+        tmp_path = (
+            Path(self._tmp_dir.name)
+            / f"ur5e_{self.config.hand_side}_dg5f_mujoco.urdf"
+        )
         tmp_path.write_text(text, encoding="utf-8")
         return tmp_path
 
@@ -122,13 +143,15 @@ class Ur5eDeltoMujocoSim:
         self.model.opt.ls_iterations = 50
 
         self._joint_qpos_adrs = np.array(
-            [self.model.joint(name).qposadr[0] for name in JOINT_NAMES], dtype=np.int32
+            [self.model.joint(name).qposadr[0] for name in self.joint_names],
+            dtype=np.int32,
         )
         self._joint_dof_adrs = np.array(
-            [self.model.joint(name).dofadr[0] for name in JOINT_NAMES], dtype=np.int32
+            [self.model.joint(name).dofadr[0] for name in self.joint_names],
+            dtype=np.int32,
         )
         self._actuator_ids = np.array(
-            [self.model.actuator(f"{name}_pos").id for name in JOINT_NAMES],
+            [self.model.actuator(f"{name}_pos").id for name in self.joint_names],
             dtype=np.int32,
         )
         self._validate()
@@ -323,17 +346,17 @@ class Ur5eDeltoMujocoSim:
         return [handle, head]
 
     def _add_position_actuators(self, spec: mujoco.MjSpec) -> None:
-        for name in JOINT_NAMES:
+        for index, name in enumerate(self.joint_names):
             actuator = spec.add_actuator()
             actuator.name = f"{name}_pos"
             actuator.trntype = mujoco.mjtTrn.mjTRN_JOINT
             actuator.target = name
             actuator.ctrllimited = True
             actuator.ctrlrange = np.array(
-                [LOWER_LIMITS[JOINT_NAMES.index(name)], UPPER_LIMITS[JOINT_NAMES.index(name)]]
+                [self.lower_limits[index], self.upper_limits[index]]
             )
-            kp = 300.0 if JOINT_NAMES.index(name) < 6 else 5.0
-            kv = 20.0 if JOINT_NAMES.index(name) < 6 else 0.25
+            kp = 300.0 if index < 6 else 5.0
+            kv = 20.0 if index < 6 else 0.25
             actuator.gaintype = mujoco.mjtGain.mjGAIN_FIXED
             actuator.gainprm[0] = kp
             actuator.biastype = mujoco.mjtBias.mjBIAS_AFFINE
@@ -342,12 +365,16 @@ class Ur5eDeltoMujocoSim:
 
     def _validate(self) -> None:
         joint_names = [self.model.joint(i).name for i in range(self.model.njnt)]
-        missing_joints = [name for name in JOINT_NAMES if name not in joint_names]
+        missing_joints = [
+            name for name in self.joint_names if name not in joint_names
+        ]
         if missing_joints:
             raise RuntimeError(f"Missing MuJoCo joints: {missing_joints}")
         actuator_names = [self.model.actuator(i).name for i in range(self.model.nu)]
         missing_actuators = [
-            f"{name}_pos" for name in JOINT_NAMES if f"{name}_pos" not in actuator_names
+            f"{name}_pos"
+            for name in self.joint_names
+            if f"{name}_pos" not in actuator_names
         ]
         if missing_actuators:
             raise RuntimeError(f"Missing MuJoCo actuators: {missing_actuators}")
@@ -399,7 +426,9 @@ class Ur5eDeltoMujocoSim:
 
     def fingertip_positions(self) -> np.ndarray:
         positions = []
-        for body_name, local_offset in zip(FINGERTIP_BODY_NAMES, FINGERTIP_LOCAL_OFFSETS):
+        for body_name, local_offset in zip(
+            self.fingertip_body_names, self.fingertip_local_offsets
+        ):
             pos, quat_wxyz = self.body_pose(body_name)
             quat_xyzw = quat_wxyz[[1, 2, 3, 0]]
             positions.append(pos + Rotation.from_quat(quat_xyzw).apply(local_offset))

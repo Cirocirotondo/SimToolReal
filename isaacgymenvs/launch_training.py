@@ -43,6 +43,9 @@ class LaunchTrainingArgs:
     checkpoint: Optional[Path] = None
     """Path to checkpoint .pth file for finetuning. If None, trains from scratch."""
 
+    hand_side: Literal["right", "left"] = "right"
+    """Delto hand used by the task. Right is the default; use left for legacy runs."""
+
     training_preset: Literal[
         "default",
         "clean_dr",
@@ -244,6 +247,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         f"experiment=00_{experiment_name}",
         f"hydra.run.dir={hydra_run_dir}",
         f"task={task_name}",
+        f"task.env.handSide={args.hand_side}",
         f"task.env.objectAngVelPenaltyScale={args.object_ang_vel_penalty_scale}",
     ]
 

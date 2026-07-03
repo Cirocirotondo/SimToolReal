@@ -112,7 +112,9 @@ class SimToolReal(VecTask):
         )
         self.contact_dr_curriculum_step: int = 0
 
-        self.robot_asset_file: str = self.cfg["env"]["asset"]["robot"]
+        self.hand_side = self._resolve_hand_side()
+        self.robot_asset_file: str = self._resolve_robot_asset_file()
+        self.cfg["env"]["asset"]["robot"] = self.robot_asset_file
 
         self.clamp_abs_observations: float = self.cfg["env"]["clampAbsObservations"]
 
@@ -329,12 +331,13 @@ class SimToolReal(VecTask):
                 # [[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], dtype=np.float32
             )
         elif self.use_delto:
+            link_prefix = "rl" if self.hand_side == "right" else "ll"
             self.fingertips = [
-                "ll_dg_1_4",
-                "ll_dg_2_4",
-                "ll_dg_3_4",
-                "ll_dg_4_4",
-                "ll_dg_5_4",
+                f"{link_prefix}_dg_1_4",
+                f"{link_prefix}_dg_2_4",
+                f"{link_prefix}_dg_3_4",
+                f"{link_prefix}_dg_4_4",
+                f"{link_prefix}_dg_5_4",
             ]
             self.fingertip_offsets = np.array(
                 [
@@ -1256,7 +1259,7 @@ class SimToolReal(VecTask):
             name_lower = name.lower()
             if "thumb" in name_lower:
                 return i
-            # Delto dg5f: finger chain 1 is the thumb (e.g. ll_dg_1_4)
+            # Delto dg5f: finger chain 1 is the thumb (e.g. rl_dg_1_4)
             if "dg_1_4" in name_lower:
                 return i
         return 0
@@ -4984,6 +4987,30 @@ class SimToolReal(VecTask):
     def use_delto(self) -> bool:
         robot_path = self.cfg["env"]["asset"]["robot"].lower()
         return "delto" in robot_path or "dg5f" in robot_path
+
+    def _resolve_hand_side(self) -> str:
+        hand_side = str(self.cfg["env"].get("handSide", "right")).lower()
+        if hand_side not in {"left", "right"}:
+            raise ValueError(
+                f"task.env.handSide must be 'left' or 'right', got {hand_side!r}"
+            )
+        return hand_side
+
+    def _resolve_robot_asset_file(self) -> str:
+        asset_cfg = self.cfg["env"]["asset"]
+        configured_robot = str(asset_cfg["robot"])
+        delto_robots = asset_cfg.get(
+            "deltoRobots",
+            {
+                "right": "urdf/ur5e_delto_description/ur5e_right_dg5f.urdf",
+                "left": "urdf/ur5e_delto_description/ur5e_left_dg5f.urdf",
+            },
+        )
+
+        known_delto_assets = {str(path) for path in delto_robots.values()}
+        if configured_robot in known_delto_assets:
+            return str(delto_robots[self.hand_side])
+        return configured_robot
 
     @property
     def hand_moving_average(self) -> float:

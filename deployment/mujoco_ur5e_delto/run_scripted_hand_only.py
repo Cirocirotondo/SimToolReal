@@ -3,6 +3,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import tyro
@@ -15,9 +16,8 @@ from deployment.mujoco_ur5e_delto.mujoco_sim import (
 from deployment.mujoco_ur5e_delto.policy_adapter import (
     ARM_DOF,
     DEFAULT_JOINT_POS,
-    LOWER_LIMITS,
     N_ACT,
-    UPPER_LIMITS,
+    joint_limits_for_hand,
 )
 
 
@@ -52,6 +52,9 @@ class Args:
 
     gravity_scale: float = 1.0
     """Scale MuJoCo gravity. Use values <1 only as a visualization/debug aid."""
+
+    hand_side: Literal["right", "left"] = "right"
+    """Delto hand side."""
 
 
 def read_env_cfg(config_path: Path) -> dict:
@@ -176,10 +179,11 @@ def main() -> None:
     env_cfg = read_env_cfg(args.config_path)
     steps, arm_poses = scripted_waypoints_from_cfg(env_cfg)
     control_dt = 1.0 / args.control_hz
+    lower_limits, upper_limits = joint_limits_for_hand(args.hand_side)
 
     initial_joint_pos = initial_joint_pos_from_cfg(env_cfg)
     initial_joint_pos[:ARM_DOF] = arm_poses[0]
-    initial_joint_pos = np.clip(initial_joint_pos, LOWER_LIMITS, UPPER_LIMITS)
+    initial_joint_pos = np.clip(initial_joint_pos, lower_limits, upper_limits)
 
     scene_cfg = scene_config_from_env_cfg(env_cfg)
     scene_cfg["initial_joint_pos"] = initial_joint_pos
@@ -187,6 +191,7 @@ def main() -> None:
     sim = Ur5eDeltoMujocoSim(
         Ur5eDeltoMujocoConfig(
             enable_viewer=args.enable_viewer,
+            hand_side=args.hand_side,
             object_name=args.object_name,
             object_scales=object_scales_for(args.object_name),
             **scene_cfg,
@@ -198,6 +203,7 @@ def main() -> None:
     print(
         "Running scripted hand-only MuJoCo trajectory: "
         f"config={args.config_path}, object={args.object_name}, "
+        f"hand={args.hand_side}, "
         f"steps={steps.astype(int).tolist()}"
     )
     print("Close the MuJoCo viewer or press Ctrl+C to stop.")
@@ -213,8 +219,8 @@ def main() -> None:
             targets[:ARM_DOF] = scripted_arm_target(step, steps, arm_poses)
             targets[:ARM_DOF] = np.clip(
                 targets[:ARM_DOF],
-                LOWER_LIMITS[:ARM_DOF],
-                UPPER_LIMITS[:ARM_DOF],
+                lower_limits[:ARM_DOF],
+                upper_limits[:ARM_DOF],
             )
             if targets.shape != (N_ACT,):
                 raise RuntimeError(f"targets.shape={targets.shape}, expected {(N_ACT,)}")

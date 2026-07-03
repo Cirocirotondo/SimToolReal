@@ -3,6 +3,9 @@
 No-ROS MuJoCo runner for a SimToolReal policy trained on the UR5e + Tesollo
 Delto DG5F setup.
 
+The right hand is used by default. Add `--hand-side left` when running a
+legacy policy trained with the left hand.
+
 Run from the SimToolReal repo root with the MuJoCo environment:
 
 ```bash

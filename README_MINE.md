@@ -3,7 +3,7 @@ Launch:
 ```bash 
 source /home/simone/.venv/bin/activate
 cd ~/simtoolreal
-python dextoolbench/eval_interactive.py   --config-path pretrained_policy/config.yaml   --checkpoint-path pretrained_policy/model.pth  
+python dextoolbench/eval_interactive.py   --config-path pretrained_policy/config.yaml   --checkpoint-path pretrained_policy/model.pth   --hand-side left
 
 #optional: add the argument "--plot-rewards"
 ```
@@ -156,7 +156,8 @@ env = create_env(
     device='cuda',
     headless=True,
     overrides={
-        'task.env.asset.robot': 'urdf/ur5e_delto_description/ur5e_left_dg5f.urdf',
+        'task.env.handSide': 'right',
+        'task.env.asset.robot': 'urdf/ur5e_delto_description/ur5e_right_dg5f.urdf',
         'task.env.armDofs': 6,
         'task.env.armEndEffectorLinkName': 'wrist_3_link',
         'task.env.defaultArmDofPos': [-1.5708, -1.571, 1, 0.5, 1.571, -1.571],

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Tuple, Union
+from typing import Any, Dict, List, Literal, Tuple, Union
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -30,6 +30,19 @@ CUBE_EVAL_TABLE_RESET_Z = CUBE_EVAL_TABLE_SURFACE_Z - TABLE_NARROW_HEIGHT / 2.0
 # from its previous evaluation height (0.28 + 0.15 = 0.43 m) down to z=0.
 CUBE_EVAL_TRAJECTORY_Z_SHIFT = CUBE_EVAL_TABLE_SURFACE_Z - 0.43
 ISAAC_ROBOT_BASE_POS: Tuple[float, float, float] = (0.0, ISAAC_ROBOT_BASE_Y, 0.0)
+HandSide = Literal["right", "left"]
+
+
+def robot_urdf_rel_for_hand(hand_side: HandSide = "right") -> str:
+    if hand_side not in {"right", "left"}:
+        raise ValueError(
+            f"hand_side must be 'right' or 'left', got {hand_side!r}"
+        )
+    return f"urdf/ur5e_delto_description/ur5e_{hand_side}_dg5f.urdf"
+
+
+def robot_urdf_path_for_hand(hand_side: HandSide = "right") -> Path:
+    return REPO_ROOT / "assets" / robot_urdf_rel_for_hand(hand_side)
 
 
 def eval_table_reset_z(category: str, object_name: str) -> float:
@@ -122,6 +135,7 @@ def build_eval_env_overrides(
     *,
     z_offset: float = 0.03,
     use_training_goal_sampling: bool = True,
+    hand_side: HandSide = "right",
 ) -> Dict[str, Any]:
     """Hydra overrides shared by eval.py and eval_interactive sim_worker."""
     overrides: Dict[str, Any] = {
@@ -136,6 +150,8 @@ def build_eval_env_overrides(
         "task.env.numEnvs": 1,
         "task.env.envSpacing": 0.4,
         "task.env.capture_video": False,
+        "task.env.handSide": hand_side,
+        "task.env.asset.robot": robot_urdf_rel_for_hand(hand_side),
         "task.env.useFixedGoalStates": not use_training_goal_sampling,
         "task.env.fixedGoalStates": (
             None if use_training_goal_sampling else traj_data["goals"]
