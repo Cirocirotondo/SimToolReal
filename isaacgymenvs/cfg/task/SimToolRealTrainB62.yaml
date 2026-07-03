@@ -1,0 +1,88 @@
+# Train B62: Second sim-to-real curriculum stage after B61.
+# Adds moderate contact and physics randomization while preserving B61 reset
+# variation and keeping command/observation uncertainty disabled.
+defaults:
+  - SimToolRealTrainB61
+  - _self_
+
+task:
+  randomize: True
+  randomization_params:
+    frequency: 720
+
+    # These are introduced in later curriculum stages. Keep valid zero-noise
+    # entries because the DR implementation still parses both keys.
+    observations:
+      range: [0.0, 0.0]
+      range_correlated: [0.0, 0.0]
+      operation: additive
+      distribution: gaussian
+    actions:
+      range: [0.0, 0.0]
+      range_correlated: [0.0, 0.0]
+      operation: additive
+      distribution: gaussian
+
+    sim_params:
+      gravity:
+        range: [0.0, 0.1]
+        operation: additive
+        distribution: gaussian
+
+    actor_params:
+      robot:
+        color: null
+        # DOF-property DR is intentionally disabled: it has caused PhysX GPU
+        # contact-pair bookkeeping failures for this articulated hand.
+        dof_properties: null
+        # Identity ranges override stronger values inherited from the base
+        # config while preserving the historical B62 configuration.
+        rigid_body_properties:
+          mass:
+            range: [1.0, 1.0]
+            operation: scaling
+            distribution: uniform
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 1
+            range: [1.0, 1.0]
+            operation: scaling
+            distribution: uniform
+          restitution:
+            num_buckets: 1
+            range: [0.0, 0.0]
+            operation: additive
+            distribution: uniform
+
+      object:
+        rigid_body_properties:
+          mass:
+            range: [0.9, 1.1]
+            operation: scaling
+            distribution: uniform
+            setup_only: True
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.7, 1.4]
+            operation: scaling
+            distribution: uniform
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.03]
+            operation: additive
+            distribution: uniform
+
+      table_object:
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.8, 1.3]
+            operation: scaling
+            distribution: uniform
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.03]
+            operation: additive
+            distribution: uniform

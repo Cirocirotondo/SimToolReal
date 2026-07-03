@@ -14,6 +14,13 @@ _TRAINING_PRESETS = (
     "train_10_real_mid_combined",
     "train_11_simple",
     "train_b1_simple",
+    "train_b5",
+    "train_b6",
+    "train_b61",
+    "train_b62",
+    "train_b62_linear",
+    "train_b63",
+    "train_b7",
     "train_c1",
 )
 
@@ -44,9 +51,16 @@ class LaunchTrainingArgs:
         "train_10_real_mid_combined",
         "train_11_simple",
         "train_b1_simple",
+        "train_b5",
+        "train_b6",
+        "train_b61",
+        "train_b62",
+        "train_b62_linear",
+        "train_b63",
+        "train_b7",
         "train_c1",
     ] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR. train_c1 = simple grasping task with only hand control (no arm)."""
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with reset and calibration variation. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR. train_c1 = simple grasping task with only hand control (no arm)."""
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
@@ -168,6 +182,13 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_10_real_mid_combined": "SimToolRealLSTMAsymmetricTrain10RealMidCombined",
         "train_11_simple": "SimToolRealLSTMAsymmetricTrain11Simple",
         "train_b1_simple": "SimToolRealLSTMAsymmetricTrainB1Simple",
+        "train_b5": "SimToolRealLSTMAsymmetricTrainB5",
+        "train_b6": "SimToolRealLSTMAsymmetricTrainB6",
+        "train_b61": "SimToolRealLSTMAsymmetricTrainB61",
+        "train_b62": "SimToolRealLSTMAsymmetricTrainB62",
+        "train_b62_linear": "SimToolRealLSTMAsymmetricTrainB62Linear",
+        "train_b63": "SimToolRealLSTMAsymmetricTrainB63",
+        "train_b7": "SimToolRealLSTMAsymmetricTrainB7",
         "train_c1": "SimToolRealLSTMAsymmetricTrainC1",
     }[args.training_preset]
     force_scale = args.force_scale
@@ -177,10 +198,19 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_5_low_table",
         "train_11_simple",
         "train_b1_simple",
+        "train_b6",
+        "train_b61",
+        "train_b62",
+        "train_b62_linear",
+        "train_b63",
+        "train_b7",
         "train_c1",
     }:
         force_scale = 6.0 if force_scale is None else force_scale
         torque_scale = 0.5 if torque_scale is None else torque_scale
+    elif args.training_preset == "train_b5":
+        force_scale = 0.0 if force_scale is None else force_scale
+        torque_scale = 0.0 if torque_scale is None else torque_scale
     elif args.training_preset == "train_10_real_mid_combined":
         force_scale = 12.0 if force_scale is None else force_scale
         torque_scale = 1.0 if torque_scale is None else torque_scale
@@ -197,13 +227,6 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         f"task.env.numEnvs={args.num_envs}",
         # === Training ===
         f"train.params.config.minibatch_size={minibatch}",
-        f"train.params.config.expl_coef_block_size={args.sapg_block_size}",
-        "train.params.config.use_others_experience=lf",
-        "train.params.config.off_policy_ratio=1.0",
-        "train.params.config.expl_type=mixed_expl_learn_param",
-        "train.params.config.expl_reward_type=entropy",
-        "train.params.config.expl_reward_coef_scale=0.005",
-        "train.params.network.space.continuous.fixed_sigma=coef_cond",
         "multi_gpu=False",
         "train.params.config.good_reset_boundary=0",
         "task.env.goodResetBoundary=0",
@@ -223,6 +246,19 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         f"task={task_name}",
         f"task.env.objectAngVelPenaltyScale={args.object_ang_vel_penalty_scale}",
     ]
+
+    if args.training_preset != "train_b7":
+        cmd_parts.extend(
+            [
+                f"train.params.config.expl_coef_block_size={args.sapg_block_size}",
+                "train.params.config.use_others_experience=lf",
+                "train.params.config.off_policy_ratio=1.0",
+                "train.params.config.expl_type=mixed_expl_learn_param",
+                "train.params.config.expl_reward_type=entropy",
+                "train.params.config.expl_reward_coef_scale=0.005",
+                "train.params.network.space.continuous.fixed_sigma=coef_cond",
+            ]
+        )
 
     if not use_clean_dr:
         cmd_parts.extend(

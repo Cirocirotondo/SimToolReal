@@ -202,13 +202,18 @@ def scale(x: np.ndarray, lower: np.ndarray, upper: np.ndarray) -> np.ndarray:
 
 
 def object_keypoints(
-    pos: np.ndarray, quat_xyzw: np.ndarray, object_scales: np.ndarray
+    pos: np.ndarray,
+    quat_xyzw: np.ndarray,
+    object_scales: np.ndarray,
+    *,
+    object_base_size: float = OBJECT_KEYPOINT_BASE_SIZE,
+    keypoint_scale: float = OBJECT_KEYPOINT_SCALE,
 ) -> np.ndarray:
     rot = Rotation.from_quat(quat_xyzw)
     offsets = (
         OBJECT_KEYPOINT_SIGNS
-        * OBJECT_KEYPOINT_BASE_SIZE
-        * OBJECT_KEYPOINT_SCALE
+        * object_base_size
+        * keypoint_scale
         / 2.0
         * object_scales
     )

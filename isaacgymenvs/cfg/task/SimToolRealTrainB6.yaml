@@ -1,0 +1,24 @@
+# Train B6: Like B5 but with mild object disturbances.
+defaults:
+  - SimToolRealTrainB1Simple
+  - _self_
+
+env:
+  # Start with the permissive B4 success threshold, then anneal back to precise reaching.
+  keypointScale: 1.0
+  successTolerance: 0.075
+  targetSuccessTolerance: 0.075
+
+  # Remove lifted-object grasp-shaping terms.
+  fingertipThumbBonusScale: 0.0
+  fingertipSpreadPenaltyScale: 0.0
+  fingertipMultiContactBonusScale: 0.0
+
+  # Make the 5 cm cube less reactive. A 0.2 kg cube with side 0.05 m has
+  # I = 1/12 * m * (a^2 + a^2) = 8.333e-5 kg m^2 on each principal axis.
+  objectMassOverride: 0.2
+  objectInertiaOverride: [0.00008333, 0.00008333, 0.00008333]
+
+sim:
+  physx:
+    num_velocity_iterations: 2

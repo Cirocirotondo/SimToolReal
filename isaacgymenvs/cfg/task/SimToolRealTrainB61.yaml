@@ -1,0 +1,26 @@
+# Train B61: First sim-to-real curriculum stage after B6.
+# Adds small reset and calibration variations while keeping B6 physics,
+# rewards, disturbances, observations, and action timing unchanged.
+defaults:
+  - SimToolRealTrainB6
+  - _self_
+
+env:
+  # Randomize around the B6 cube pose instead of forcing the exact pose.
+  useFixedInitObjectPose: False
+  resetPositionNoiseX: 0.015
+  resetPositionNoiseY: 0.015
+  resetPositionNoiseZ: 0.003
+  # Full 3D rotation at this low spawn height can intersect the table.
+  # Keep orientation fixed in this first curriculum stage.
+  randomizeObjectRotation: False
+
+  # The table center is z=-0.149 and the B6 cube center is z=0.03.
+  # Preserve that nominal height when fixed object initialization is disabled.
+  tableObjectZOffset: 0.179
+  tableResetZRange: 0.005
+
+  # Small robot-state uncertainty around the successful B6 initialization.
+  resetDofPosRandomIntervalFingers: 0.02
+  resetDofPosRandomIntervalArm: 0.04
+  resetDofVelRandomInterval: 0.03

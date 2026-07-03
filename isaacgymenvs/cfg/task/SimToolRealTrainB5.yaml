@@ -1,0 +1,16 @@
+# Train B5: B1/B4-style simple cube setup with precision curriculum and no lifted-grasp shaping.
+defaults:
+  - SimToolRealTrainB1Simple
+  - _self_
+
+env:
+  # Start with the permissive B4 success threshold, then anneal back to precise reaching.
+  keypointScale: 1.0
+  successTolerance: 0.075
+  targetSuccessTolerance: 0.02
+
+  # Remove lifted-object grasp-shaping terms.
+  fingertipThumbBonusScale: 0.0
+  fingertipSpreadPenaltyScale: 0.0
+  fingertipMultiContactBonusScale: 0.0
+

@@ -1,0 +1,4 @@
+# Train B7: Same task, physics, rewards, and terminations as B6, trained with PPO.
+defaults:
+  - SimToolRealTrainB6
+  - _self_

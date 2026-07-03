@@ -110,6 +110,7 @@ class SimToolReal(VecTask):
         self.frame_since_restart: int = (
             0  # number of control steps since last restart across all actors
         )
+        self.contact_dr_curriculum_step: int = 0
 
         self.robot_asset_file: str = self.cfg["env"]["asset"]["robot"]
 
@@ -1713,6 +1714,7 @@ class SimToolReal(VecTask):
             total_episode_closest_keypoint_max_dist=self.total_episode_closest_keypoint_max_dist,
             prev_episode_closest_keypoint_max_dist=self.prev_episode_closest_keypoint_max_dist,
             frame_since_restart=self.frame_since_restart,
+            contact_dr_curriculum_step=self.contact_dr_curriculum_step,
         )
 
     def set_env_state(self, env_state):
@@ -2393,21 +2395,23 @@ class SimToolReal(VecTask):
             print(f"Original coms: {original_coms[0]}")
             breakpoint()
 
-        # Set mass and inertia of object
-        MODIFY_OBJECT_MASS_AND_INERTIA = False
-        if MODIFY_OBJECT_MASS_AND_INERTIA:
-            # Get mass and inertia of object
-            original_masses, original_inertias, original_coms = (
-                self._get_original_object_masses_and_inertias_and_coms()
-            )
-            print(f"Original masses: {original_masses[0]}")
-            print(f"Original inertias: {original_inertias[0]}")
-
+        object_mass_override = self.cfg["env"].get("objectMassOverride", None)
+        object_inertia_override = self.cfg["env"].get("objectInertiaOverride", None)
+        if object_mass_override is not None:
+            if object_inertia_override is None:
+                raise ValueError(
+                    "objectInertiaOverride must be set when objectMassOverride is set"
+                )
+            if len(object_inertia_override) != 3:
+                raise ValueError(
+                    "objectInertiaOverride must be a 3-element list [ixx, iyy, izz]"
+                )
             self.set_object_masses_and_inertias(
                 envs=self.envs,
                 objects=self.objects,
-                masses=[0.2] * len(self.objects),
-                inertias=[(0.001, 0.001, 0.001)] * len(self.objects),
+                masses=[float(object_mass_override)] * len(self.objects),
+                inertias=[tuple(float(v) for v in object_inertia_override)]
+                * len(self.objects),
             )
 
         # we are not using new mass values after DR when calculating random forces applied to an object,
@@ -3076,6 +3080,7 @@ class SimToolReal(VecTask):
             "arm_reset_curriculum_scale": float(
                 getattr(self, "_arm_reset_curriculum_scale", 1.0)
             ),
+            "contact_dr_curriculum_scale": self._contact_dr_curriculum_scale(),
         }
 
         return self.rew_buf, is_success
@@ -5095,8 +5100,23 @@ class SimToolReal(VecTask):
         assert 0 <= alpha <= 1, f"alpha must be between 0 and 1, got {alpha}"
         return init + (final - init) * alpha
 
+    def _contact_dr_curriculum_scale(self) -> float:
+        schedule_steps = int(
+            self.cfg["env"].get("contactDrCurriculumSteps", 0)
+        )
+        if not self.randomize or schedule_steps <= 0:
+            return float(self.randomize)
+        return min(self.contact_dr_curriculum_step / schedule_steps, 1.0)
+
+    def get_domain_randomization_step(self) -> int:
+        if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
+            return self.contact_dr_curriculum_step
+        return self.gym.get_frame_count(self.sim)
+
     def post_physics_step(self):
         self.frame_since_restart += 1
+        if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
+            self.contact_dr_curriculum_step += 1
 
         self.progress_buf += 1
         self.randomize_buf += 1

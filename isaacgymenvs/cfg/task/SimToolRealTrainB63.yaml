@@ -1,0 +1,24 @@
+# Train B63: Third sim-to-real curriculum stage after B62.
+# Adds moderate command uncertainty while preserving B62 reset and contact DR.
+defaults:
+  - SimToolRealTrainB62
+  - _self_
+
+env:
+  useActionDelay: True
+  actionDelayMax: 2
+
+task:
+  randomize: True
+  randomization_params:
+    # Add zero-mean independent Gaussian noise to policy actions.
+    # In VecTask this second range value is used as the standard deviation.
+    actions:
+      range: [0.0, 0.003]
+      range_correlated: [0.0, 0.0]
+      operation: additive
+      distribution: gaussian
+      # Override the linear schedule inherited from the base task: each
+      # curriculum stage starts with its newly introduced DR fully enabled.
+      schedule: constant
+      schedule_steps: 0

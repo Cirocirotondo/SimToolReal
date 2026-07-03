@@ -121,6 +121,7 @@ def build_eval_env_overrides(
     traj_data: Dict[str, Any],
     *,
     z_offset: float = 0.03,
+    use_training_goal_sampling: bool = True,
 ) -> Dict[str, Any]:
     """Hydra overrides shared by eval.py and eval_interactive sim_worker."""
     overrides: Dict[str, Any] = {
@@ -135,15 +136,17 @@ def build_eval_env_overrides(
         "task.env.numEnvs": 1,
         "task.env.envSpacing": 0.4,
         "task.env.capture_video": False,
-        "task.env.useFixedGoalStates": True,
-        "task.env.fixedGoalStates": traj_data["goals"],
+        "task.env.useFixedGoalStates": not use_training_goal_sampling,
+        "task.env.fixedGoalStates": (
+            None if use_training_goal_sampling else traj_data["goals"]
+        ),
         "task.env.useActionDelay": False,
         "task.env.useObsDelay": False,
         "task.env.useObjectStateDelayNoise": False,
         "task.env.objectScaleNoiseMultiplierRange": [1.0, 1.0],
         "task.env.resetWhenDropped": False,
         "task.env.armMovingAverage": 0.1,
-        "task.env.evalSuccessTolerance": 0.01,
+        # "task.env.evalSuccessTolerance": 0.01, # Remove hardcoded eval success tolerance, take it from the config instead.
         "task.env.successSteps": 1,
         "task.env.fixedSizeKeypointReward": True,
         "task.env.fingertipMultiContactDistThresholdM": 0.06,

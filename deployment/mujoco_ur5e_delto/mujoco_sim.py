@@ -358,11 +358,29 @@ class Ur5eDeltoMujocoSim:
         self.data.qpos[self._joint_qpos_adrs] = q
         self.data.qvel[self._joint_dof_adrs] = 0.0
         mujoco.mj_forward(self.model, self.data)
+        if self.config.enable_viewer:
+            self.viewer.sync()
 
     def set_robot_joint_pos_targets(self, q_targets: np.ndarray) -> None:
         if q_targets.shape != (N_ACT,):
             raise ValueError(f"q_targets.shape={q_targets.shape}, expected {(N_ACT,)}")
         self.robot_joint_pos_targets = q_targets.copy()
+
+    def set_goal_object_pose(
+        self, pos: np.ndarray, quat_wxyz: np.ndarray
+    ) -> None:
+        if pos.shape != (3,):
+            raise ValueError(f"pos.shape={pos.shape}, expected {(3,)}")
+        if quat_wxyz.shape != (4,):
+            raise ValueError(
+                f"quat_wxyz.shape={quat_wxyz.shape}, expected {(4,)}"
+            )
+        goal_body_id = self.model.body("goal_object").id
+        self.model.body_pos[goal_body_id] = pos
+        self.model.body_quat[goal_body_id] = quat_wxyz
+        mujoco.mj_forward(self.model, self.data)
+        if self.config.enable_viewer:
+            self.viewer.sync()
 
     def sim_step(self) -> None:
         self.data.ctrl[self._actuator_ids] = self.robot_joint_pos_targets

@@ -3,10 +3,12 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import torch
 import tyro
+from scipy.spatial.transform import Rotation
 
 from deployment.mujoco_ur5e_delto.mujoco_sim import (
     Ur5eDeltoMujocoConfig,
@@ -19,6 +21,8 @@ from deployment.mujoco_ur5e_delto.policy_adapter import (
     build_observation,
     compute_targets,
     create_rl_player,
+    object_keypoints,
+    quat_wxyz_to_xyzw,
     read_policy_cfg,
 )
 from isaacgymenvs.utils.utils import get_repo_root_dir
@@ -47,8 +51,20 @@ class Args:
     max_steps: int = 0
     """Maximum policy steps to run. Use 0 to run forever."""
 
+    success_tolerance: Optional[float] = None
+    """Goal tolerance in meters. By default, read it from the policy config."""
+
+    success_steps: Optional[int] = None
+    """Required near-goal steps. By default, read it from the policy config."""
+
+    stop_on_success: bool = False
+    """Stop the simulation when the goal is reached."""
+
+    gravity_settle_sec: float = 1.0
+    """Seconds of simulation before Enter, allowing the object to settle."""
+
     policy_start_delay_sec: float = 0.0
-    """Seconds to wait before starting policy inference."""
+    """Additional seconds to hold the starting pose before policy inference."""
 
     wait_for_enter: bool = False
     """Wait for Enter in the terminal before starting policy inference."""
@@ -58,7 +74,7 @@ def object_scales_for(name: str) -> np.ndarray:
     if name == "hammer":
         return np.array([0.141, 0.03025, 0.0271], dtype=np.float32)
     if name == "cube":
-        return np.array([1.25, 1.25, 1.25], dtype=np.float32)
+        return np.array([1.2, 1.2, 1.2], dtype=np.float32)
     raise ValueError(f"Unsupported object_name={name!r}; expected 'cube' or 'hammer'")
 
 
@@ -88,6 +104,128 @@ def scene_config_for(scene_height: str, env_cfg: dict) -> dict:
         "table_size_y": table_size_y,
         "initial_joint_pos": initial_joint_pos,
     }
+
+
+def hold_starting_pose(
+    sim: Ur5eDeltoMujocoSim,
+    duration_sec: float,
+    control_dt: float,
+    initial_joint_pos: np.ndarray,
+) -> None:
+    num_steps = int(np.ceil(duration_sec / control_dt))
+    for _ in range(num_steps):
+        start = time.time()
+        sim.step_for(control_dt)
+        sim.set_robot_joint_positions(initial_joint_pos)
+        sleep_dt = control_dt - (time.time() - start)
+        if sleep_dt > 0:
+            time.sleep(sleep_dt)
+
+
+def keypoint_goal_distance(
+    sim_state: dict[str, np.ndarray],
+    env_cfg: dict,
+    object_scales: np.ndarray,
+) -> float:
+    object_base_size = float(env_cfg.get("objectBaseSize", 0.04))
+    keypoint_scale = float(env_cfg.get("keypointScale", 1.0))
+    if env_cfg.get("fixedSizeKeypointReward", False):
+        fixed_size = np.asarray(env_cfg["fixedSize"], dtype=np.float32)
+        keypoint_scales = fixed_size / object_base_size
+    else:
+        keypoint_scales = object_scales
+
+    object_kps = object_keypoints(
+        sim_state["object_pos"],
+        quat_wxyz_to_xyzw(sim_state["object_quat_wxyz"]),
+        keypoint_scales,
+        object_base_size=object_base_size,
+        keypoint_scale=keypoint_scale,
+    )
+    goal_kps = object_keypoints(
+        sim_state["goal_object_pos"],
+        quat_wxyz_to_xyzw(sim_state["goal_object_quat_wxyz"]),
+        keypoint_scales,
+        object_base_size=object_base_size,
+        keypoint_scale=keypoint_scale,
+    )
+    return float(np.linalg.norm(object_kps - goal_kps, axis=-1).max())
+
+
+def target_volume_bounds(env_cfg: dict, workspace_y: float) -> tuple[np.ndarray, np.ndarray]:
+    configured_mins = env_cfg.get("targetVolumeMins")
+    configured_maxs = env_cfg.get("targetVolumeMaxs")
+    region_scale = float(env_cfg.get("targetVolumeRegionScale", 1.0))
+    if configured_mins is not None and configured_maxs is not None:
+        mins = np.asarray(configured_mins, dtype=np.float32)
+        maxs = np.asarray(configured_maxs, dtype=np.float32)
+        origin = (mins + maxs) / 2.0
+        lower_extent = -(maxs - mins) / 2.0
+        upper_extent = (maxs - mins) / 2.0
+    else:
+        origin = np.array([0.0, 0.05, 0.8], dtype=np.float32)
+        lower_extent = np.array([-0.4, -0.05, -0.12], dtype=np.float32)
+        upper_extent = np.array([0.4, 0.3, 0.25], dtype=np.float32)
+
+    origin[1] += workspace_y
+    return (
+        origin + lower_extent * region_scale,
+        origin + upper_extent * region_scale,
+    )
+
+
+def sample_delta_quat_wxyz(
+    quat_wxyz: np.ndarray,
+    delta_rotation_degrees: float,
+) -> np.ndarray:
+    axis = np.random.uniform(0.0, 1.0, size=3)
+    axis /= np.linalg.norm(axis)
+    angle = np.random.uniform(
+        -np.deg2rad(delta_rotation_degrees),
+        np.deg2rad(delta_rotation_degrees),
+    )
+    current = Rotation.from_quat(quat_wxyz[[1, 2, 3, 0]])
+    delta = Rotation.from_rotvec(axis * angle)
+    quat_xyzw = (current * delta).as_quat()
+    return quat_xyzw[[3, 0, 1, 2]].astype(np.float32)
+
+
+def sample_next_goal(
+    sim_state: dict[str, np.ndarray],
+    env_cfg: dict,
+    workspace_y: float,
+) -> tuple[np.ndarray, np.ndarray]:
+    sampling_type = env_cfg.get("goalSamplingType", "delta")
+    goal_pos = sim_state["goal_object_pos"].astype(np.float32)
+    goal_quat_wxyz = sim_state["goal_object_quat_wxyz"].astype(np.float32)
+    volume_min, volume_max = target_volume_bounds(env_cfg, workspace_y)
+    delta_distance = float(env_cfg.get("deltaGoalDistance", 0.1))
+    delta_rotation_degrees = float(env_cfg.get("deltaRotationDegrees", 90.0))
+
+    if sampling_type == "delta":
+        goal_pos += np.random.uniform(
+            -delta_distance, delta_distance, size=3
+        ).astype(np.float32)
+        goal_quat_wxyz = sample_delta_quat_wxyz(
+            goal_quat_wxyz, delta_rotation_degrees
+        )
+    elif sampling_type == "coin_flip":
+        if np.random.uniform() < 0.5:
+            goal_pos += np.random.uniform(
+                -delta_distance, delta_distance, size=3
+            ).astype(np.float32)
+        else:
+            goal_quat_wxyz = sample_delta_quat_wxyz(
+                goal_quat_wxyz, delta_rotation_degrees
+            )
+    else:
+        goal_pos = np.random.uniform(volume_min, volume_max).astype(np.float32)
+        goal_quat_wxyz = Rotation.random().as_quat()[[3, 0, 1, 2]].astype(
+            np.float32
+        )
+
+    goal_pos = np.clip(goal_pos, volume_min, volume_max)
+    return goal_pos, goal_quat_wxyz
 
 
 def main() -> None:
@@ -129,22 +267,78 @@ def main() -> None:
     hand_moving_average = float(env_cfg["handMovingAverage"])
     arm_moving_average = float(env_cfg["armMovingAverage"])
     dof_speed_scale = float(env_cfg["dofSpeedScale"])
+    config_success_tolerance = env_cfg.get("evalSuccessTolerance")
+    if config_success_tolerance is None:
+        config_success_tolerance = env_cfg.get(
+            "targetSuccessTolerance", env_cfg["successTolerance"]
+        )
+    success_tolerance = (
+        float(args.success_tolerance)
+        if args.success_tolerance is not None
+        else float(config_success_tolerance)
+    )
+    success_steps = (
+        int(args.success_steps)
+        if args.success_steps is not None
+        else int(env_cfg.get("successSteps", 1))
+    )
+    if success_tolerance <= 0:
+        raise ValueError("success_tolerance must be positive")
+    if success_steps <= 0:
+        raise ValueError("success_steps must be positive")
+    keypoint_success_tolerance = success_tolerance * float(
+        env_cfg.get("keypointScale", 1.0)
+    )
+    force_consecutive_success_steps = bool(
+        env_cfg.get("forceConsecutiveNearGoalSteps", False)
+    )
 
     step = 0
+    near_goal_steps = 0
+    goals_reached = 0
     print(
         "Running MuJoCo UR5e+Delto policy: "
         f"object={args.object_name}, scene-height={args.scene_height}, "
-        f"device={args.device}, obs/actions={N_OBS}/{N_ACT}"
+        f"device={args.device}, obs/actions={N_OBS}/{N_ACT}, "
+        f"success-tolerance={success_tolerance:.3f} m, "
+        f"success-steps={success_steps}"
     )
+
+    if args.gravity_settle_sec < 0:
+        raise ValueError("gravity_settle_sec must be non-negative")
+
+    if args.gravity_settle_sec > 0:
+        print(
+            f"Settling the scene for {args.gravity_settle_sec:.1f}s while "
+            "holding the robot in the starting pose"
+        )
+        hold_starting_pose(
+            sim=sim,
+            duration_sec=args.gravity_settle_sec,
+            control_dt=control_dt,
+            initial_joint_pos=scene_cfg["initial_joint_pos"],
+        )
+    else:
+        # Ensure the initialized pose is visible even when settling is disabled.
+        sim.set_robot_joint_positions(scene_cfg["initial_joint_pos"])
+
     if args.policy_start_delay_sec > 0:
-        print(f"Waiting {args.policy_start_delay_sec:.1f}s before starting the policy")
-        delay_start = time.time()
-        while time.time() - delay_start < args.policy_start_delay_sec:
-            sim.step_for(control_dt)
-            time.sleep(control_dt)
+        print(
+            f"Holding the settled starting state for "
+            f"{args.policy_start_delay_sec:.1f}s"
+        )
+        hold_starting_pose(
+            sim=sim,
+            duration_sec=args.policy_start_delay_sec,
+            control_dt=control_dt,
+            initial_joint_pos=scene_cfg["initial_joint_pos"],
+        )
 
     if args.wait_for_enter:
-        input("Press Enter to start the policy...")
+        input(
+            "Robot is in the starting pose and the object has settled. "
+            "Press Enter to start the policy..."
+        )
 
     try:
         while args.max_steps <= 0 or step < args.max_steps:
@@ -172,6 +366,39 @@ def main() -> None:
             sim.set_robot_joint_pos_targets(targets)
             prev_targets = targets
             sim.step_for(control_dt)
+
+            goal_distance = keypoint_goal_distance(
+                sim_state=sim.get_sim_state(),
+                env_cfg=env_cfg,
+                object_scales=object_scales,
+            )
+            near_goal = goal_distance <= keypoint_success_tolerance
+            if force_consecutive_success_steps:
+                near_goal_steps = near_goal_steps + 1 if near_goal else 0
+            elif near_goal:
+                near_goal_steps += 1
+
+            if near_goal_steps >= success_steps:
+                goals_reached += 1
+                print(
+                    f"Goal {goals_reached} reached at policy step {step + 1}: "
+                    f"keypoint distance={goal_distance:.4f} m, "
+                    f"tolerance={keypoint_success_tolerance:.4f} m"
+                )
+                if args.stop_on_success:
+                    break
+                next_goal_pos, next_goal_quat_wxyz = sample_next_goal(
+                    sim_state=sim.get_sim_state(),
+                    env_cfg=env_cfg,
+                    workspace_y=sim.config.workspace_y,
+                )
+                sim.set_goal_object_pose(next_goal_pos, next_goal_quat_wxyz)
+                near_goal_steps = 0
+                print(
+                    "Sampled next goal: "
+                    f"position={np.round(next_goal_pos, 3).tolist()}, "
+                    f"quaternion_wxyz={np.round(next_goal_quat_wxyz, 3).tolist()}"
+                )
 
             elapsed = time.time() - start
             sleep_dt = control_dt - elapsed

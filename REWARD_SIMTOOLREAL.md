@@ -171,6 +171,51 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
                Inoltre abbassa la soglia del reset `dropped`: da `object_start_z + 0.01` a
                `object_start_z`, quindi il cubo deve tornare alla quota iniziale per essere contato
                come dropped.
+               │
+               └── 00_train_b5_no_lifted_grasp_shaping_precision_curriculum_2026-06-...
+                   Variante B5 che eredita da `SimToolRealTrainB1Simple`: rimuove i termini di
+                   reward lifted-grasp (`fingertip_thumb_bonus`, `fingertip_spread_penalty`,
+                   `fingertip_multi_contact_bonus`) e riattiva il curriculum sulla precisione del
+                   reaching: `successTolerance=0.075` m -> `targetSuccessTolerance=0.0075` m,
+                   con `keypointScale=1.0`.
+                   │
+                   └── 00_train_b6_cube_physics_2026-06-26_16-11-34
+                       Variante B6 preparata da B5: mantiene rimossi i reward lifted-grasp e usa
+                       curriculum di precisione piu' morbido (`targetSuccessTolerance=0.075`).
+                       Aggiunge una fisica del cubo meno reattiva: massa cubo fissata a 200 g
+                       (`objectMassOverride=0.2`, inerzia coerente per cubo 5 cm) e
+                       `sim.physx.num_velocity_iterations=2`.
+                       │
+                       └── 00_train_b61_reset_dr_2026-06-...
+                           Primo stadio del curriculum sim2real, fine-tuning dal best checkpoint B6.
+                           Introduce piccole variazioni di reset tutte attive fin dall'inizio:
+                           posizione cubo `±1.5 cm` in X/Y e `±3 mm` in Z, altezza tavolo `±5 mm`,
+                           posizione iniziale dita `±0.02 rad`, braccio `±0.04 rad` e velocita'
+                           iniziali `±0.03`. Mantiene invariati fisica, reward, delay e observation
+                           noise di B6. La rotazione iniziale del cubo resta fissa per evitare
+                           intersezioni con il tavolo alla quota di spawn bassa.
+                           │
+                           ├── 00_train_b62_contact_dr_2026-06-...
+                           │   Secondo stadio storico del curriculum sim2real, fine-tuning dal
+                           │   best checkpoint B61. Mantiene la variabilita' dei reset di B61 e
+                           │   applica subito la DR fisica moderata: massa cubo `x[0.9, 1.1]`,
+                           │   friction cubo `x[0.7, 1.4]`, friction tavolo `x[0.8, 1.3]`,
+                           │   restitution cubo e tavolo `[0.0, 0.03]` e rumore gaussiano sulla
+                           │   gravita' con sigma `0.1 m/s^2`.
+                           │   │
+                           │   └── 00_train_b63_command_uncertainty_2026-07-...
+                           │       Terzo stadio del curriculum sim2real, fine-tuning dal best
+                           │       checkpoint B62. Mantiene reset e contact DR di B62 e aggiunge
+                           │       incertezza moderata sui comandi: action delay stocastico con
+                           │       `actionDelayMax=2` e rumore gaussiano additivo sulle azioni con
+                           │       media `0` e deviazione standard `0.003`.
+                           │
+                           └── 00_train_b62_linear_contact_dr_2026-07-...
+                               Ramo alternativo, anch'esso fine-tuning diretto dal best checkpoint
+                               B61. Introduce gli stessi range fisici di B62 con una rampa lineare
+                               di `406901` simulation step, circa `5G` transizioni o `25.4k`
+                               epoche con 12288 env. Observation/action noise e DR fisica del
+                               robot restano disattivati.
 
 
 
@@ -352,3 +397,29 @@ Confronto rapido per leggere i grafici WandB / TensorBoard. Nomi run = cartella 
 
 - Per confrontare i pesi: `train_dir/<project>/<data>/<custom_name>/runs/<00_run...>/` → `last/`, `best/`, `nn/`.
 - Allineare questo albero ai **commit git** o a un export di `SimToolReal.yaml` salvato per run se vuoi riproducibilità assoluta.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Proposed Curriculum
+| Training	| Add only	| Suggested values |
+| --- | --- | --- |
+| B61	| Reset/calibration variation |	useFixedInitObjectPose: false, XYZ noise [0.015, 0.015, 0.003], table range 0.005, finger reset 0.02, arm reset 0.04 |
+| B62	| Contact physics, immediate	| object mass scaling [0.9,1.1], object friction [0.7,1.4], table friction [0.8,1.3], restitution [0,0.03], gravity noise up to 0.1 |
+| B62Linear	| Contact physics, linear ramp	| reach the same B62 ranges in 406901 simulation steps |
+| B63	| Command uncertainty	| useActionDelay: true, actionDelayMax: 2, action Gaussian noise std around 0.003|
+| B64	| Perception uncertainty	| object delay max 4, XYZ noise 0.003 m, rotation noise 1.5°, velocity noise 0.02, observation delay max  2 |
+| B65	| Stronger combined DR	| object delay max 6, XYZ 0.005 m, rotation 3°, action delay max 3, force 8–10, torque 0.7–1.0, small impulses |
+| B66	| Precision curriculum	| successTolerance: 0.075, targetSuccessTolerance: 0.04; introduce no other new difficulty |
+| B67	| Final consolidation	| Slightly wider versions of all previous ranges, but still based on measured real-system uncertainty |

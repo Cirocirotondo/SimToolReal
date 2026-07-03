@@ -395,6 +395,7 @@ def _sim_episode(
             int(env.successes[0].item()),
             env.max_consecutive_successes,
             step,
+            float(env.success_tolerance),
         ))
 
         elapsed = time.time() - t0
@@ -419,6 +420,7 @@ def sim_worker(
     plot_rewards: bool = False,
     reward_plot_dir: Optional[str] = None,
     plot_live_every: int = 5,
+    use_training_goal_sampling: bool = True,
 ):
     """Child process entry-point.  Creates the env, then waits for commands."""
     # ── Heavy imports (only in the subprocess) ────────────────
@@ -444,7 +446,12 @@ def sim_worker(
             headless=True,
             device=device,
             overrides=build_eval_env_overrides(
-                category, object_name, table_urdf, traj_data, z_offset=0.0
+                category,
+                object_name,
+                table_urdf,
+                traj_data,
+                z_offset=0.0,
+                use_training_goal_sampling=use_training_goal_sampling,
             ),
         )
         n_act = int(env.num_acts)
@@ -509,6 +516,7 @@ class InteractiveDemo:
         plot_rewards: bool = False,
         reward_plot_dir: Optional[str] = None,
         plot_live_every: int = 5,
+        use_training_goal_sampling: bool = True,
     ):
         self.port = port
         self.config_path = config_path
@@ -522,6 +530,7 @@ class InteractiveDemo:
             else REPO_ROOT / "eval_reward_plots"
         )
         self.plot_live_every = plot_live_every
+        self.use_training_goal_sampling = use_training_goal_sampling
         if self.debug_network:
             _setup_network_debug_logging()
         self.server = viser.ViserServer(host="0.0.0.0", port=port)
@@ -886,6 +895,7 @@ class InteractiveDemo:
                 self.plot_rewards,
                 str(self.reward_plot_dir),
                 self.plot_live_every,
+                self.use_training_goal_sampling,
             ),
             daemon=True,
         )
@@ -952,11 +962,18 @@ class InteractiveDemo:
 
         elif tag == "state":
             state, successes, max_succ, step = msg[1], msg[2], msg[3], msg[4]
+            success_tolerance = msg[5] if len(msg) > 5 else None
             self._update_viz(state)
             pct = 100 * successes / max_succ if max_succ > 0 else 0
+            tolerance_text = (
+                f" &nbsp;|&nbsp; **Tolerance:** {100.0 * success_tolerance:.2f} cm"
+                if success_tolerance is not None
+                else ""
+            )
             self._md_prog.content = (
                 f"**Time:** {step / 60.0:.1f}s &nbsp;|&nbsp; "
                 f"**Goal:** {successes}/{max_succ} ({pct:.0f}%)"
+                f"{tolerance_text}"
             )
             obj_pos = state[1][:3]
             self._md_obj.content = (
@@ -1085,6 +1102,11 @@ if __name__ == "__main__":
         default=5,
         help="Update live matplotlib window every N sim steps (with --plot-rewards).",
     )
+    parser.add_argument(
+        "--fixed-trajectory-goals",
+        action="store_true",
+        help="Use fixed goals from the DexToolBench trajectory JSON instead of training-style goal sampling.",
+    )
     args = parser.parse_args()
     InteractiveDemo(
         config_path=args.config_path,
@@ -1095,4 +1117,5 @@ if __name__ == "__main__":
         plot_rewards=args.plot_rewards,
         reward_plot_dir=args.reward_plot_dir,
         plot_live_every=args.plot_live_every,
+        use_training_goal_sampling=not args.fixed_trajectory_goals,
     ).run()
