@@ -30,7 +30,68 @@ from __future__ import annotations
 
 from typing import Tuple
 
+import torch
 from torch import Tensor
+
+
+def sample_reset_dof_position_delta(
+    base_pos: Tensor,
+    lower_limits: Tensor,
+    upper_limits: Tensor,
+    noise_coeff: Tensor,
+    sampling: str,
+) -> Tensor:
+    """Sample joint reset offsets while respecting asymmetric joint ranges."""
+    distance_negative = base_pos - lower_limits
+    distance_positive = upper_limits - base_pos
+
+    if sampling == "gaussian_closest_limit":
+        distance_to_closest_limit = torch.minimum(
+            distance_positive, distance_negative
+        )
+        return (
+            noise_coeff
+            * distance_to_closest_limit
+            * torch.randn_like(base_pos)
+        )
+
+    if sampling != "split_gaussian":
+        raise ValueError(
+            "resetDofPosSampling must be 'gaussian_closest_limit' or "
+            f"'split_gaussian', got {sampling!r}"
+        )
+
+    distance_negative = torch.clamp(distance_negative, min=0.0)
+    distance_positive = torch.clamp(distance_positive, min=0.0)
+    epsilon = torch.finfo(base_pos.dtype).eps
+    can_move_negative = distance_negative > epsilon
+    can_move_positive = distance_positive > epsilon
+
+    choose_positive = torch.rand_like(base_pos) < 0.5
+    choose_positive = torch.where(
+        ~can_move_negative & can_move_positive,
+        torch.ones_like(choose_positive),
+        choose_positive,
+    )
+    choose_positive = torch.where(
+        can_move_negative & ~can_move_positive,
+        torch.zeros_like(choose_positive),
+        choose_positive,
+    )
+
+    available_distance = torch.where(
+        choose_positive, distance_positive, distance_negative
+    )
+    direction = torch.where(
+        choose_positive,
+        torch.ones_like(base_pos),
+        -torch.ones_like(base_pos),
+    )
+    magnitude = torch.abs(torch.randn_like(base_pos))
+    delta = noise_coeff * available_distance * magnitude * direction
+    return torch.where(
+        can_move_negative | can_move_positive, delta, torch.zeros_like(delta)
+    )
 
 
 def populate_dof_properties(hand_arm_dof_props, arm_dofs: int, hand_dofs: int) -> None:

@@ -60,6 +60,7 @@ from dextoolbench.objects import NAME_TO_OBJECT
 from isaacgymenvs.tasks.base.vec_task import VecTask
 from isaacgymenvs.tasks.simtoolreal.utils import (
     populate_dof_properties,
+    sample_reset_dof_position_delta,
     tolerance_curriculum,
     tolerance_successes_objective,
 )
@@ -111,6 +112,7 @@ class SimToolReal(VecTask):
             0  # number of control steps since last restart across all actors
         )
         self.contact_dr_curriculum_step: int = 0
+        self.reset_dr_curriculum_step: int = 0
 
         self.hand_side = self._resolve_hand_side()
         self.robot_asset_file: str = self._resolve_robot_asset_file()
@@ -195,6 +197,28 @@ class SimToolReal(VecTask):
         ]
         self.reset_dof_pos_noise_arm = self.cfg["env"]["resetDofPosRandomIntervalArm"]
         self.reset_dof_vel_noise = self.cfg["env"]["resetDofVelRandomInterval"]
+        default_reset_dof_pos_sampling = self.cfg["env"].get(
+            "resetDofPosSampling", "gaussian_closest_limit"
+        )
+        self.reset_dof_pos_sampling_arm = self.cfg["env"].get(
+            "resetDofPosSamplingArm", default_reset_dof_pos_sampling
+        )
+        self.reset_dof_pos_sampling_fingers = self.cfg["env"].get(
+            "resetDofPosSamplingFingers", default_reset_dof_pos_sampling
+        )
+        valid_reset_dof_pos_sampling = {
+            "gaussian_closest_limit",
+            "split_gaussian",
+        }
+        for config_key, sampling in (
+            ("resetDofPosSamplingArm", self.reset_dof_pos_sampling_arm),
+            ("resetDofPosSamplingFingers", self.reset_dof_pos_sampling_fingers),
+        ):
+            if sampling not in valid_reset_dof_pos_sampling:
+                raise ValueError(
+                    f"{config_key} must be 'gaussian_closest_limit' or "
+                    f"'split_gaussian', got {sampling!r}"
+                )
 
         self.force_scale = self.cfg["env"].get("forceScale", 0.0)
         self.force_prob_range = self.cfg["env"].get("forceProbRange", [0.001, 0.1])
@@ -1718,6 +1742,7 @@ class SimToolReal(VecTask):
             prev_episode_closest_keypoint_max_dist=self.prev_episode_closest_keypoint_max_dist,
             frame_since_restart=self.frame_since_restart,
             contact_dr_curriculum_step=self.contact_dr_curriculum_step,
+            reset_dr_curriculum_step=self.reset_dr_curriculum_step,
         )
 
     def set_env_state(self, env_state):
@@ -3080,6 +3105,15 @@ class SimToolReal(VecTask):
             "use_relative_hand_control": bool(self.use_relative_hand_control),
             "hand_dof_speed_scale": float(self.relative_hand_dof_speed_scale),
             "reset_dof_pos_noise_arm": float(self.applied_reset_dof_pos_noise_arm),
+            "reset_dof_pos_noise_fingers": float(
+                self.applied_reset_dof_pos_noise_fingers
+            ),
+            "reset_dof_vel_noise": float(self.applied_reset_dof_vel_noise),
+            "reset_position_noise_x": float(self.applied_reset_position_noise_x),
+            "reset_position_noise_y": float(self.applied_reset_position_noise_y),
+            "reset_position_noise_z": float(self.applied_reset_position_noise_z),
+            "table_reset_z_range": float(self.applied_table_reset_z_range),
+            "reset_dr_curriculum_scale": self._reset_dr_curriculum_scale(),
             "arm_reset_curriculum_scale": float(
                 getattr(self, "_arm_reset_curriculum_scale", 1.0)
             ),
@@ -3790,10 +3824,11 @@ class SimToolReal(VecTask):
             table_indices = self.table_indices[env_ids]
 
             # decide table reset z
+            table_reset_z_range = self.applied_table_reset_z_range
             table_reset_z = (
                 torch_rand_float(
-                    -self.cfg["env"]["tableResetZRange"],
-                    self.cfg["env"]["tableResetZRange"],
+                    -table_reset_z_range,
+                    table_reset_z_range,
                     (len(env_ids), 1),
                     device=self.device,
                 )
@@ -3829,15 +3864,18 @@ class SimToolReal(VecTask):
             # indices 0..2 correspond to the object position
             self.root_state_tensor[obj_indices, 0:1] = (
                 self.object_init_state[env_ids, 0:1]
-                + self.reset_position_noise_x * rand_pos_floats[:, 0:1]
+                + self.applied_reset_position_noise_x
+                * rand_pos_floats[:, 0:1]
             )
             self.root_state_tensor[obj_indices, 1:2] = (
                 self.object_init_state[env_ids, 1:2]
-                + self.reset_position_noise_y * rand_pos_floats[:, 1:2]
+                + self.applied_reset_position_noise_y
+                * rand_pos_floats[:, 1:2]
             )
             self.root_state_tensor[obj_indices, 2:3] = (
                 self.object_init_state[env_ids, 2:3]
-                + self.reset_position_noise_z * rand_pos_floats[:, 2:3]
+                + self.applied_reset_position_noise_z
+                * rand_pos_floats[:, 2:3]
             )
 
             if self.randomize_object_rotation:
@@ -4099,8 +4137,6 @@ class SimToolReal(VecTask):
             reset_base_pos, randomize_arm_reset = self.sample_reset_robot_base_pos(
                 len(env_ids)
             )
-            delta_max = self.arm_hand_dof_upper_limits - reset_base_pos
-            delta_min = self.arm_hand_dof_lower_limits - reset_base_pos
 
             noise_coeff = torch.zeros(
                 (len(env_ids), self.num_hand_arm_dofs),
@@ -4112,18 +4148,26 @@ class SimToolReal(VecTask):
                 self.applied_reset_dof_pos_noise_arm * randomize_arm_reset
             )
             noise_coeff[:, self.num_arm_dofs : self.num_hand_arm_dofs] = (
-                self.reset_dof_pos_noise_fingers
+                self.applied_reset_dof_pos_noise_fingers
             )
 
-            # Sample reset poses from a zero-mean Gaussian around the default pose.
-            # We scale the standard deviation by the distance to the closest joint
-            # limit so the distribution stays centered while respecting asymmetric
-            # default poses.
-            dist_to_closest_limit = torch.minimum(delta_max, -delta_min)
-            rand_dof_gaussian = torch.randn(
-                (len(env_ids), self.num_hand_arm_dofs), device=self.device
+            arm_slice = slice(0, self.num_arm_dofs)
+            finger_slice = slice(self.num_arm_dofs, self.num_hand_arm_dofs)
+            rand_delta = torch.zeros_like(reset_base_pos)
+            rand_delta[:, arm_slice] = sample_reset_dof_position_delta(
+                base_pos=reset_base_pos[:, arm_slice],
+                lower_limits=self.arm_hand_dof_lower_limits[arm_slice],
+                upper_limits=self.arm_hand_dof_upper_limits[arm_slice],
+                noise_coeff=noise_coeff[:, arm_slice],
+                sampling=self.reset_dof_pos_sampling_arm,
             )
-            rand_delta = noise_coeff * dist_to_closest_limit * rand_dof_gaussian
+            rand_delta[:, finger_slice] = sample_reset_dof_position_delta(
+                base_pos=reset_base_pos[:, finger_slice],
+                lower_limits=self.arm_hand_dof_lower_limits[finger_slice],
+                upper_limits=self.arm_hand_dof_upper_limits[finger_slice],
+                noise_coeff=noise_coeff[:, finger_slice],
+                sampling=self.reset_dof_pos_sampling_fingers,
+            )
 
             robot_pos = reset_base_pos + rand_delta
             robot_pos = tensor_clamp(
@@ -4141,7 +4185,7 @@ class SimToolReal(VecTask):
                 -1.0, 1.0, (len(env_ids), self.num_hand_arm_dofs), device=self.device
             )
             self.arm_hand_dof_vel[env_ids, :] = (
-                self.reset_dof_vel_noise * rand_vel_floats
+                self.applied_reset_dof_vel_noise * rand_vel_floats
             )
             self.prev_targets[env_ids, : self.num_hand_arm_dofs] = robot_pos
             self.cur_targets[env_ids, : self.num_hand_arm_dofs] = robot_pos
@@ -5095,6 +5139,11 @@ class SimToolReal(VecTask):
 
     @property
     def applied_reset_dof_pos_noise_arm(self) -> float:
+        if self._reset_dr_curriculum_enabled():
+            return self._reset_dr_scale_value(
+                "resetDofPosRandomIntervalArmInitial",
+                self.reset_dof_pos_noise_arm,
+            )
         if not getattr(self, "_arm_reset_curriculum_enabled", False):
             return float(self.reset_dof_pos_noise_arm)
         return float(
@@ -5102,6 +5151,65 @@ class SimToolReal(VecTask):
                 init=self._reset_dof_pos_noise_arm_initial,
                 final=self.reset_dof_pos_noise_arm,
                 alpha=self._arm_reset_curriculum_scale,
+            )
+        )
+
+    @property
+    def applied_reset_dof_pos_noise_fingers(self) -> float:
+        return self._reset_dr_scale_value(
+            "resetDofPosRandomIntervalFingersInitial",
+            self.reset_dof_pos_noise_fingers,
+        )
+
+    @property
+    def applied_reset_dof_vel_noise(self) -> float:
+        return self._reset_dr_scale_value(
+            "resetDofVelRandomIntervalInitial", self.reset_dof_vel_noise
+        )
+
+    @property
+    def applied_reset_position_noise_x(self) -> float:
+        return self._reset_dr_scale_value(
+            "resetPositionNoiseXInitial", self.reset_position_noise_x
+        )
+
+    @property
+    def applied_reset_position_noise_y(self) -> float:
+        return self._reset_dr_scale_value(
+            "resetPositionNoiseYInitial", self.reset_position_noise_y
+        )
+
+    @property
+    def applied_reset_position_noise_z(self) -> float:
+        return self._reset_dr_scale_value(
+            "resetPositionNoiseZInitial", self.reset_position_noise_z
+        )
+
+    @property
+    def applied_table_reset_z_range(self) -> float:
+        return self._reset_dr_scale_value(
+            "tableResetZRangeInitial",
+            float(self.cfg["env"]["tableResetZRange"]),
+        )
+
+    def _reset_dr_curriculum_enabled(self) -> bool:
+        return int(self.cfg["env"].get("resetDrCurriculumSteps", 0)) > 0
+
+    def _reset_dr_curriculum_scale(self) -> float:
+        schedule_steps = int(self.cfg["env"].get("resetDrCurriculumSteps", 0))
+        if schedule_steps <= 0:
+            return 1.0
+        return min(self.reset_dr_curriculum_step / schedule_steps, 1.0)
+
+    def _reset_dr_scale_value(self, initial_key: str, final: float) -> float:
+        if not self._reset_dr_curriculum_enabled():
+            return float(final)
+        initial = float(self.cfg["env"].get(initial_key, final))
+        return float(
+            self.interpolate(
+                init=initial,
+                final=float(final),
+                alpha=self._reset_dr_curriculum_scale(),
             )
         )
 
@@ -5144,6 +5252,8 @@ class SimToolReal(VecTask):
         self.frame_since_restart += 1
         if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
             self.contact_dr_curriculum_step += 1
+        if self._reset_dr_curriculum_enabled():
+            self.reset_dr_curriculum_step += 1
 
         self.progress_buf += 1
         self.randomize_buf += 1

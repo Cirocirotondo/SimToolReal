@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Tuple, Union
+from typing import Any, Dict, List, Literal, Optional, Tuple, Union
+
+import yaml
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -43,6 +45,31 @@ def robot_urdf_rel_for_hand(hand_side: HandSide = "right") -> str:
 
 def robot_urdf_path_for_hand(hand_side: HandSide = "right") -> Path:
     return REPO_ROOT / "assets" / robot_urdf_rel_for_hand(hand_side)
+
+
+def policy_config_hand_side(config_path: Union[str, Path]) -> Optional[HandSide]:
+    """Read handedness recorded by a new or legacy policy configuration."""
+    path = Path(config_path)
+    if not path.exists():
+        return None
+
+    with path.open("r", encoding="utf-8") as config_file:
+        config = yaml.safe_load(config_file) or {}
+
+    task_cfg = config.get("task", {})
+    env_cfg = task_cfg.get("env", config.get("env", {}))
+    configured_side = env_cfg.get("handSide")
+    if configured_side is not None:
+        configured_side = str(configured_side).lower()
+        if configured_side in {"right", "left"}:
+            return configured_side
+
+    robot_asset = str(env_cfg.get("asset", {}).get("robot", "")).lower()
+    if "left" in robot_asset:
+        return "left"
+    if "right" in robot_asset:
+        return "right"
+    return None
 
 
 def eval_table_reset_z(category: str, object_name: str) -> float:
@@ -146,6 +173,7 @@ def build_eval_env_overrides(
         "task.env.resetDofPosRandomIntervalFingers": 0.0,
         "task.env.resetDofPosRandomIntervalArm": 0.0,
         "task.env.resetDofVelRandomInterval": 0.0,
+        "task.env.resetDrCurriculumSteps": 0,
         "task.env.tableResetZRange": 0.0,
         "task.env.numEnvs": 1,
         "task.env.envSpacing": 0.4,

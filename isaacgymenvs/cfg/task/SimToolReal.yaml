@@ -54,6 +54,8 @@ env:
   resetDofPosRandomIntervalFingers: 0.03
   resetDofPosRandomIntervalArm: 0.03
   resetDofVelRandomInterval: 0.15
+  resetDofPosSampling: gaussian_closest_limit
+  resetDrCurriculumSteps: 0
 
   # Table reset settings
   robotBaseY: 0.6  # world-frame y of robot base; table center y = robotBaseY + tablePoseDy

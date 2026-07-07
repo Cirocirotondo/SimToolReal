@@ -8,8 +8,8 @@ defaults:
 env:
   # Randomize around the B6 cube pose instead of forcing the exact pose.
   useFixedInitObjectPose: False
-  resetPositionNoiseX: 0.015
-  resetPositionNoiseY: 0.015
+  resetPositionNoiseX: 0.10
+  resetPositionNoiseY: 0.05
   resetPositionNoiseZ: 0.003
   # Full 3D rotation at this low spawn height can intersect the table.
   # Keep orientation fixed in this first curriculum stage.
@@ -22,5 +22,5 @@ env:
 
   # Small robot-state uncertainty around the successful B6 initialization.
   resetDofPosRandomIntervalFingers: 0.02
-  resetDofPosRandomIntervalArm: 0.04
+  resetDofPosRandomIntervalArm: 0.045
   resetDofVelRandomInterval: 0.03

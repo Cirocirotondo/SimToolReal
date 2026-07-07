@@ -186,7 +186,7 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
                        (`objectMassOverride=0.2`, inerzia coerente per cubo 5 cm) e
                        `sim.physx.num_velocity_iterations=2`.
                        │
-                       └── 00_train_b61_reset_dr_2026-06-...
+                       ├── 00_train_b61_reset_dr_2026-06-...
                            Primo stadio del curriculum sim2real, fine-tuning dal best checkpoint B6.
                            Introduce piccole variazioni di reset tutte attive fin dall'inizio:
                            posizione cubo `±1.5 cm` in X/Y e `±3 mm` in Z, altezza tavolo `±5 mm`,
@@ -216,6 +216,16 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
                                di `406901` simulation step, circa `5G` transizioni o `25.4k`
                                epoche con 12288 env. Observation/action noise e DR fisica del
                                robot restano disattivati.
+                       │
+                       └── 00_train_b61_right_2026-07-...
+                           Ramo per mano destra, fine-tuning dal best checkpoint B6Right. Introduce
+                           la variabilita' di reset/calibrazione con una rampa lineare fino ai range
+                           di B61 e usa split Gaussian per le posizioni iniziali delle dita.
+                           │
+                           └── 00_train_b62_right_2026-07-...
+                               Secondo stadio per mano destra, fine-tuning dal best checkpoint
+                               B61Right. Mantiene la rampa/reset DR di B61Right e introduce la DR
+                               di contatto/fisica di B62 con una rampa lineare di `406901` step.
 
 
 
@@ -416,8 +426,10 @@ Confronto rapido per leggere i grafici WandB / TensorBoard. Nomi run = cartella 
 | Training	| Add only	| Suggested values |
 | --- | --- | --- |
 | B61	| Reset/calibration variation |	useFixedInitObjectPose: false, XYZ noise [0.015, 0.015, 0.003], table range 0.005, finger reset 0.02, arm reset 0.04 |
+| B61Right	| Right-hand reset/calibration variation, linear ramp |	from B6 values to the B61 reset ranges in 406901 control steps; split Gaussian for finger joint positions |
 | B62	| Contact physics, immediate	| object mass scaling [0.9,1.1], object friction [0.7,1.4], table friction [0.8,1.3], restitution [0,0.03], gravity noise up to 0.1 |
 | B62Linear	| Contact physics, linear ramp	| reach the same B62 ranges in 406901 simulation steps |
+| B62Right	| Right-hand contact physics, linear ramp	| fine-tune from B61Right; reach the same B62 contact/physics ranges in 406901 simulation steps |
 | B63	| Command uncertainty	| useActionDelay: true, actionDelayMax: 2, action Gaussian noise std around 0.003|
 | B64	| Perception uncertainty	| object delay max 4, XYZ noise 0.003 m, rotation noise 1.5°, velocity noise 0.02, observation delay max  2 |
 | B65	| Stronger combined DR	| object delay max 6, XYZ 0.005 m, rotation 3°, action delay max 3, force 8–10, torque 0.7–1.0, small impulses |

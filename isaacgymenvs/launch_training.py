@@ -17,8 +17,10 @@ _TRAINING_PRESETS = (
     "train_b5",
     "train_b6",
     "train_b61",
+    "train_b61_right",
     "train_b62",
     "train_b62_linear",
+    "train_b62_right",
     "train_b63",
     "train_b7",
     "train_c1",
@@ -57,13 +59,15 @@ class LaunchTrainingArgs:
         "train_b5",
         "train_b6",
         "train_b61",
+        "train_b61_right",
         "train_b62",
         "train_b62_linear",
+        "train_b62_right",
         "train_b63",
         "train_b7",
         "train_c1",
     ] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with reset and calibration variation. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR. train_c1 = simple grasping task with only hand control (no arm)."""
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with immediate reset and calibration variation. train_b61_right = right-hand B61 whose reset variation is introduced through a linear curriculum. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b62_right = B61Right plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR. train_c1 = simple grasping task with only hand control (no arm)."""
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
@@ -188,8 +192,10 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_b5": "SimToolRealLSTMAsymmetricTrainB5",
         "train_b6": "SimToolRealLSTMAsymmetricTrainB6",
         "train_b61": "SimToolRealLSTMAsymmetricTrainB61",
+        "train_b61_right": "SimToolRealLSTMAsymmetricTrainB61Right",
         "train_b62": "SimToolRealLSTMAsymmetricTrainB62",
         "train_b62_linear": "SimToolRealLSTMAsymmetricTrainB62Linear",
+        "train_b62_right": "SimToolRealLSTMAsymmetricTrainB62Right",
         "train_b63": "SimToolRealLSTMAsymmetricTrainB63",
         "train_b7": "SimToolRealLSTMAsymmetricTrainB7",
         "train_c1": "SimToolRealLSTMAsymmetricTrainC1",
@@ -203,8 +209,10 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_b1_simple",
         "train_b6",
         "train_b61",
+        "train_b61_right",
         "train_b62",
         "train_b62_linear",
+        "train_b62_right",
         "train_b63",
         "train_b7",
         "train_c1",

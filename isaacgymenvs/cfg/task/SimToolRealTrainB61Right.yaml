@@ -1,0 +1,24 @@
+# Train B61Right: right-hand reset/calibration curriculum after B6Right.
+# It reaches the same reset ranges as B61 through a linear ramp.
+defaults:
+  - SimToolRealTrainB61
+  - _self_
+
+env:
+  handSide: right
+
+  # At 12288 envs this is about 5G transitions, or 25.4k training epochs
+  # with horizon_length=16.
+  resetDrCurriculumSteps: 406901
+
+  # Start exactly from the B6 reset distribution.
+  resetPositionNoiseXInitial: 0.0
+  resetPositionNoiseYInitial: 0.0
+  resetPositionNoiseZInitial: 0.0
+  tableResetZRangeInitial: 0.0
+  resetDofPosRandomIntervalFingersInitial: 0.0
+  resetDofPosRandomIntervalArmInitial: 0.03
+  resetDofVelRandomIntervalInitial: 0.0
+  # Finger flexion joints start on a limit, so force their half-Gaussian
+  # samples toward the available side. Keep the arm's B6 sampler unchanged.
+  resetDofPosSamplingFingers: split_gaussian

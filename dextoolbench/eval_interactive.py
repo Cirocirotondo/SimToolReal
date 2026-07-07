@@ -27,6 +27,7 @@ import time
 import traceback
 import urllib.error
 import urllib.request
+import warnings
 import xml.etree.ElementTree as ET
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -58,6 +59,7 @@ from dextoolbench.eval_env_config import (
     eval_viser_default_arm_dof,
     is_cube_eval,
     load_trajectory,
+    policy_config_hand_side,
     robot_urdf_path_for_hand,
     table_urdf_rel_for_eval,
 )
@@ -536,6 +538,21 @@ class InteractiveDemo:
         self.plot_live_every = plot_live_every
         self.use_training_goal_sampling = use_training_goal_sampling
         self.hand_side = hand_side
+        policy_hand_side = policy_config_hand_side(self.config_path)
+        if policy_hand_side is not None and policy_hand_side != self.hand_side:
+            suggested_flag = (
+                "--hand-side left"
+                if policy_hand_side == "left"
+                else "remove '--hand-side left'"
+            )
+            warnings.warn(
+                "Policy/environment hand mismatch: the policy config uses "
+                f"{policy_hand_side.upper()}, but eval_interactive is loading "
+                f"{self.hand_side.upper()}. Joint limits and action semantics are "
+                f"not interchangeable; {suggested_flag}.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         if self.debug_network:
             _setup_network_debug_logging()
         self.server = viser.ViserServer(host="0.0.0.0", port=port)
