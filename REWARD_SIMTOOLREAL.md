@@ -226,6 +226,13 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
                                Secondo stadio per mano destra, fine-tuning dal best checkpoint
                                B61Right. Mantiene la rampa/reset DR di B61Right e introduce la DR
                                di contatto/fisica di B62 con una rampa lineare di `406901` step.
+                               │
+                               └── 00_train_b63_right_2026-07-...
+                                   Terzo stadio per mano destra, fine-tuning dal checkpoint B62Right.
+                                   Mantiene reset e contact DR di B62Right al valore massimo e
+                                   aggiunge linearmente la command uncertainty: action delay
+                                   stocastico con `actionDelayMax=2` e rumore gaussiano additivo
+                                   sulle azioni fino a media `0` e deviazione standard `0.003`.
 
 
 
@@ -431,6 +438,7 @@ Confronto rapido per leggere i grafici WandB / TensorBoard. Nomi run = cartella 
 | B62Linear	| Contact physics, linear ramp	| reach the same B62 ranges in 406901 simulation steps |
 | B62Right	| Right-hand contact physics, linear ramp	| fine-tune from B61Right; reach the same B62 contact/physics ranges in 406901 simulation steps |
 | B63	| Command uncertainty	| useActionDelay: true, actionDelayMax: 2, action Gaussian noise std around 0.003|
+| B63Right	| Right-hand command uncertainty, linear ramp | fine-tune from B62Right; keep B62Right DR at max and linearly add the B63 action delay/noise |
 | B64	| Perception uncertainty	| object delay max 4, XYZ noise 0.003 m, rotation noise 1.5°, velocity noise 0.02, observation delay max  2 |
 | B65	| Stronger combined DR	| object delay max 6, XYZ 0.005 m, rotation 3°, action delay max 3, force 8–10, torque 0.7–1.0, small impulses |
 | B66	| Precision curriculum	| successTolerance: 0.075, targetSuccessTolerance: 0.04; introduce no other new difficulty |

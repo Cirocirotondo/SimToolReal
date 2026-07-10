@@ -113,6 +113,7 @@ class SimToolReal(VecTask):
         )
         self.contact_dr_curriculum_step: int = 0
         self.reset_dr_curriculum_step: int = 0
+        self.command_dr_curriculum_step: int = 0
 
         self.hand_side = self._resolve_hand_side()
         self.robot_asset_file: str = self._resolve_robot_asset_file()
@@ -1743,6 +1744,7 @@ class SimToolReal(VecTask):
             frame_since_restart=self.frame_since_restart,
             contact_dr_curriculum_step=self.contact_dr_curriculum_step,
             reset_dr_curriculum_step=self.reset_dr_curriculum_step,
+            command_dr_curriculum_step=self.command_dr_curriculum_step,
         )
 
     def set_env_state(self, env_state):
@@ -3118,6 +3120,7 @@ class SimToolReal(VecTask):
                 getattr(self, "_arm_reset_curriculum_scale", 1.0)
             ),
             "contact_dr_curriculum_scale": self._contact_dr_curriculum_scale(),
+            "command_dr_curriculum_scale": self._command_dr_curriculum_scale(),
         }
 
         return self.rew_buf, is_success
@@ -4296,13 +4299,21 @@ class SimToolReal(VecTask):
         # Modify actions to be delayed
         use_action_delay = self.cfg["env"]["useActionDelay"]
         if use_action_delay:
+            delay_scale = self._command_dr_curriculum_scale()
             # Sample a delay index from the queue
             delay_index = torch.randint(
                 0, self.action_queue.shape[1], (self.num_envs,), device=self.device
             )
-            actions = self.action_queue[
+            delayed_actions = self.action_queue[
                 torch.arange(self.num_envs), delay_index
             ].clone()
+            if delay_scale >= 1.0:
+                actions = delayed_actions
+            elif delay_scale > 0.0:
+                use_delayed = (
+                    torch.rand(self.num_envs, device=self.device) < delay_scale
+                ).unsqueeze(-1)
+                actions = torch.where(use_delayed, delayed_actions, actions)
 
         self.actions = actions.clone()
 
@@ -5243,15 +5254,27 @@ class SimToolReal(VecTask):
             return float(self.randomize)
         return min(self.contact_dr_curriculum_step / schedule_steps, 1.0)
 
+    def _command_dr_curriculum_scale(self) -> float:
+        schedule_steps = int(
+            self.cfg["env"].get("commandDrCurriculumSteps", 0)
+        )
+        if schedule_steps <= 0:
+            return 1.0
+        return min(self.command_dr_curriculum_step / schedule_steps, 1.0)
+
     def get_domain_randomization_step(self) -> int:
         if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
             return self.contact_dr_curriculum_step
+        if self.cfg["env"].get("commandDrCurriculumSteps", 0) > 0:
+            return self.command_dr_curriculum_step
         return self.gym.get_frame_count(self.sim)
 
     def post_physics_step(self):
         self.frame_since_restart += 1
         if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
             self.contact_dr_curriculum_step += 1
+        if self.cfg["env"].get("commandDrCurriculumSteps", 0) > 0:
+            self.command_dr_curriculum_step += 1
         if self._reset_dr_curriculum_enabled():
             self.reset_dr_curriculum_step += 1
 
