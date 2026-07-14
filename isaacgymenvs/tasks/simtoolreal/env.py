@@ -278,6 +278,24 @@ class SimToolReal(VecTask):
         self.use_relative_hand_control = self.cfg["env"].get(
             "useRelativeHandControl", False
         )
+        self.use_operational_space_arm_control = self.cfg["env"].get(
+            "useOperationalSpaceArmControl", False
+        )
+        self.operational_space_arm_translation_speed_scale = float(
+            self.cfg["env"].get("operationalSpaceArmTranslationSpeedScale", 0.25)
+        )
+        self.operational_space_arm_rotation_speed_scale = float(
+            self.cfg["env"].get("operationalSpaceArmRotationSpeedScale", 1.0)
+        )
+        self.operational_space_ik_damping = float(
+            self.cfg["env"].get("operationalSpaceIkDamping", 0.05)
+        )
+        self.operational_space_max_joint_delta = float(
+            self.cfg["env"].get("operationalSpaceMaxJointDelta", 0.05)
+        )
+        self.operational_space_ik_residual_penalty_scale = float(
+            self.cfg["env"].get("operationalSpaceIkResidualPenaltyScale", 0.0)
+        )
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
 
@@ -530,6 +548,25 @@ class SimToolReal(VecTask):
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        if self.use_operational_space_arm_control:
+            jacobian_tensor = self.gym.acquire_jacobian_tensor(self.sim, "robot")
+            self.robot_jacobian = gymtorch.wrap_tensor(jacobian_tensor)
+            self.gym.refresh_jacobian_tensors(self.sim)
+            if self.robot_jacobian.shape[1] == self.num_hand_arm_bodies:
+                self.arm_ee_jacobian_index = int(self.palm_handle)
+            elif self.robot_jacobian.shape[1] == self.num_hand_arm_bodies - 1:
+                self.arm_ee_jacobian_index = int(self.palm_handle) - 1
+            else:
+                raise ValueError(
+                    "Unexpected robot Jacobian shape "
+                    f"{tuple(self.robot_jacobian.shape)} for "
+                    f"{self.num_hand_arm_bodies} robot rigid bodies"
+                )
+            if not (0 <= self.arm_ee_jacobian_index < self.robot_jacobian.shape[1]):
+                raise ValueError(
+                    f"Invalid EE Jacobian index {self.arm_ee_jacobian_index} "
+                    f"for Jacobian shape {tuple(self.robot_jacobian.shape)}"
+                )
 
         if self.with_fingertip_force_sensors or self.with_table_force_sensor:
             sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
@@ -625,6 +662,21 @@ class SimToolReal(VecTask):
             device=self.device,
         )
         self.action_deltas = torch.zeros_like(self.prev_penalized_actions)
+        self.operational_space_requested_twist = torch.zeros(
+            (self.num_envs, 6), dtype=torch.float, device=self.device
+        )
+        self.operational_space_achieved_twist = torch.zeros_like(
+            self.operational_space_requested_twist
+        )
+        self.operational_space_ik_residual_norm = torch.zeros(
+            self.num_envs, dtype=torch.float, device=self.device
+        )
+        self.operational_space_joint_delta_norm = torch.zeros_like(
+            self.operational_space_ik_residual_norm
+        )
+        self.operational_space_joint_delta_clipped = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
 
         self.global_indices = torch.arange(
             self.num_envs * 3, dtype=torch.int32, device=self.device
@@ -784,6 +836,7 @@ class SimToolReal(VecTask):
             "hand_actions_penalty",
             "arm_action_delta_penalty",
             "hand_action_delta_penalty",
+            "operational_space_ik_penalty",
             "object_lin_vel_penalty",
             "object_ang_vel_penalty",
             "fingertip_spread_penalty",
@@ -2722,6 +2775,12 @@ class SimToolReal(VecTask):
             * multiplier,
         )
 
+    def _operational_space_ik_penalty(self) -> Tensor:
+        return (
+            -self.operational_space_ik_residual_penalty_scale
+            * self.operational_space_ik_residual_norm
+        )
+
     def _compute_resets(self, is_success):
         ones = torch.ones_like(self.reset_buf)
         zeros = torch.zeros_like(self.reset_buf)
@@ -2977,6 +3036,7 @@ class SimToolReal(VecTask):
         arm_action_delta_penalty, hand_action_delta_penalty = (
             self._action_delta_penalties(lifted_object)
         )
+        operational_space_ik_penalty = self._operational_space_ik_penalty()
 
         fingertip_spread_penalty, fingertip_multi_contact_bonus, fingertip_thumb_bonus = (
             self._fingertip_grasp_shaping(lifted_object)
@@ -2998,6 +3058,7 @@ class SimToolReal(VecTask):
             + hand_actions_penalty
             + arm_action_delta_penalty
             + hand_action_delta_penalty
+            + operational_space_ik_penalty
             + bonus_rew
             + object_lin_vel_penalty
             + object_ang_vel_penalty
@@ -3040,6 +3101,7 @@ class SimToolReal(VecTask):
             (hand_actions_penalty, "hand_actions_penalty"),
             (arm_action_delta_penalty, "arm_action_delta_penalty"),
             (hand_action_delta_penalty, "hand_action_delta_penalty"),
+            (operational_space_ik_penalty, "operational_space_ik_penalty"),
             (bonus_rew, "bonus_rew"),
             (object_lin_vel_penalty, "object_lin_vel_penalty"),
             (object_ang_vel_penalty, "object_ang_vel_penalty"),
@@ -3105,6 +3167,21 @@ class SimToolReal(VecTask):
             "hand_moving_average": float(self.hand_moving_average),
             "dof_speed_scale": float(self.hand_dof_speed_scale),
             "use_relative_hand_control": bool(self.use_relative_hand_control),
+            "use_operational_space_arm_control": bool(
+                self.use_operational_space_arm_control
+            ),
+            "operational_space_ik_residual_norm": float(
+                self.operational_space_ik_residual_norm.mean()
+            ),
+            "operational_space_joint_delta_norm": float(
+                self.operational_space_joint_delta_norm.mean()
+            ),
+            "operational_space_joint_delta_clipped_ratio": float(
+                self.operational_space_joint_delta_clipped.float().mean()
+            ),
+            "operational_space_ik_residual_penalty_scale": float(
+                self.operational_space_ik_residual_penalty_scale
+            ),
             "hand_dof_speed_scale": float(self.relative_hand_dof_speed_scale),
             "reset_dof_pos_noise_arm": float(self.applied_reset_dof_pos_noise_arm),
             "reset_dof_pos_noise_fingers": float(
@@ -3229,6 +3306,8 @@ class SimToolReal(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        if self.use_operational_space_arm_control:
+            self.gym.refresh_jacobian_tensors(self.sim)
 
         if self.with_fingertip_force_sensors or self.with_table_force_sensor:
             self.gym.refresh_force_sensor_tensor(self.sim)
@@ -4340,7 +4419,13 @@ class SimToolReal(VecTask):
             self.action_deltas[reset_env_ids] = 0.0
         self.prev_penalized_actions[:] = control_actions
 
-        if self.use_relative_control:
+        if self.use_operational_space_arm_control:
+            self.cur_targets[:, : self.num_arm_dofs] = (
+                self._operational_space_arm_targets(
+                    actions[:, : self.num_arm_dofs]
+                )
+            )
+        elif self.use_relative_control:
             # arm relative to current position
             targets = (
                 self.arm_hand_dof_pos[:, : self.num_arm_dofs]
@@ -4681,6 +4766,67 @@ class SimToolReal(VecTask):
         RECORD_DATA = self.cfg["env"]["record_data"]
         if RECORD_DATA:
             self._record_data()
+
+    def _operational_space_arm_targets(self, arm_actions: Tensor) -> Tensor:
+        if arm_actions.shape[-1] != 6:
+            raise ValueError(
+                "Operational-space arm control requires 6 arm actions "
+                f"[dx, dy, dz, wx, wy, wz], got shape {tuple(arm_actions.shape)}"
+            )
+
+        desired_twist = torch.empty_like(arm_actions)
+        desired_twist[:, 0:3] = (
+            arm_actions[:, 0:3]
+            * self.operational_space_arm_translation_speed_scale
+            * self.dt
+        )
+        desired_twist[:, 3:6] = (
+            arm_actions[:, 3:6]
+            * self.operational_space_arm_rotation_speed_scale
+            * self.dt
+        )
+
+        j_eef = self.robot_jacobian[
+            :, self.arm_ee_jacobian_index, :, : self.num_arm_dofs
+        ]
+        j_t = torch.transpose(j_eef, 1, 2)
+        damping = self.operational_space_ik_damping
+        identity = torch.eye(6, dtype=torch.float, device=self.device).unsqueeze(0)
+        lhs = torch.bmm(j_eef, j_t) + (damping * damping) * identity
+        q_delta = torch.bmm(
+            j_t, torch.linalg.solve(lhs, desired_twist.unsqueeze(-1))
+        ).squeeze(-1)
+
+        max_delta = self.operational_space_max_joint_delta
+        unclipped_q_delta = q_delta
+        q_delta = torch.clamp(q_delta, -max_delta, max_delta)
+
+        unclamped_targets = self.prev_targets[:, : self.num_arm_dofs] + q_delta
+        targets = tensor_clamp(
+            unclamped_targets,
+            self.arm_hand_dof_lower_limits[: self.num_arm_dofs],
+            self.arm_hand_dof_upper_limits[: self.num_arm_dofs],
+        )
+        applied_q_delta = targets - self.prev_targets[:, : self.num_arm_dofs]
+
+        achieved_twist = torch.bmm(j_eef, applied_q_delta.unsqueeze(-1)).squeeze(-1)
+        residual = desired_twist - achieved_twist
+
+        self.operational_space_requested_twist[:] = desired_twist
+        self.operational_space_achieved_twist[:] = achieved_twist
+        self.operational_space_ik_residual_norm[:] = torch.norm(residual, dim=-1)
+        self.operational_space_joint_delta_norm[:] = torch.norm(
+            applied_q_delta, dim=-1
+        )
+        delta_clipped = torch.any(torch.abs(unclipped_q_delta) > max_delta, dim=-1)
+        limit_clipped = torch.any(
+            torch.abs(applied_q_delta - q_delta) > 1e-6, dim=-1
+        )
+        self.operational_space_joint_delta_clipped[:] = (
+            delta_clipped | limit_clipped
+        )
+
+        return targets
 
     def _use_live_plotter(self):
         if not hasattr(self, "live_plotter"):

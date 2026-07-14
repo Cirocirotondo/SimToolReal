@@ -25,6 +25,8 @@ _TRAINING_PRESETS = (
     "train_b63_right",
     "train_b7",
     "train_c1",
+    "train_d1",
+    "train_d2",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -68,8 +70,10 @@ class LaunchTrainingArgs:
         "train_b63_right",
         "train_b7",
         "train_c1",
+        "train_d1",
+        "train_d2",
     ] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with immediate reset and calibration variation. train_b61_right = right-hand B61 whose reset variation is introduced through a linear curriculum. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b62_right = B61Right plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b63_right = B62Right plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR. train_c1 = simple grasping task with only hand control (no arm)."""
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with immediate reset and calibration variation. train_b61_right = right-hand B61 whose reset variation is introduced through a linear curriculum. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b62_right = B61Right plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b63_right = B62Right plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_c1 = simple grasping task with only hand control (no arm). train_d1 = B6-style task where arm actions are operational-space EE deltas solved with IK. train_d2 = D1 with more conservative EE motion and a slightly larger arm action penalty."""
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
@@ -202,6 +206,8 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_b63_right": "SimToolRealLSTMAsymmetricTrainB63Right",
         "train_b7": "SimToolRealLSTMAsymmetricTrainB7",
         "train_c1": "SimToolRealLSTMAsymmetricTrainC1",
+        "train_d1": "SimToolRealLSTMAsymmetricTrainD1",
+        "train_d2": "SimToolRealLSTMAsymmetricTrainD2",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -223,7 +229,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
     }:
         force_scale = 6.0 if force_scale is None else force_scale
         torque_scale = 0.5 if torque_scale is None else torque_scale
-    elif args.training_preset == "train_b5":
+    elif args.training_preset in {"train_b5", "train_d1", "train_d2"}:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
     elif args.training_preset == "train_10_real_mid_combined":

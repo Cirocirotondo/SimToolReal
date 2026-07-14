@@ -1,0 +1,13 @@
+# Train D2: conservative operational-space arm-control fine-tuning.
+# Inherits D1 and reduces the allowed EE/joint motion while slightly increasing
+# the existing arm action penalty.
+defaults:
+  - SimToolRealTrainD1
+  - _self_
+
+env:
+  operationalSpaceArmTranslationSpeedScale: 0.12
+  operationalSpaceArmRotationSpeedScale: 0.5
+  operationalSpaceMaxJointDelta: 0.025
+  armMovingAverage: 0.5
+  kukaActionsPenaltyScale: 0.05
