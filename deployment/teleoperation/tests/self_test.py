@@ -43,7 +43,23 @@ def main() -> None:
         np.array([0.2, -0.4, 0.3]),
     )
     axis_map = np.diag([-1.0, -1.0, 1.0])
-    orientation_axis_map = -np.eye(3)
+    orientation_axis_map = np.array(
+        [
+            [0.0, -np.sqrt(0.5), -np.sqrt(0.5)],
+            [-1.0, 0.0, 0.0],
+            [0.0, np.sqrt(0.5), -np.sqrt(0.5)],
+        ]
+    )
+    np.testing.assert_allclose(
+        orientation_axis_map.T @ orientation_axis_map,
+        np.eye(3),
+        atol=1e-10,
+    )
+    np.testing.assert_allclose(
+        np.linalg.det(orientation_axis_map),
+        1.0,
+        atol=1e-10,
+    )
     mapper = RelativeBoardMapper(
         initial_world_board=identity,
         home_model_ee=home,
@@ -76,7 +92,7 @@ def main() -> None:
         home[:3, 3] + np.array([0.0, -0.01, 0.0]),
         atol=1e-10,
     )
-    for axis_index, expected_sign in enumerate((-1.0, -1.0, -1.0)):
+    for axis_index in range(3):
         rotated = identity.copy()
         rotation_vector = np.zeros(3)
         rotation_vector[axis_index] = 0.1
@@ -86,8 +102,7 @@ def main() -> None:
         mapped_relative = (
             home[:3, :3].T @ mapper.target(rotated)[:3, :3]
         )
-        expected_rotation_vector = np.zeros(3)
-        expected_rotation_vector[axis_index] = 0.1 * expected_sign
+        expected_rotation_vector = orientation_axis_map @ rotation_vector
         np.testing.assert_allclose(
             Rotation.from_matrix(mapped_relative).as_rotvec(),
             expected_rotation_vector,
