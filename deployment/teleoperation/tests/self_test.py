@@ -49,9 +49,9 @@ def main() -> None:
     axis_map = np.diag([-1.0, -1.0, 1.0])
     orientation_axis_map = np.array(
         [
-            [np.sqrt(0.5), 0.0, -np.sqrt(0.5)],
             [np.sqrt(0.5), 0.0, np.sqrt(0.5)],
-            [0.0, -1.0, 0.0],
+            [0.5, np.sqrt(0.5), -0.5],
+            [-0.5, np.sqrt(0.5), 0.5],
         ]
     )
     np.testing.assert_allclose(
