@@ -40,6 +40,17 @@ class RobotIo:
                 state["_received_at"] = time.monotonic()
                 self.latest_state = state
 
+    def request_stop(
+        self,
+        *,
+        repetitions: int = 5,
+        interval_s: float = 0.02,
+    ) -> None:
+        """Reliably request speedStop before closing the PUB socket."""
+        for _ in range(repetitions):
+            self.command_socket.send_json({"stop": True})
+            time.sleep(interval_s)
+
     def close(self) -> None:
         self.command_socket.close()
         self.state_socket.close()

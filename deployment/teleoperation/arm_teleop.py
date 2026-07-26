@@ -528,14 +528,10 @@ def main() -> None:
         print("Stopped by user.")
     finally:
         if streamer is not None:
-            if robot is not None:
-                state = robot.poll_state()
-                if state is not None:
-                    q_hold = np.asarray(state["Q"][:6], dtype=np.float64)
-                    streamer.set_target(q_hold)
-                    time.sleep(safety["shutdown_hold_s"])
             streamer.stop()
         if robot is not None:
+            print("Requesting explicit UR5 speedStop...")
+            robot.request_stop()
             robot.close()
         if pose_stream is not None:
             pose_stream.close()
