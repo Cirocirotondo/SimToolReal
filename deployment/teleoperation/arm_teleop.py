@@ -313,6 +313,9 @@ def main() -> None:
     translation_axis_map = np.asarray(
         mapping["translation_axis_map"], dtype=np.float64
     )
+    orientation_axis_map = np.asarray(
+        mapping["orientation_axis_map"], dtype=np.float64
+    )
 
     pose_estimator: Optional[PoseEstimatorProcess] = None
     if (
@@ -413,6 +416,7 @@ def main() -> None:
             initial_world_board=initial_world_board,
             home_model_ee=home_model_ee,
             translation_axis_map=translation_axis_map,
+            orientation_axis_map=orientation_axis_map,
             position_scale=mapping["position_scale"],
             track_orientation=(
                 mapping["track_orientation"] and not args.position_only
@@ -428,6 +432,9 @@ def main() -> None:
         print(
             "Translation axes: MANUS forward = world -X -> model +X; "
             "MANUS left = world +Y -> model -Y."
+        )
+        print(
+            "Orientation axes: roll and yaw inverted; pitch unchanged."
         )
 
         if args.send_to_robot:

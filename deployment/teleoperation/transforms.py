@@ -85,6 +85,7 @@ class RelativeBoardMapper:
         initial_world_board: np.ndarray,
         home_model_ee: np.ndarray,
         translation_axis_map: np.ndarray,
+        orientation_axis_map: np.ndarray | None = None,
         position_scale: float = 1.0,
         track_orientation: bool = True,
     ) -> None:
@@ -105,6 +106,19 @@ class RelativeBoardMapper:
             atol=1e-6,
         ):
             raise ValueError("translation_axis_map must be orthonormal")
+        if orientation_axis_map is None:
+            orientation_axis_map = np.eye(3)
+        self.orientation_axis_map = np.asarray(
+            orientation_axis_map, dtype=np.float64
+        )
+        if self.orientation_axis_map.shape != (3, 3):
+            raise ValueError("orientation_axis_map must have shape (3, 3)")
+        if not np.allclose(
+            self.orientation_axis_map.T @ self.orientation_axis_map,
+            np.eye(3),
+            atol=1e-6,
+        ):
+            raise ValueError("orientation_axis_map must be orthonormal")
         self.position_scale = float(position_scale)
         self.track_orientation = bool(track_orientation)
 
@@ -124,8 +138,13 @@ class RelativeBoardMapper:
                 self.initial_world_board[:3, :3].T
                 @ world_board[:3, :3]
             )
+            mapped_relative_rotation = (
+                self.orientation_axis_map
+                @ local_relative_rotation
+                @ self.orientation_axis_map.T
+            )
             result[:3, :3] = project_rotation(
-                self.home_model_ee[:3, :3] @ local_relative_rotation
+                self.home_model_ee[:3, :3] @ mapped_relative_rotation
             )
         return result
 

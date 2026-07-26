@@ -43,10 +43,12 @@ def main() -> None:
         np.array([0.2, -0.4, 0.3]),
     )
     axis_map = np.diag([-1.0, -1.0, 1.0])
+    orientation_axis_map = np.diag([-1.0, 1.0, -1.0])
     mapper = RelativeBoardMapper(
         initial_world_board=identity,
         home_model_ee=home,
         translation_axis_map=axis_map,
+        orientation_axis_map=orientation_axis_map,
         position_scale=1.0,
         track_orientation=True,
     )
@@ -74,6 +76,23 @@ def main() -> None:
         home[:3, 3] + np.array([0.0, -0.01, 0.0]),
         atol=1e-10,
     )
+    for axis_index, expected_sign in enumerate((-1.0, 1.0, -1.0)):
+        rotated = identity.copy()
+        rotation_vector = np.zeros(3)
+        rotation_vector[axis_index] = 0.1
+        rotated[:3, :3] = Rotation.from_rotvec(
+            rotation_vector
+        ).as_matrix()
+        mapped_relative = (
+            home[:3, :3].T @ mapper.target(rotated)[:3, :3]
+        )
+        expected_rotation_vector = np.zeros(3)
+        expected_rotation_vector[axis_index] = 0.1 * expected_sign
+        np.testing.assert_allclose(
+            Rotation.from_matrix(mapped_relative).as_rotvec(),
+            expected_rotation_vector,
+            atol=1e-10,
+        )
 
     model_path = (
         ROOT.parent
