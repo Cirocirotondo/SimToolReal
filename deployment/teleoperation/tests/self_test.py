@@ -42,10 +42,11 @@ def main() -> None:
         Rotation.from_euler("xyz", [0.2, -0.1, 0.3]).as_matrix(),
         np.array([0.2, -0.4, 0.3]),
     )
+    axis_map = np.diag([-1.0, -1.0, 1.0])
     mapper = RelativeBoardMapper(
         initial_world_board=identity,
         home_model_ee=home,
-        translation_axis_map=np.eye(3),
+        translation_axis_map=axis_map,
         position_scale=1.0,
         track_orientation=True,
     )
@@ -55,20 +56,22 @@ def main() -> None:
     moved[:3, :3] = Rotation.from_euler("z", 0.1).as_matrix()
     mapped = mapper.target(moved)
     np.testing.assert_allclose(
-        mapped[:3, 3], home[:3, 3] + moved[:3, 3], atol=1e-10
+        mapped[:3, 3],
+        home[:3, 3] + axis_map @ moved[:3, 3],
+        atol=1e-10,
     )
     forward = identity.copy()
     forward[0, 3] = -0.01
     np.testing.assert_allclose(
         mapper.target(forward)[:3, 3],
-        home[:3, 3] + np.array([-0.01, 0.0, 0.0]),
+        home[:3, 3] + np.array([0.01, 0.0, 0.0]),
         atol=1e-10,
     )
     left = identity.copy()
     left[1, 3] = 0.01
     np.testing.assert_allclose(
         mapper.target(left)[:3, 3],
-        home[:3, 3] + np.array([0.0, 0.01, 0.0]),
+        home[:3, 3] + np.array([0.0, -0.01, 0.0]),
         atol=1e-10,
     )
 
@@ -83,9 +86,9 @@ def main() -> None:
         model_path=model_path,
         end_effector_body="wrist_3_link",
         damping=0.03,
-        position_gain=4.0,
-        orientation_gain=2.0,
-        maximum_joint_velocity_rad_s=0.5,
+        position_gain=8.0,
+        orientation_gain=4.0,
+        maximum_joint_velocity_rad_s=0.8,
     )
     q = np.array([-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571])
     fake_robot = FakeRobot(q + 0.1, q)

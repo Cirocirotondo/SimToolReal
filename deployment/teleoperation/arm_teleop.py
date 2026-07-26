@@ -426,8 +426,8 @@ def main() -> None:
             f"{home_model_ee[:3, 3].round(4).tolist()}"
         )
         print(
-            "Translation axes: MANUS forward = world -X -> model -X; "
-            "MANUS left = world +Y -> model +Y."
+            "Translation axes: MANUS forward = world -X -> model +X; "
+            "MANUS left = world +Y -> model -Y."
         )
 
         if args.send_to_robot:
