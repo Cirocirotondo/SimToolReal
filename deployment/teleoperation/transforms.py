@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -78,31 +76,13 @@ def pose_to_matrix(pose: Any) -> np.ndarray:
     return pose_array_to_matrix(pose)
 
 
-def load_transform(path: str | Path, *keys: str) -> np.ndarray:
-    """Load a named 4x4 transform from a calibration JSON file."""
-    path = Path(path).expanduser().resolve()
-    with path.open(encoding="utf-8") as stream:
-        payload = json.load(stream)
-    value: Any = payload
-    for key in keys:
-        if isinstance(payload, dict) and key in payload:
-            value = payload[key]
-            break
-    if isinstance(value, dict) and "matrix_4x4" in value:
-        value = value["matrix_4x4"]
-    matrix = np.asarray(value, dtype=np.float64)
-    if matrix.shape != (4, 4) or not np.all(np.isfinite(matrix)):
-        raise ValueError(f"{path} does not contain a finite 4x4 transform")
-    return make_transform(matrix[:3, :3], matrix[:3, 3])
-
-
-class RelativeWristMapper:
-    """Map a captured MANUS wrist pose to the robot home end-effector pose."""
+class RelativeBoardMapper:
+    """Map a captured MANUS board pose to the robot home end-effector pose."""
 
     def __init__(
         self,
         *,
-        initial_world_wrist: np.ndarray,
+        initial_world_board: np.ndarray,
         home_model_ee: np.ndarray,
         translation_axis_map: np.ndarray,
         orientation_axis_map: np.ndarray | None = None,
@@ -111,8 +91,8 @@ class RelativeWristMapper:
     ) -> None:
         if position_scale <= 0.0:
             raise ValueError("position_scale must be positive")
-        self.initial_world_wrist = np.asarray(
-            initial_world_wrist, dtype=np.float64
+        self.initial_world_board = np.asarray(
+            initial_world_board, dtype=np.float64
         ).copy()
         self.home_model_ee = np.asarray(home_model_ee, dtype=np.float64).copy()
         self.translation_axis_map = np.asarray(
@@ -142,10 +122,10 @@ class RelativeWristMapper:
         self.position_scale = float(position_scale)
         self.track_orientation = bool(track_orientation)
 
-    def target(self, world_wrist: np.ndarray) -> np.ndarray:
-        world_wrist = np.asarray(world_wrist, dtype=np.float64)
+    def target(self, world_board: np.ndarray) -> np.ndarray:
+        world_board = np.asarray(world_board, dtype=np.float64)
         delta_world = (
-            world_wrist[:3, 3] - self.initial_world_wrist[:3, 3]
+            world_board[:3, 3] - self.initial_world_board[:3, 3]
         )
         result = self.home_model_ee.copy()
         result[:3, 3] = (
@@ -155,8 +135,8 @@ class RelativeWristMapper:
         )
         if self.track_orientation:
             local_relative_rotation = (
-                self.initial_world_wrist[:3, :3].T
-                @ world_wrist[:3, :3]
+                self.initial_world_board[:3, :3].T
+                @ world_board[:3, :3]
             )
             relative_rotation_vector = Rotation.from_matrix(
                 local_relative_rotation

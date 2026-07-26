@@ -11,7 +11,7 @@ sys.path.insert(0, str(ROOT))
 
 from ik_solver import Ur5DampedLeastSquaresIk
 from arm_teleop import move_robot_to_home
-from transforms import RelativeWristMapper, load_transform, make_transform
+from transforms import RelativeBoardMapper, make_transform
 
 
 class FakeRobot:
@@ -43,9 +43,9 @@ def main() -> None:
         np.array([0.2, -0.4, 0.3]),
     )
     axis_map = np.diag([-1.0, -1.0, 1.0])
-    orientation_axis_map = np.eye(3)
-    mapper = RelativeWristMapper(
-        initial_world_wrist=identity,
+    orientation_axis_map = -np.eye(3)
+    mapper = RelativeBoardMapper(
+        initial_world_board=identity,
         home_model_ee=home,
         translation_axis_map=axis_map,
         orientation_axis_map=orientation_axis_map,
@@ -76,7 +76,7 @@ def main() -> None:
         home[:3, 3] + np.array([0.0, -0.01, 0.0]),
         atol=1e-10,
     )
-    for axis_index, expected_sign in enumerate((1.0, 1.0, 1.0)):
+    for axis_index, expected_sign in enumerate((-1.0, -1.0, -1.0)):
         rotated = identity.copy()
         rotation_vector = np.zeros(3)
         rotation_vector[axis_index] = 0.1
@@ -93,17 +93,6 @@ def main() -> None:
             expected_rotation_vector,
             atol=1e-10,
         )
-
-    board_from_wrist = load_transform(
-        ROOT / "calibration" / "right_wrist2board_calibration.json",
-        "T_board_wrist",
-        "T_board_from_wrist",
-    )
-    np.testing.assert_allclose(
-        board_from_wrist[:3, :3].T @ board_from_wrist[:3, :3],
-        np.eye(3),
-        atol=1e-8,
-    )
 
     model_path = (
         ROOT.parent
