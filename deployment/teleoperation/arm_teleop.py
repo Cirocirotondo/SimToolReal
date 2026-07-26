@@ -155,6 +155,69 @@ def wait_for_robot_state(
     raise TimeoutError("No UR5 state received from the low-level controller")
 
 
+def move_robot_to_home(
+    robot: RobotIo,
+    streamer: CommandStreamer,
+    home_q: np.ndarray,
+    *,
+    timeout_s: float,
+    tolerance_deg: float,
+    settle_s: float,
+    maximum_state_age_s: float,
+) -> dict:
+    print("Moving UR5 to the configured home joint position...")
+    print(f"  target q deg: {np.rad2deg(home_q).round(2).tolist()}")
+    streamer.set_target(home_q)
+
+    deadline = time.monotonic() + timeout_s
+    reached_since: Optional[float] = None
+    last_log = 0.0
+    latest_state: Optional[dict] = None
+    latest_errors_deg = np.full(6, np.inf)
+
+    while True:
+        now = time.monotonic()
+        state = robot.poll_state()
+        if state is not None:
+            latest_state = state
+        if (
+            latest_state is None
+            or now - latest_state["_received_at"] > maximum_state_age_s
+        ):
+            raise RuntimeError("UR5 state became stale while moving home")
+
+        measured_q = np.asarray(latest_state["Q"][:6], dtype=np.float64)
+        latest_errors_deg = np.rad2deg(np.abs(home_q - measured_q))
+        maximum_error_deg = float(np.max(latest_errors_deg))
+        if maximum_error_deg <= tolerance_deg:
+            if reached_since is None:
+                reached_since = now
+            elif now - reached_since >= settle_s:
+                print(
+                    "UR5 home reached; measured q deg: "
+                    f"{np.rad2deg(measured_q).round(2).tolist()}"
+                )
+                return latest_state
+        else:
+            reached_since = None
+
+        if now - last_log >= 0.5:
+            worst_joint = int(np.argmax(latest_errors_deg)) + 1
+            print(
+                "UR5 homing: "
+                f"max error={maximum_error_deg:.2f} deg "
+                f"at joint {worst_joint}"
+            )
+            last_log = now
+
+        if now >= deadline:
+            raise TimeoutError(
+                f"UR5 did not reach home within {timeout_s:g} s; "
+                f"joint errors={latest_errors_deg.round(2).tolist()} deg"
+            )
+        time.sleep(0.01)
+
+
 def check_workspace(
     target_model: np.ndarray,
     minimum_model: np.ndarray,
@@ -267,6 +330,39 @@ def main() -> None:
     q_command = home_q.copy()
 
     try:
+        if args.send_to_robot:
+            robot = RobotIo(low_level_config_path)
+            last_state = wait_for_robot_state(
+                robot, safety["robot_state_start_timeout_s"]
+            )
+            q_measured = np.asarray(last_state["Q"][:6], dtype=np.float64)
+            q_command = q_measured.copy()
+            streamer = CommandStreamer(
+                command_socket=robot.command_socket,
+                frequency_hz=robot_config["command_stream_hz"],
+            )
+            streamer.set_target(q_command)
+            streamer.start()
+            print(
+                "UR5 state ready; initial measured q deg: "
+                f"{np.rad2deg(q_measured).round(2).tolist()}"
+            )
+            # Allow the low-level controller's SUB socket to connect to this
+            # command PUB while the measured pose is held.
+            time.sleep(safety["command_connection_delay_s"])
+            last_state = move_robot_to_home(
+                robot,
+                streamer,
+                home_q,
+                timeout_s=safety["home_timeout_s"],
+                tolerance_deg=safety["home_tolerance_deg"],
+                settle_s=safety["home_settle_s"],
+                maximum_state_age_s=safety["maximum_robot_state_age_s"],
+            )
+            q_command = home_q.copy()
+        else:
+            print("DRY RUN: no command socket will be opened.")
+
         if pose_estimator is not None:
             pose_estimator.start()
         pose_stream = BoardPoseStream(
@@ -274,27 +370,6 @@ def main() -> None:
             board_id=str(tracking["wrist_board_id"]),
             minimum_confidence=tracking["minimum_confidence"],
         )
-
-        if args.send_to_robot:
-            robot = RobotIo(low_level_config_path)
-            last_state = wait_for_robot_state(
-                robot, safety["robot_state_start_timeout_s"]
-            )
-            q_measured = np.asarray(last_state["Q"][:6], dtype=np.float64)
-            home_error = np.max(np.abs(q_measured - home_q))
-            if home_error > np.deg2rad(safety["home_tolerance_deg"]):
-                raise RuntimeError(
-                    "Robot is not sufficiently close to the configured home "
-                    f"pose: maximum error={np.rad2deg(home_error):.2f} deg, "
-                    f"limit={safety['home_tolerance_deg']:.2f} deg"
-                )
-            q_command = q_measured.copy()
-            print(
-                "UR5 state ready at home; measured q deg: "
-                f"{np.rad2deg(q_measured).round(2).tolist()}"
-            )
-        else:
-            print("DRY RUN: no command socket will be opened.")
 
         initial_world_board = countdown_board_capture(
             pose_stream,
@@ -326,14 +401,12 @@ def main() -> None:
         )
 
         if args.send_to_robot:
-            assert robot is not None
-            streamer = CommandStreamer(
-                command_socket=robot.command_socket,
-                frequency_hz=robot_config["command_stream_hz"],
-            )
+            assert robot is not None and streamer is not None
             streamer.set_target(q_command)
-            streamer.start()
-            print("REAL UR5 COMMANDS ENABLED. Finger commands are untouched.")
+            print(
+                "REAL UR5 TELEOPERATION ENABLED. "
+                "Finger commands are untouched."
+            )
 
         control_hz = float(robot_config["control_hz"])
         dt = 1.0 / control_hz

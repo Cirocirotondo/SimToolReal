@@ -10,7 +10,30 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from ik_solver import Ur5DampedLeastSquaresIk
+from arm_teleop import move_robot_to_home
 from transforms import RelativeBoardMapper, make_transform
+
+
+class FakeRobot:
+    def __init__(self, initial_q: np.ndarray, home_q: np.ndarray) -> None:
+        self.initial_q = initial_q
+        self.home_q = home_q
+        self.poll_count = 0
+
+    def poll_state(self) -> dict:
+        import time
+
+        self.poll_count += 1
+        q = self.initial_q if self.poll_count < 3 else self.home_q
+        return {"Q": q.tolist(), "_received_at": time.monotonic()}
+
+
+class FakeStreamer:
+    def __init__(self) -> None:
+        self.targets: list[np.ndarray] = []
+
+    def set_target(self, target: np.ndarray) -> None:
+        self.targets.append(np.asarray(target, dtype=np.float64).copy())
 
 
 def main() -> None:
@@ -65,6 +88,20 @@ def main() -> None:
         maximum_joint_velocity_rad_s=0.5,
     )
     q = np.array([-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571])
+    fake_robot = FakeRobot(q + 0.1, q)
+    fake_streamer = FakeStreamer()
+    final_state = move_robot_to_home(
+        fake_robot,
+        fake_streamer,
+        q,
+        timeout_s=0.5,
+        tolerance_deg=0.1,
+        settle_s=0.02,
+        maximum_state_age_s=0.1,
+    )
+    np.testing.assert_allclose(final_state["Q"], q)
+    np.testing.assert_allclose(fake_streamer.targets[-1], q)
+
     target = ik.forward(q)
     target[:3, 3] += np.array([0.01, 0.0, 0.0])
     initial_error = np.linalg.norm(target[:3, 3] - ik.forward(q)[:3, 3])

@@ -50,36 +50,12 @@ The fixed camera extrinsic is still required because it defines these world
 axes. The absolute camera position and the initial MANUS position cancel from
 the relative motion.
 
-## IK dry-run
-
-No UR controller is required:
-
-```bash
-cd /home/duplo/simone/SimToolReal/deployment/teleoperation
-
-../simtoolreal_real/.venv/bin/python arm_teleop.py \
-  --position-only \
-  --max-runtime 20
-```
-
-The script automatically launches the camera pose estimator. Hold the glove
-still at the desired neutral pose during the three-second countdown. Move
-slowly and inspect target coordinates, IK error and joint targets. Repeat
-without `--position-only` to test relative orientation as well.
-
-The controller uses damped least-squares IK with MuJoCo Jacobians. No separate
-Mink/DAQP installation is required.
 
 ## Physical arm
 
 The normal workflow needs two terminals.
 
-In terminal 1, start the existing UR5 low-level arm controller and move the
-robot to the home joint configuration:
-
-```text
-[-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571] rad
-```
+In terminal 1, start the existing UR5 low-level arm controller.
 
 In terminal 2:
 
@@ -89,7 +65,12 @@ cd /home/duplo/simone/SimToolReal/deployment/teleoperation
 ../simtoolreal_real/.venv/bin/python arm_teleop.py --send-to-robot
 ```
 
-Keep the glove at the desired neutral position during the countdown. When
+The script first moves the arm to the configured home joint position
+`[-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]`. It waits until the measured
+joints have remained within the configured tolerance before starting the
+camera pose estimator and the MANUS countdown.
+
+Keep the glove at the desired neutral position during that countdown. When
 `GO` appears, relative motion begins. `Ctrl+C` stops and holds the arm. Finger
 control is independent and can remain in the official Tesollo ROS terminals.
 
@@ -111,6 +92,7 @@ automatically.
 Physical commands are disabled by default. When enabled, the controller stops
 and holds the latest measured joint position if:
 
+- the robot does not reach home within the configured timeout;
 - camera board data becomes stale;
 - robot state becomes stale;
 - a camera pose jumps beyond the configured threshold;
@@ -128,3 +110,24 @@ cd /home/duplo/simone/SimToolReal/deployment/teleoperation
 
 This tests the initial-pose mapping and a small MuJoCo IK displacement without
 opening sockets or commanding hardware.
+
+
+## IK dry-run
+
+No UR controller is required:
+
+```bash
+cd /home/duplo/simone/SimToolReal/deployment/teleoperation
+
+../simtoolreal_real/.venv/bin/python arm_teleop.py \
+  --position-only \
+  --max-runtime 20
+```
+
+The script automatically launches the camera pose estimator. Hold the glove
+still at the desired neutral pose during the three-second countdown. Move
+slowly and inspect target coordinates, IK error and joint targets. Repeat
+without `--position-only` to test relative orientation as well.
+
+The controller uses damped least-squares IK with MuJoCo Jacobians. No separate
+Mink/DAQP installation is required.

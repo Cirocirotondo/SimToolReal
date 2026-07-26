@@ -42,7 +42,10 @@
     "maximum_joint_velocity_rad_s": 0.35
   },
   "safety": {
-    "home_tolerance_deg": 4.0,
+    "home_timeout_s": 30.0,
+    "home_tolerance_deg": 1.0,
+    "home_settle_s": 0.3,
+    "command_connection_delay_s": 0.5,
     "robot_state_start_timeout_s": 5.0,
     "maximum_robot_state_age_s": 0.25,
     "maximum_joint_tracking_error_deg": 10.0,
