@@ -4,61 +4,13 @@ This package controls **only the UR5e arm**. Finger motion remains under the
 official Tesollo ROS 2 MANUS retargeting pipeline in
 `/home/duplo/git/tesollo_ros2`.
 
-The MANUS glove does not provide an absolute room position by itself. Absolute
-wrist tracking therefore comes from the rigid three-AprilTag fixture already
-mounted on the right glove (IDs 0, 2 and 4). MANUS still supplies the finger
-data to Tesollo's official software.
+- This pipeline tracks the position of the right MANUS glove, which mounts a three-AprilTag board (IDs 0,2 and 4).
+- The world frame is given by the 5x7 Charuco Board `/home/duplo/simone/SimToolReal/deployment/teleoperation/calibration/world_charuco_5x7_35mm_26mm/charuco_board.json`.
+- The board should be used with the x (red axes) pointing toward the glove user and the y (green axes) pointing toward left. Indeed, this is the mapping used in the configuration.
+- The camera used in the scripts has ID 242322072500. I suggest to put the camera above the scene in order to avoid occlusions.
 
-## Frames and transforms
 
-The runtime uses this chain:
-
-```text
-camera image
-    -> T_world_camera                 camera extrinsic calibration
-    -> T_world_board                  AprilTag pose estimator
-    -> T_board_wrist                  existing glove calibration
-    -> T_world_wrist                  tracked human wrist
-
-T_world_robot_base                    robot/world calibration
-T_model_robot_base                    MuJoCo/physical-base convention
-```
-
-When tracking is armed, the captured wrist pose becomes the UR5 home pose:
-
-```text
-p_target = p_home + scale * R_model_world * (p_wrist - p_wrist_initial)
-R_target = R_home * (R_wrist_initial^-1 * R_wrist)
-```
-
-The first equation prevents the absolute camera position from producing a
-robot jump. The second maps relative human wrist rotation onto the robot home
-orientation. `--position-only` keeps `R_target = R_home`.
-
-## 1. Mechanical preparation
-
-1. Mount one RealSense rigidly above the workspace.
-2. Ensure its color image sees the complete operator wrist workspace.
-3. Keep the AprilTag fixture rigid on the glove; changing its geometry
-   invalidates `calibration/right_wrist2board_calibration.json`.
-4. Fix the selected 5 x 7 ChArUco board in the world-frame location. Its
-   exact configuration is 35 mm square size, 26 mm marker size and
-   `DICT_4X4_50`. Do not substitute a visually similar board.
-
-The camera must not move after extrinsic calibration.
-
-## 2. Camera extrinsic calibration
-
-Create the active camera configuration:
-
-```bash
-cd /home/duplo/simone/SimToolReal/deployment/teleoperation
-cp config/overhead_camera.example.json config/overhead_camera.json
-```
-
-The overhead D435I serial is already set to `242322072500`. The generic
-RealSense color wrapper is historically named `D405`; leave that value even
-though the connected camera is a D435I.
+## Camera extrinsic calibration
 
 Run the single-camera calibration using the exact 5 x 7 printed-board JSON:
 
@@ -72,10 +24,7 @@ python scripts/calibrate_extrinsics_single_camera.py \
   --board_config_path \
   /home/duplo/simone/SimToolReal/deployment/teleoperation/calibration/world_charuco_5x7_35mm_26mm/charuco_board.json
 ```
-
-Capture several frames with the board well distributed in the field of view
-if the script supports multiple samples. The exported matrix is
-`T_world_camera`. Copy the selected result to:
+Capture a frame by pressing `c` and then `Enter`. The calibration will be saved here:
 
 ```text
 /home/duplo/simone/SimToolReal/deployment/teleoperation/calibration/overhead_T_world_camera.npy
@@ -83,50 +32,25 @@ if the script supports multiple samples. The exported matrix is
 
 The active `overhead_camera.json` already points to this filename.
 
-## 3. World to UR5 base
 
-`config/arm_teleop.json` currently uses:
 
-```text
-../simtoolreal_real/calibration/base_pose_robot_ur5e.npy
-```
+## How the relative mapping works
 
-This file contains `T_world_robot_base`. It is reusable only if the world
-ChArUco board has not moved relative to the UR5 base. Moving the overhead
-camera alone requires only a new camera extrinsic. Moving the world board or
-the robot requires repeating robot-base calibration with the end-effector
-board.
+No MANUS-board-to-wrist or world-to-UR5-base calibration is used. At startup,
+the script detects the glove board and starts a three-second countdown. At the
+end of the countdown:
 
-## 4. Start wrist pose estimation
+- the current MANUS board pose is assigned to the UR5 home configuration
+  `[-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]`;
+- subsequent translations are applied one-to-one to the robot end effector;
+- MANUS forward is world `-X` and produces robot model `-X`;
+- MANUS left is world `+Y` and produces robot model `+Y`.
 
-Create the active pose-estimation configuration:
+The fixed camera extrinsic is still required because it defines these world
+axes. The absolute camera position and the initial MANUS position cancel from
+the relative motion.
 
-```bash
-cd /home/duplo/simone/SimToolReal/deployment/teleoperation
-cp config/manus_overhead_pose_estimation.example.json \
-   config/manus_overhead_pose_estimation.json
-```
-
-Then:
-
-```bash
-cd /home/duplo/git/robohand/src/tag-pose-estimation
-source /home/duplo/git/robohand-robohand2/.venv/bin/activate
-
-python scripts/run_pose_estimation.py \
-  --config \
-  /home/duplo/simone/SimToolReal/deployment/teleoperation/config/manus_overhead_pose_estimation.json
-```
-
-It publishes the rigid glove-board pose on `tcp://127.0.0.1:5557`. Before
-using IK, move the wrist through the intended workspace and verify:
-
-- no tag-ID swaps;
-- no position discontinuities;
-- axes move in the expected world directions;
-- the pose remains available when one or two tags are occluded.
-
-## 5. IK dry-run
+## IK dry-run
 
 No UR controller is required:
 
@@ -138,52 +62,59 @@ cd /home/duplo/simone/SimToolReal/deployment/teleoperation
   --max-runtime 20
 ```
 
-Hold the wrist still during the initial 30-sample capture. That position is
-assigned to the configured UR5 home. Move slowly and inspect target
-coordinates, IK error and joint targets. Then repeat without
-`--position-only` to test orientation.
+The script automatically launches the camera pose estimator. Hold the glove
+still at the desired neutral pose during the three-second countdown. Move
+slowly and inspect target coordinates, IK error and joint targets. Repeat
+without `--position-only` to test relative orientation as well.
 
 The controller uses damped least-squares IK with MuJoCo Jacobians. No separate
 Mink/DAQP installation is required.
 
-## 6. Physical arm, progressively
+## Physical arm
 
-1. Start the existing low-level UR controller.
-2. Send the UR5 to the `home_q_rad` configured in `config/arm_teleop.json`.
-3. Keep finger control running in the official Tesollo terminals.
-4. For the first physical run, set `position_scale` to `0.3`,
-   `maximum_target_speed_m_s` to `0.05`, and use `--position-only`.
-5. Keep the physical and human workspaces clear.
+The normal workflow needs two terminals.
+
+In terminal 1, start the existing UR5 low-level arm controller and move the
+robot to the home joint configuration:
+
+```text
+[-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571] rad
+```
+
+In terminal 2:
 
 ```bash
 cd /home/duplo/simone/SimToolReal/deployment/teleoperation
 
+../simtoolreal_real/.venv/bin/python arm_teleop.py --send-to-robot
+```
+
+Keep the glove at the desired neutral position during the countdown. When
+`GO` appears, relative motion begins. `Ctrl+C` stops and holds the arm. Finger
+control is independent and can remain in the official Tesollo ROS terminals.
+
+For an initial physical check, use:
+
+```bash
 ../simtoolreal_real/.venv/bin/python arm_teleop.py \
   --send-to-robot \
   --position-only \
   --max-runtime 10
 ```
 
-The program requires the robot to already be close to home. It captures a
-stable initial wrist pose before accepting the exact confirmation
-`START SEND`.
-
-After position tracking is validated:
-
-1. increase runtime;
-2. increase `position_scale` toward `1.0`;
-3. raise Cartesian/joint speed limits gradually;
-4. finally remove `--position-only`.
+If a pose estimator is already running, add
+`--no-start-pose-estimator`; otherwise it is started and stopped
+automatically.
 
 ## Safety behavior
 
 Physical commands are disabled by default. When enabled, the controller stops
 and holds the latest measured joint position if:
 
-- camera wrist data becomes stale;
+- camera board data becomes stale;
 - robot state becomes stale;
 - a camera pose jumps beyond the configured threshold;
-- IK requests a point outside the configured robot-base workspace;
+- IK requests a point outside the configured MuJoCo-model workspace;
 - joint tracking error exceeds the configured limit.
 
 All thresholds are in `config/arm_teleop.json`.

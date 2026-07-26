@@ -1,7 +1,6 @@
-# Machine-specific camera calibration and activated config copies.
+# Machine-specific camera calibration output.
 /calibration/overhead_T_world_camera.npy
-/config/overhead_camera.json
-/config/manus_overhead_pose_estimation.json
+/calibration/overhead_T_world_camera_description.txt
 
 # Runtime artifacts.
 __pycache__/

@@ -1,0 +1,15 @@
+{
+  "port": 5557,
+  "camera_configs": [
+    "/home/duplo/simone/SimToolReal/deployment/teleoperation/config/overhead_camera.json"
+  ],
+  "object_board_definitions": [
+    "/home/duplo/simone/SimToolReal/deployment/teleoperation/config/right_wrist_board.json"
+  ],
+  "detection_type": "ransac_with_refinement",
+  "frequency": 30,
+  "use_transform": false,
+  "tag_type": "apriltag",
+  "tag_family": "tag16h5",
+  "publish_image": true
+}

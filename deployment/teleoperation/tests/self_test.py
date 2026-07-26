@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from ik_solver import Ur5DampedLeastSquaresIk
-from transforms import RelativeWristMapper, make_transform
+from transforms import RelativeBoardMapper, make_transform
 
 
 def main() -> None:
@@ -19,10 +19,10 @@ def main() -> None:
         Rotation.from_euler("xyz", [0.2, -0.1, 0.3]).as_matrix(),
         np.array([0.2, -0.4, 0.3]),
     )
-    mapper = RelativeWristMapper(
-        initial_world_wrist=identity,
+    mapper = RelativeBoardMapper(
+        initial_world_board=identity,
         home_model_ee=home,
-        rotation_model_from_world=np.eye(3),
+        translation_axis_map=np.eye(3),
         position_scale=1.0,
         track_orientation=True,
     )
@@ -33,6 +33,20 @@ def main() -> None:
     mapped = mapper.target(moved)
     np.testing.assert_allclose(
         mapped[:3, 3], home[:3, 3] + moved[:3, 3], atol=1e-10
+    )
+    forward = identity.copy()
+    forward[0, 3] = -0.01
+    np.testing.assert_allclose(
+        mapper.target(forward)[:3, 3],
+        home[:3, 3] + np.array([-0.01, 0.0, 0.0]),
+        atol=1e-10,
+    )
+    left = identity.copy()
+    left[1, 3] = 0.01
+    np.testing.assert_allclose(
+        mapper.target(left)[:3, 3],
+        home[:3, 3] + np.array([0.0, 0.01, 0.0]),
+        atol=1e-10,
     )
 
     model_path = (
@@ -50,7 +64,7 @@ def main() -> None:
         orientation_gain=2.0,
         maximum_joint_velocity_rad_s=0.5,
     )
-    q = np.array([-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571])
+    q = np.array([-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571])
     target = ik.forward(q)
     target[:3, 3] += np.array([0.01, 0.0, 0.0])
     initial_error = np.linalg.norm(target[:3, 3] - ik.forward(q)[:3, 3])

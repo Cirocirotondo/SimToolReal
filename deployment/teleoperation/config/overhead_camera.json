@@ -1,0 +1,10 @@
+{
+  "cameras": [
+    {
+      "type": "D405",
+      "serial_number": "242322072500",
+      "name": "manus_overhead",
+      "extrinsic_calibration_file": "/home/duplo/simone/SimToolReal/deployment/teleoperation/calibration/overhead_T_world_camera.npy"
+    }
+  ]
+}

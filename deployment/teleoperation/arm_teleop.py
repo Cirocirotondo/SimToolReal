@@ -3,7 +3,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 from pathlib import Path
+import subprocess
 import time
 from typing import Optional
 
@@ -13,10 +15,8 @@ from ik_solver import Ur5DampedLeastSquaresIk
 from pose_stream import BoardPoseStream, WristPoseFilter
 from robot_io import CommandStreamer, RobotIo
 from transforms import (
-    RelativeWristMapper,
-    average_transforms,
+    RelativeBoardMapper,
     limit_pose_step,
-    load_transform,
 )
 
 
@@ -36,51 +36,110 @@ def load_config(path: Path) -> dict:
     return config
 
 
-def wait_for_wrist_capture(
+class PoseEstimatorProcess:
+    def __init__(
+        self,
+        *,
+        python: Path,
+        project_root: Path,
+        script: Path,
+        config: Path,
+    ) -> None:
+        self.python = python
+        self.project_root = project_root
+        self.script = script
+        self.config = config
+        self.process: Optional[subprocess.Popen] = None
+
+    def start(self) -> None:
+        environment = os.environ.copy()
+        environment["PYTHONUNBUFFERED"] = "1"
+        existing_pythonpath = environment.get("PYTHONPATH")
+        environment["PYTHONPATH"] = str(self.project_root) + (
+            os.pathsep + existing_pythonpath if existing_pythonpath else ""
+        )
+        command = [
+            str(self.python),
+            str(self.script),
+            "--config",
+            str(self.config),
+        ]
+        print("Starting overhead MANUS pose estimator:")
+        print("  " + " ".join(command))
+        self.process = subprocess.Popen(
+            command,
+            cwd=self.project_root,
+            env=environment,
+        )
+
+    def check_running(self) -> None:
+        if self.process is not None and self.process.poll() is not None:
+            raise RuntimeError(
+                "The automatically started pose estimator exited with code "
+                f"{self.process.returncode}"
+            )
+
+    def stop(self) -> None:
+        if self.process is None or self.process.poll() is not None:
+            return
+        self.process.terminate()
+        try:
+            self.process.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            self.process.kill()
+            self.process.wait(timeout=1.0)
+
+
+def countdown_board_capture(
     stream: BoardPoseStream,
     pose_filter: WristPoseFilter,
     *,
-    board_from_wrist: np.ndarray,
-    sample_count: int,
+    countdown_s: int,
     timeout_s: float,
-    maximum_position_std_m: float,
+    pose_estimator: Optional[PoseEstimatorProcess],
 ) -> np.ndarray:
-    print(
-        f"Collecting {sample_count} fresh wrist samples. "
-        "Hold the MANUS wrist still at the chosen initial position..."
-    )
+    print("Waiting for the camera-observed MANUS board...")
     deadline = time.monotonic() + timeout_s
-    transforms: list[np.ndarray] = []
     last_received_at: Optional[float] = None
-    while time.monotonic() < deadline and len(transforms) < sample_count:
+    latest_board: Optional[np.ndarray] = None
+    while time.monotonic() < deadline:
+        if pose_estimator is not None:
+            pose_estimator.check_running()
         sample = stream.poll()
-        if sample is None or sample.received_at == last_received_at:
-            time.sleep(0.005)
-            continue
-        last_received_at = sample.received_at
-        world_from_wrist = sample.transform @ board_from_wrist
-        filtered = pose_filter.update(world_from_wrist)
-        if filtered is not None:
-            transforms.append(filtered)
-        time.sleep(0.002)
-    if len(transforms) < sample_count:
-        raise TimeoutError(
-            f"Only received {len(transforms)}/{sample_count} valid wrist poses"
-        )
+        if sample is not None and sample.received_at != last_received_at:
+            last_received_at = sample.received_at
+            filtered = pose_filter.update(sample.transform)
+            if filtered is not None:
+                latest_board = filtered
+                break
+        time.sleep(0.01)
+    if latest_board is None:
+        raise TimeoutError("No valid MANUS board pose was received")
 
-    positions = np.array([transform[:3, 3] for transform in transforms])
-    maximum_std = float(np.max(np.std(positions, axis=0)))
-    if maximum_std > maximum_position_std_m:
-        raise RuntimeError(
-            "Initial wrist was not stable: maximum coordinate standard "
-            f"deviation was {maximum_std * 1000.0:.1f} mm, limit is "
-            f"{maximum_position_std_m * 1000.0:.1f} mm"
-        )
-    print(
-        f"Initial wrist capture accepted; maximum position std: "
-        f"{maximum_std * 1000.0:.2f} mm"
-    )
-    return average_transforms(transforms)
+    print("MANUS board detected. Hold it at the desired neutral position.")
+    for remaining in range(countdown_s, 0, -1):
+        print(f"Mapping MANUS position to UR5 home in {remaining}...")
+        interval_end = time.monotonic() + 1.0
+        while time.monotonic() < interval_end:
+            if pose_estimator is not None:
+                pose_estimator.check_running()
+            sample = stream.poll()
+            if sample is not None and sample.received_at != last_received_at:
+                last_received_at = sample.received_at
+                filtered = pose_filter.update(sample.transform)
+                if filtered is not None:
+                    latest_board = filtered
+            time.sleep(0.005)
+
+    sample = stream.poll()
+    if (
+        sample is None
+        or time.monotonic() - sample.received_at > 0.25
+        or latest_board is None
+    ):
+        raise RuntimeError("MANUS board pose was not fresh at countdown end")
+    print("GO: current MANUS board pose is now the UR5 home pose.")
+    return latest_board
 
 
 def wait_for_robot_state(
@@ -98,27 +157,24 @@ def wait_for_robot_state(
 
 def check_workspace(
     target_model: np.ndarray,
-    rotation_model_from_robot_base: np.ndarray,
-    minimum_base: np.ndarray,
-    maximum_base: np.ndarray,
+    minimum_model: np.ndarray,
+    maximum_model: np.ndarray,
 ) -> None:
-    position_base = (
-        rotation_model_from_robot_base.T @ target_model[:3, 3]
-    )
-    if np.any(position_base < minimum_base) or np.any(
-        position_base > maximum_base
+    position_model = target_model[:3, 3]
+    if np.any(position_model < minimum_model) or np.any(
+        position_model > maximum_model
     ):
         raise RuntimeError(
             "Requested wrist target left the configured workspace: "
-            f"base position={position_base.round(4).tolist()}, "
-            f"minimum={minimum_base.tolist()}, maximum={maximum_base.tolist()}"
+            f"model position={position_model.round(4).tolist()}, "
+            f"minimum={minimum_model.tolist()}, maximum={maximum_model.tolist()}"
         )
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Track the camera-observed MANUS wrist and control only the UR5e "
+            "Track the camera-observed MANUS board and control only the UR5e "
             "arm. Finger control remains in the official Tesollo ROS pipeline."
         )
     )
@@ -133,9 +189,9 @@ def parse_args() -> argparse.Namespace:
         help="Enable physical UR5 commands; default is camera + IK dry-run.",
     )
     parser.add_argument(
-        "--yes",
+        "--no-start-pose-estimator",
         action="store_true",
-        help="Skip interactive capture/physical-command confirmations.",
+        help="Use an already running pose estimator instead of starting it.",
     )
     parser.add_argument("--max-runtime", type=float, default=0.0)
     parser.add_argument(
@@ -161,27 +217,26 @@ def main() -> None:
     low_level_config_path = resolve_path(
         config_path, robot_config["low_level_config_path"]
     )
-    wrist_calibration_path = resolve_path(
-        config_path, tracking["wrist_calibration_file"]
-    )
-    robot_base_calibration_path = resolve_path(
-        config_path, mapping["world_from_robot_base_file"]
+    translation_axis_map = np.asarray(
+        mapping["translation_axis_map"], dtype=np.float64
     )
 
-    board_from_wrist = load_transform(
-        wrist_calibration_path,
-        "T_board_from_wrist",
-        "T_board_wrist",
-    )
-    world_from_robot_base = load_transform(robot_base_calibration_path)
-    rotation_robot_base_from_world = world_from_robot_base[:3, :3].T
-    rotation_model_from_robot_base = np.asarray(
-        mapping["rotation_model_from_robot_base"], dtype=np.float64
-    )
-    rotation_model_from_world = (
-        rotation_model_from_robot_base @ rotation_robot_base_from_world
-    )
-
+    pose_estimator: Optional[PoseEstimatorProcess] = None
+    if (
+        tracking["auto_start_pose_estimator"]
+        and not args.no_start_pose_estimator
+    ):
+        pose_estimator_config = resolve_path(
+            config_path, tracking["pose_estimator_config"]
+        )
+        pose_estimator = PoseEstimatorProcess(
+            python=Path(tracking["pose_estimator_python"]).expanduser(),
+            project_root=Path(
+                tracking["pose_estimator_project_root"]
+            ).expanduser(),
+            script=Path(tracking["pose_estimator_script"]).expanduser(),
+            config=pose_estimator_config,
+        )
     ik = Ur5DampedLeastSquaresIk(
         model_path=model_path,
         end_effector_body=robot_config["end_effector_body"],
@@ -196,11 +251,6 @@ def main() -> None:
     if home_q.shape != (6,):
         raise ValueError("robot.home_q_rad must contain six values")
 
-    pose_stream = BoardPoseStream(
-        address=tracking["pose_address"],
-        board_id=str(tracking["wrist_board_id"]),
-        minimum_confidence=tracking["minimum_confidence"],
-    )
     pose_filter = WristPoseFilter(
         translation_alpha=filtering["translation_alpha"],
         rotation_alpha=filtering["rotation_alpha"],
@@ -212,10 +262,19 @@ def main() -> None:
 
     robot: Optional[RobotIo] = None
     streamer: Optional[CommandStreamer] = None
+    pose_stream: Optional[BoardPoseStream] = None
     last_state: Optional[dict] = None
     q_command = home_q.copy()
 
     try:
+        if pose_estimator is not None:
+            pose_estimator.start()
+        pose_stream = BoardPoseStream(
+            address=tracking["pose_address"],
+            board_id=str(tracking["wrist_board_id"]),
+            minimum_confidence=tracking["minimum_confidence"],
+        )
+
         if args.send_to_robot:
             robot = RobotIo(low_level_config_path)
             last_state = wait_for_robot_state(
@@ -237,21 +296,18 @@ def main() -> None:
         else:
             print("DRY RUN: no command socket will be opened.")
 
-        initial_world_wrist = wait_for_wrist_capture(
+        initial_world_board = countdown_board_capture(
             pose_stream,
             pose_filter,
-            board_from_wrist=board_from_wrist,
-            sample_count=tracking["initial_sample_count"],
-            timeout_s=tracking["initial_capture_timeout_s"],
-            maximum_position_std_m=tracking[
-                "maximum_initial_position_std_m"
-            ],
+            countdown_s=int(tracking["countdown_s"]),
+            timeout_s=tracking["initial_pose_timeout_s"],
+            pose_estimator=pose_estimator,
         )
-        home_model_ee = ik.forward(q_command)
-        wrist_mapper = RelativeWristMapper(
-            initial_world_wrist=initial_world_wrist,
+        home_model_ee = ik.forward(home_q)
+        board_mapper = RelativeBoardMapper(
+            initial_world_board=initial_world_board,
             home_model_ee=home_model_ee,
-            rotation_model_from_world=rotation_model_from_world,
+            translation_axis_map=translation_axis_map,
             position_scale=mapping["position_scale"],
             track_orientation=(
                 mapping["track_orientation"] and not args.position_only
@@ -259,21 +315,15 @@ def main() -> None:
         )
         target_model = home_model_ee.copy()
 
-        print("Initial MANUS wrist position now corresponds to UR5 home.")
+        print("Initial MANUS board position now corresponds to UR5 home.")
         print(
             "Home end-effector position in MuJoCo model: "
             f"{home_model_ee[:3, 3].round(4).tolist()}"
         )
-        if not args.yes:
-            answer = input(
-                "Type START to begin tracking"
-                + (" and then SEND to enable the real arm: "
-                   if args.send_to_robot else ": ")
-            ).strip()
-            required = "START SEND" if args.send_to_robot else "START"
-            if answer != required:
-                print(f"Cancelled; expected exactly {required!r}.")
-                return
+        print(
+            "Translation axes: MANUS forward = world -X -> model -X; "
+            "MANUS left = world +Y -> model +Y."
+        )
 
         if args.send_to_robot:
             assert robot is not None
@@ -291,10 +341,10 @@ def main() -> None:
         next_step = start_time
         last_log = 0.0
         minimum_workspace = np.asarray(
-            safety["workspace_min_robot_base_m"], dtype=np.float64
+            safety["workspace_min_model_m"], dtype=np.float64
         )
         maximum_workspace = np.asarray(
-            safety["workspace_max_robot_base_m"], dtype=np.float64
+            safety["workspace_max_model_m"], dtype=np.float64
         )
 
         while True:
@@ -303,12 +353,11 @@ def main() -> None:
             if sample is None or (
                 now - sample.received_at > tracking["maximum_pose_age_s"]
             ):
-                raise RuntimeError("MANUS wrist pose became stale or missing")
+                raise RuntimeError("MANUS board pose became stale or missing")
 
-            world_from_wrist = sample.transform @ board_from_wrist
-            filtered_wrist = pose_filter.update(world_from_wrist)
-            if filtered_wrist is not None:
-                requested_target = wrist_mapper.target(filtered_wrist)
+            filtered_board = pose_filter.update(sample.transform)
+            if filtered_board is not None:
+                requested_target = board_mapper.target(filtered_board)
                 target_model = limit_pose_step(
                     target_model,
                     requested_target,
@@ -323,7 +372,6 @@ def main() -> None:
 
             check_workspace(
                 target_model,
-                rotation_model_from_robot_base,
                 minimum_workspace,
                 maximum_workspace,
             )
@@ -386,7 +434,10 @@ def main() -> None:
             streamer.stop()
         if robot is not None:
             robot.close()
-        pose_stream.close()
+        if pose_stream is not None:
+            pose_stream.close()
+        if pose_estimator is not None:
+            pose_estimator.stop()
 
 
 if __name__ == "__main__":
