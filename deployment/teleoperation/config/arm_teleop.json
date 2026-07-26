@@ -32,6 +32,11 @@
       [0.0,       -1.0,  0.0       ]
     ],
     "orientation_mapping_mode": "spatial-relative",
+    "spatial_orientation_axis_map": [
+      [-1.0, 0.0, 0.0],
+      [0.0, -1.0, 0.0],
+      [0.0, 0.0, 1.0]
+    ],
     "tracking_origin_offset_board_m": [
       -0.0004548951,
       0.0005457156,

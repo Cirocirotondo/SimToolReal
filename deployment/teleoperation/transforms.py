@@ -102,6 +102,7 @@ class RelativeBoardMapper:
         home_model_ee: np.ndarray,
         translation_axis_map: np.ndarray,
         orientation_axis_map: np.ndarray | None = None,
+        spatial_orientation_axis_map: np.ndarray | None = None,
         orientation_mode: str = "mapped-local",
         position_scale: float = 1.0,
         track_orientation: bool = True,
@@ -136,6 +137,27 @@ class RelativeBoardMapper:
             atol=1e-6,
         ):
             raise ValueError("orientation_axis_map must be orthonormal")
+        if spatial_orientation_axis_map is None:
+            spatial_orientation_axis_map = np.eye(3)
+        self.spatial_orientation_axis_map = np.asarray(
+            spatial_orientation_axis_map,
+            dtype=np.float64,
+        )
+        if self.spatial_orientation_axis_map.shape != (3, 3):
+            raise ValueError(
+                "spatial_orientation_axis_map must have shape (3, 3)"
+            )
+        if not np.allclose(
+            (
+                self.spatial_orientation_axis_map.T
+                @ self.spatial_orientation_axis_map
+            ),
+            np.eye(3),
+            atol=1e-6,
+        ):
+            raise ValueError(
+                "spatial_orientation_axis_map must be orthonormal"
+            )
         if orientation_mode not in ("mapped-local", "spatial-relative"):
             raise ValueError(
                 "orientation_mode must be 'mapped-local' or "
@@ -162,8 +184,17 @@ class RelativeBoardMapper:
                     world_board[:3, :3]
                     @ self.initial_world_board[:3, :3].T
                 )
-                result[:3, :3] = project_rotation(
+                spatial_rotation_vector = Rotation.from_matrix(
                     spatial_relative_rotation
+                ).as_rotvec()
+                mapped_spatial_rotation = Rotation.from_rotvec(
+                    (
+                        self.spatial_orientation_axis_map
+                        @ spatial_rotation_vector
+                    )
+                ).as_matrix()
+                result[:3, :3] = project_rotation(
+                    mapped_spatial_rotation
                     @ self.home_model_ee[:3, :3]
                 )
             else:

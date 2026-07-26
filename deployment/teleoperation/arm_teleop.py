@@ -326,6 +326,10 @@ def main() -> None:
     orientation_axis_map = np.asarray(
         mapping["orientation_axis_map"], dtype=np.float64
     )
+    spatial_orientation_axis_map = np.asarray(
+        mapping.get("spatial_orientation_axis_map", np.eye(3)),
+        dtype=np.float64,
+    )
     origin_offset_board_m = np.asarray(
         mapping["tracking_origin_offset_board_m"],
         dtype=np.float64,
@@ -436,6 +440,7 @@ def main() -> None:
             home_model_ee=home_model_ee,
             translation_axis_map=translation_axis_map,
             orientation_axis_map=orientation_axis_map,
+            spatial_orientation_axis_map=spatial_orientation_axis_map,
             orientation_mode=mapping.get(
                 "orientation_mapping_mode",
                 "mapped-local",
@@ -466,6 +471,8 @@ def main() -> None:
                 "Using R_target = R_current * R_initial^-1 * R_EE_home; "
                 "orientation_axis_map is not used."
             )
+            print("Spatial rotation-vector axis map:")
+            print(spatial_orientation_axis_map)
         else:
             print("Orientation axis map:")
             print(orientation_axis_map)

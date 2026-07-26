@@ -165,6 +165,7 @@ def main() -> None:
         home_model_ee=home,
         translation_axis_map=axis_map,
         orientation_axis_map=orientation_axis_map,
+        spatial_orientation_axis_map=np.diag([-1.0, -1.0, 1.0]),
         orientation_mode="spatial-relative",
         position_scale=1.0,
         track_orientation=True,
@@ -174,21 +175,29 @@ def main() -> None:
         home,
         atol=1e-10,
     )
-    spatial_delta = Rotation.from_euler(
-        "xyz",
-        [0.05, -0.08, 0.12],
-    ).as_matrix()
-    moved_spatial_pose = initial_spatial_pose.copy()
-    moved_spatial_pose[:3, :3] = (
-        spatial_delta @ initial_spatial_pose[:3, :3]
-    )
-    expected_spatial_target = home.copy()
-    expected_spatial_target[:3, :3] = spatial_delta @ home[:3, :3]
-    np.testing.assert_allclose(
-        spatial_mapper.target(moved_spatial_pose),
-        expected_spatial_target,
-        atol=1e-10,
-    )
+    spatial_axis_map = np.diag([-1.0, -1.0, 1.0])
+    for axis_index in range(3):
+        input_rotation_vector = np.zeros(3)
+        input_rotation_vector[axis_index] = 0.1
+        spatial_delta = Rotation.from_rotvec(
+            input_rotation_vector
+        ).as_matrix()
+        moved_spatial_pose = initial_spatial_pose.copy()
+        moved_spatial_pose[:3, :3] = (
+            spatial_delta @ initial_spatial_pose[:3, :3]
+        )
+        expected_spatial_target = home.copy()
+        expected_spatial_target[:3, :3] = (
+            Rotation.from_rotvec(
+                spatial_axis_map @ input_rotation_vector
+            ).as_matrix()
+            @ home[:3, :3]
+        )
+        np.testing.assert_allclose(
+            spatial_mapper.target(moved_spatial_pose),
+            expected_spatial_target,
+            atol=1e-10,
+        )
 
     model_path = (
         ROOT.parent
