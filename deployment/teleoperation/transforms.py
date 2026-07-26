@@ -76,6 +76,22 @@ def pose_to_matrix(pose: Any) -> np.ndarray:
     return pose_array_to_matrix(pose)
 
 
+def apply_local_origin_offset(
+    pose: np.ndarray,
+    offset_local_m: np.ndarray,
+) -> np.ndarray:
+    """Move a pose origin by a rigid offset expressed in its local frame."""
+    pose = np.asarray(pose, dtype=np.float64)
+    offset_local_m = np.asarray(offset_local_m, dtype=np.float64)
+    if pose.shape != (4, 4):
+        raise ValueError("pose must have shape (4, 4)")
+    if offset_local_m.shape != (3,):
+        raise ValueError("offset_local_m must have shape (3,)")
+    result = pose.copy()
+    result[:3, 3] += pose[:3, :3] @ offset_local_m
+    return result
+
+
 class RelativeBoardMapper:
     """Map a captured MANUS board pose to the robot home end-effector pose."""
 

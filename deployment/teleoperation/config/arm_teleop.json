@@ -31,6 +31,11 @@
       [-1.0, 0.0, 0.0],
       [0.0, 0.70710678, -0.70710678]
     ],
+    "tracking_origin_offset_board_m": [
+      -0.04548951,
+      0.05457156,
+      -0.02523359
+    ],
     "position_scale": 1.0,
     "track_orientation": true
   },

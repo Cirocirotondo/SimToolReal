@@ -17,6 +17,7 @@ from pose_stream import BoardPoseStream, WristPoseFilter
 from robot_io import CommandStreamer, RobotIo
 from transforms import (
     RelativeBoardMapper,
+    apply_local_origin_offset,
     limit_pose_step,
 )
 
@@ -124,6 +125,7 @@ def countdown_board_capture(
     stream: BoardPoseStream,
     pose_filter: WristPoseFilter,
     *,
+    origin_offset_board_m: np.ndarray,
     countdown_s: int,
     timeout_s: float,
     pose_estimator: Optional[PoseEstimatorProcess],
@@ -138,7 +140,11 @@ def countdown_board_capture(
         sample = stream.poll()
         if sample is not None and sample.received_at != last_received_at:
             last_received_at = sample.received_at
-            filtered = pose_filter.update(sample.transform)
+            tracked_pose = apply_local_origin_offset(
+                sample.transform,
+                origin_offset_board_m,
+            )
+            filtered = pose_filter.update(tracked_pose)
             if filtered is not None:
                 latest_board = filtered
                 break
@@ -156,7 +162,11 @@ def countdown_board_capture(
             sample = stream.poll()
             if sample is not None and sample.received_at != last_received_at:
                 last_received_at = sample.received_at
-                filtered = pose_filter.update(sample.transform)
+                tracked_pose = apply_local_origin_offset(
+                    sample.transform,
+                    origin_offset_board_m,
+                )
+                filtered = pose_filter.update(tracked_pose)
                 if filtered is not None:
                     latest_board = filtered
             time.sleep(0.005)
@@ -316,6 +326,14 @@ def main() -> None:
     orientation_axis_map = np.asarray(
         mapping["orientation_axis_map"], dtype=np.float64
     )
+    origin_offset_board_m = np.asarray(
+        mapping["tracking_origin_offset_board_m"],
+        dtype=np.float64,
+    )
+    if origin_offset_board_m.shape != (3,):
+        raise ValueError(
+            "mapping.tracking_origin_offset_board_m must contain 3 values"
+        )
 
     pose_estimator: Optional[PoseEstimatorProcess] = None
     if (
@@ -407,6 +425,7 @@ def main() -> None:
         initial_world_board = countdown_board_capture(
             pose_stream,
             pose_filter,
+            origin_offset_board_m=origin_offset_board_m,
             countdown_s=int(tracking["countdown_s"]),
             timeout_s=tracking["initial_pose_timeout_s"],
             pose_estimator=pose_estimator,
@@ -433,8 +452,11 @@ def main() -> None:
             "Translation axes: MANUS forward = world -X -> model +X; "
             "MANUS left = world +Y -> model -Y."
         )
+        print("Orientation axis map:")
+        print(orientation_axis_map)
         print(
-            "Orientation axes: roll, pitch and yaw inverted."
+            "Tracked origin offset in board frame: "
+            f"{origin_offset_board_m.round(6).tolist()} m."
         )
 
         if args.send_to_robot:
@@ -465,7 +487,11 @@ def main() -> None:
             ):
                 raise RuntimeError("MANUS board pose became stale or missing")
 
-            filtered_board = pose_filter.update(sample.transform)
+            tracked_pose = apply_local_origin_offset(
+                sample.transform,
+                origin_offset_board_m,
+            )
+            filtered_board = pose_filter.update(tracked_pose)
             if filtered_board is not None:
                 requested_target = board_mapper.target(filtered_board)
                 target_model = limit_pose_step(

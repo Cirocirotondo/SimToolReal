@@ -11,7 +11,11 @@ sys.path.insert(0, str(ROOT))
 
 from ik_solver import Ur5DampedLeastSquaresIk
 from arm_teleop import move_robot_to_home
-from transforms import RelativeBoardMapper, make_transform
+from transforms import (
+    RelativeBoardMapper,
+    apply_local_origin_offset,
+    make_transform,
+)
 
 
 class FakeRobot:
@@ -58,6 +62,49 @@ def main() -> None:
     np.testing.assert_allclose(
         np.linalg.det(orientation_axis_map),
         1.0,
+        atol=1e-10,
+    )
+    origin_offset_board_m = np.array(
+        [-0.04548951, 0.05457156, -0.02523359]
+    )
+    shifted_identity = apply_local_origin_offset(
+        identity,
+        origin_offset_board_m,
+    )
+    np.testing.assert_allclose(
+        shifted_identity[:3, 3],
+        origin_offset_board_m,
+        atol=1e-10,
+    )
+    rotated_board = make_transform(
+        Rotation.from_euler("z", np.pi / 2.0).as_matrix(),
+        np.array([0.1, 0.2, 0.3]),
+    )
+    shifted_rotated_board = apply_local_origin_offset(
+        rotated_board,
+        origin_offset_board_m,
+    )
+    np.testing.assert_allclose(
+        shifted_rotated_board[:3, 3],
+        (
+            rotated_board[:3, 3]
+            + rotated_board[:3, :3] @ origin_offset_board_m
+        ),
+        atol=1e-10,
+    )
+    fixed_world_wrist = np.array([0.4, -0.2, 0.6])
+    board_rotating_about_wrist = rotated_board.copy()
+    board_rotating_about_wrist[:3, 3] = (
+        fixed_world_wrist
+        - rotated_board[:3, :3] @ origin_offset_board_m
+    )
+    recovered_world_wrist = apply_local_origin_offset(
+        board_rotating_about_wrist,
+        origin_offset_board_m,
+    )
+    np.testing.assert_allclose(
+        recovered_world_wrist[:3, 3],
+        fixed_world_wrist,
         atol=1e-10,
     )
     mapper = RelativeBoardMapper(
