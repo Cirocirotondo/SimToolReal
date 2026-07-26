@@ -15,7 +15,7 @@
     "position_acceleration": 0.8,
     "orientation_acceleration": 4.0,
 
-    "joint_acceleration": 3.0,
-    "max_joint_velocity": 10.0,
-    "path_tracking_p_gain": 3.0
+    "joint_acceleration": 5.0,
+    "max_joint_velocity": 2.0,
+    "path_tracking_p_gain": 8.0
 }

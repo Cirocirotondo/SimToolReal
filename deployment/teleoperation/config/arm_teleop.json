@@ -17,7 +17,7 @@
     "end_effector_body": "wrist_3_link",
     "low_level_config_path": "../../simtoolreal_real/pc_ur_new.json",
     "home_q_rad": [-1.5708, -1.05, 1.95, -0.9, 1.571, -2.61799387799],
-    "control_hz": 50.0,
+    "control_hz": 60.0,
     "command_stream_hz": 100.0
   },
   "mapping": {
@@ -46,16 +46,16 @@
     "track_orientation": true
   },
   "filter": {
-    "translation_alpha": 0.7,
-    "rotation_alpha": 0.85,
+    "translation_alpha": 0.9,
+    "rotation_alpha": 0.95,
     "maximum_input_jump_m": 0.08,
     "maximum_input_rotation_jump_deg": 35.0
   },
   "ik": {
     "damping": 0.03,
-    "position_gain": 8.0,
-    "orientation_gain": 8.0,
-    "maximum_joint_velocity_rad_s": 0.8
+    "position_gain": 12.0,
+    "orientation_gain": 12.0,
+    "maximum_joint_velocity_rad_s": 1.5
   },
   "safety": {
     "home_timeout_s": 30.0,
@@ -65,8 +65,8 @@
     "robot_state_start_timeout_s": 5.0,
     "maximum_robot_state_age_s": 0.25,
     "maximum_joint_tracking_error_deg": 90.0,
-    "maximum_target_speed_m_s": 0.3,
-    "maximum_target_rotation_speed_deg_s": 180.0,
+    "maximum_target_speed_m_s": 0.5,
+    "maximum_target_rotation_speed_deg_s": 300.0,
     "workspace_min_model_m": [-0.55, 0.1, 0.05],
     "workspace_max_model_m": [0.35, 0.8, 0.7],
     "shutdown_hold_s": 0.5

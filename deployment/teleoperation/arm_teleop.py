@@ -566,6 +566,7 @@ def main() -> None:
                     f"| pos_err={diagnostics.position_error_m * 1000:.1f} mm "
                     f"| rot_err={np.rad2deg(diagnostics.orientation_error_rad):.1f} deg "
                     f"| q_deg={np.rad2deg(q_command).round(1).tolist()} "
+                    f"| ik_qdot={diagnostics.maximum_joint_velocity_rad_s:.2f} rad/s "
                     f"| tracking={np.rad2deg(tracking_error):.1f} deg "
                     f"| rejected_poses={pose_filter.rejected_count}"
                 )
