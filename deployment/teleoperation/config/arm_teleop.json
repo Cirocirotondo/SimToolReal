@@ -3,7 +3,7 @@
     "pose_address": "tcp://127.0.0.1:5557",
     "wrist_board_id": "0",
     "minimum_confidence": 0.5,
-    "maximum_pose_age_s": 0.25,
+    "maximum_pose_age_s": 0.75,
     "countdown_s": 3,
     "initial_pose_timeout_s": 10.0,
     "auto_start_pose_estimator": true,
