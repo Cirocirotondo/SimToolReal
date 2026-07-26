@@ -16,7 +16,7 @@
     "model_path": "../../simtoolreal_real/assets/universal_robots_ur5e/scene.xml",
     "end_effector_body": "wrist_3_link",
     "low_level_config_path": "../../simtoolreal_real/pc_ur_new.json",
-    "home_q_rad": [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571],
+    "home_q_rad": [-1.5708, -1.05, 1.95, -0.9, 1.571, -2.61799387799],
     "control_hz": 50.0,
     "command_stream_hz": 100.0
   },
@@ -31,6 +31,7 @@
       [0.70710678, 0.0,  0.70710678],
       [0.0,       -1.0,  0.0       ]
     ],
+    "orientation_mapping_mode": "spatial-relative",
     "tracking_origin_offset_board_m": [
       -0.0004548951,
       0.0005457156,

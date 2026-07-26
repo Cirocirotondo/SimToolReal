@@ -436,6 +436,10 @@ def main() -> None:
             home_model_ee=home_model_ee,
             translation_axis_map=translation_axis_map,
             orientation_axis_map=orientation_axis_map,
+            orientation_mode=mapping.get(
+                "orientation_mapping_mode",
+                "mapped-local",
+            ),
             position_scale=mapping["position_scale"],
             track_orientation=(
                 mapping["track_orientation"] and not args.position_only
@@ -452,8 +456,19 @@ def main() -> None:
             "Translation axes: MANUS forward = world -X -> model +X; "
             "MANUS left = world +Y -> model -Y."
         )
-        print("Orientation axis map:")
-        print(orientation_axis_map)
+        orientation_mode = mapping.get(
+            "orientation_mapping_mode",
+            "mapped-local",
+        )
+        print(f"Orientation mapping mode: {orientation_mode}")
+        if orientation_mode == "spatial-relative":
+            print(
+                "Using R_target = R_current * R_initial^-1 * R_EE_home; "
+                "orientation_axis_map is not used."
+            )
+        else:
+            print("Orientation axis map:")
+            print(orientation_axis_map)
         print(
             "Tracked origin offset in board frame: "
             f"{origin_offset_board_m.round(6).tolist()} m."

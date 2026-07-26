@@ -102,6 +102,7 @@ class RelativeBoardMapper:
         home_model_ee: np.ndarray,
         translation_axis_map: np.ndarray,
         orientation_axis_map: np.ndarray | None = None,
+        orientation_mode: str = "mapped-local",
         position_scale: float = 1.0,
         track_orientation: bool = True,
     ) -> None:
@@ -135,6 +136,12 @@ class RelativeBoardMapper:
             atol=1e-6,
         ):
             raise ValueError("orientation_axis_map must be orthonormal")
+        if orientation_mode not in ("mapped-local", "spatial-relative"):
+            raise ValueError(
+                "orientation_mode must be 'mapped-local' or "
+                "'spatial-relative'"
+            )
+        self.orientation_mode = orientation_mode
         self.position_scale = float(position_scale)
         self.track_orientation = bool(track_orientation)
 
@@ -150,19 +157,29 @@ class RelativeBoardMapper:
             * (self.translation_axis_map @ delta_world)
         )
         if self.track_orientation:
-            local_relative_rotation = (
-                self.initial_world_board[:3, :3].T
-                @ world_board[:3, :3]
-            )
-            relative_rotation_vector = Rotation.from_matrix(
-                local_relative_rotation
-            ).as_rotvec()
-            mapped_relative_rotation = Rotation.from_rotvec(
-                self.orientation_axis_map @ relative_rotation_vector
-            ).as_matrix()
-            result[:3, :3] = project_rotation(
-                self.home_model_ee[:3, :3] @ mapped_relative_rotation
-            )
+            if self.orientation_mode == "spatial-relative":
+                spatial_relative_rotation = (
+                    world_board[:3, :3]
+                    @ self.initial_world_board[:3, :3].T
+                )
+                result[:3, :3] = project_rotation(
+                    spatial_relative_rotation
+                    @ self.home_model_ee[:3, :3]
+                )
+            else:
+                local_relative_rotation = (
+                    self.initial_world_board[:3, :3].T
+                    @ world_board[:3, :3]
+                )
+                relative_rotation_vector = Rotation.from_matrix(
+                    local_relative_rotation
+                ).as_rotvec()
+                mapped_relative_rotation = Rotation.from_rotvec(
+                    self.orientation_axis_map @ relative_rotation_vector
+                ).as_matrix()
+                result[:3, :3] = project_rotation(
+                    self.home_model_ee[:3, :3] @ mapped_relative_rotation
+                )
         return result
 
 

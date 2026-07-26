@@ -156,6 +156,40 @@ def main() -> None:
             atol=1e-10,
         )
 
+    initial_spatial_pose = make_transform(
+        Rotation.from_euler("xyz", [0.4, -0.2, 0.1]).as_matrix(),
+        np.zeros(3),
+    )
+    spatial_mapper = RelativeBoardMapper(
+        initial_world_board=initial_spatial_pose,
+        home_model_ee=home,
+        translation_axis_map=axis_map,
+        orientation_axis_map=orientation_axis_map,
+        orientation_mode="spatial-relative",
+        position_scale=1.0,
+        track_orientation=True,
+    )
+    np.testing.assert_allclose(
+        spatial_mapper.target(initial_spatial_pose),
+        home,
+        atol=1e-10,
+    )
+    spatial_delta = Rotation.from_euler(
+        "xyz",
+        [0.05, -0.08, 0.12],
+    ).as_matrix()
+    moved_spatial_pose = initial_spatial_pose.copy()
+    moved_spatial_pose[:3, :3] = (
+        spatial_delta @ initial_spatial_pose[:3, :3]
+    )
+    expected_spatial_target = home.copy()
+    expected_spatial_target[:3, :3] = spatial_delta @ home[:3, :3]
+    np.testing.assert_allclose(
+        spatial_mapper.target(moved_spatial_pose),
+        expected_spatial_target,
+        atol=1e-10,
+    )
+
     model_path = (
         ROOT.parent
         / "simtoolreal_real"
