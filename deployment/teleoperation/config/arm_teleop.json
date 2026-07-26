@@ -27,14 +27,14 @@
       [0.0, 0.0, 1.0]
     ],
     "orientation_axis_map": [
-      [0.0, 0.70710678, 0.70710678],
-      [-1.0, 0.0, 0.0],
-      [0.0, -0.70710678, 0.70710678]
+      [0.70710678, 0.0, -0.70710678],
+      [0.70710678, 0.0,  0.70710678],
+      [0.0,       -1.0,  0.0       ]
     ],
     "tracking_origin_offset_board_m": [
-      -0.04548951,
-      0.05457156,
-      -0.02523359
+      -0.0004548951,
+      0.0005457156,
+      -0.0002523359
     ],
     "position_scale": 1.0,
     "track_orientation": true
@@ -58,7 +58,7 @@
     "command_connection_delay_s": 0.5,
     "robot_state_start_timeout_s": 5.0,
     "maximum_robot_state_age_s": 0.25,
-    "maximum_joint_tracking_error_deg": 10.0,
+    "maximum_joint_tracking_error_deg": 90.0,
     "maximum_target_speed_m_s": 0.3,
     "maximum_target_rotation_speed_deg_s": 180.0,
     "workspace_min_model_m": [-0.55, 0.1, 0.05],

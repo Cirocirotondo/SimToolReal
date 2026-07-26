@@ -49,9 +49,9 @@ def main() -> None:
     axis_map = np.diag([-1.0, -1.0, 1.0])
     orientation_axis_map = np.array(
         [
-            [0.0, np.sqrt(0.5), np.sqrt(0.5)],
-            [-1.0, 0.0, 0.0],
-            [0.0, -np.sqrt(0.5), np.sqrt(0.5)],
+            [np.sqrt(0.5), 0.0, -np.sqrt(0.5)],
+            [np.sqrt(0.5), 0.0, np.sqrt(0.5)],
+            [0.0, -1.0, 0.0],
         ]
     )
     np.testing.assert_allclose(
@@ -65,7 +65,7 @@ def main() -> None:
         atol=1e-10,
     )
     origin_offset_board_m = np.array(
-        [-0.04548951, 0.05457156, -0.02523359]
+        [-0.0004548951, 0.0005457156, -0.0002523359]
     )
     shifted_identity = apply_local_origin_offset(
         identity,
