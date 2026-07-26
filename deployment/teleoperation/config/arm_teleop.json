@@ -55,7 +55,7 @@
     "damping": 0.03,
     "position_gain": 8.0,
     "orientation_gain": 8.0,
-    "maximum_joint_velocity_rad_s": 0.8
+    "maximum_joint_velocity_rad_s": 1.0
   },
   "safety": {
     "home_timeout_s": 30.0,
