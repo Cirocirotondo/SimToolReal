@@ -41,8 +41,9 @@ orientation. `--position-only` keeps `R_target = R_home`.
 2. Ensure its color image sees the complete operator wrist workspace.
 3. Keep the AprilTag fixture rigid on the glove; changing its geometry
    invalidates `calibration/right_wrist2board_calibration.json`.
-4. Fix the 58 mm-square / 45 mm-marker ChArUco board in the world-frame
-   location. Do not use the 80/60 mm board with the supplied JSON.
+4. Fix the selected 5 x 7 ChArUco board in the world-frame location. Its
+   exact configuration is 35 mm square size, 26 mm marker size and
+   `DICT_4X4_50`. Do not substitute a visually similar board.
 
 The camera must not move after extrinsic calibration.
 
@@ -55,10 +56,11 @@ cd /home/duplo/simone/SimToolReal/deployment/teleoperation
 cp config/overhead_camera.example.json config/overhead_camera.json
 ```
 
-Edit `serial_number`. The generic RealSense color wrapper is historically
-named `D405`; leave that value even when the connected camera is a D435I.
+The overhead D435I serial is already set to `242322072500`. The generic
+RealSense color wrapper is historically named `D405`; leave that value even
+though the connected camera is a D435I.
 
-Run the single-camera calibration using the exact printed-board JSON:
+Run the single-camera calibration using the exact 5 x 7 printed-board JSON:
 
 ```bash
 cd /home/duplo/git/robohand/src/tag-pose-estimation
@@ -68,7 +70,7 @@ python scripts/calibrate_extrinsics_single_camera.py \
   --camera_config_path \
   /home/duplo/simone/SimToolReal/deployment/teleoperation/config/overhead_camera.json \
   --board_config_path \
-  config/calibration_boards/default_intrinsic_calibration_board/charuco_board.json
+  /home/duplo/simone/SimToolReal/deployment/teleoperation/calibration/world_charuco_5x7_35mm_26mm/charuco_board.json
 ```
 
 Capture several frames with the board well distributed in the field of view
