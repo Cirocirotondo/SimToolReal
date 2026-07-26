@@ -16,8 +16,9 @@ from ik_solver import Ur5DampedLeastSquaresIk
 from pose_stream import BoardPoseStream, WristPoseFilter
 from robot_io import CommandStreamer, RobotIo
 from transforms import (
-    RelativeBoardMapper,
+    RelativeWristMapper,
     limit_pose_step,
+    load_transform,
 )
 
 
@@ -120,10 +121,11 @@ class PoseEstimatorProcess:
             self.output_thread.join(timeout=1.0)
 
 
-def countdown_board_capture(
+def countdown_wrist_capture(
     stream: BoardPoseStream,
     pose_filter: WristPoseFilter,
     *,
+    board_from_wrist: np.ndarray,
     countdown_s: int,
     timeout_s: float,
     pose_estimator: Optional[PoseEstimatorProcess],
@@ -131,22 +133,23 @@ def countdown_board_capture(
     print("Waiting for the camera-observed MANUS board...")
     deadline = time.monotonic() + timeout_s
     last_received_at: Optional[float] = None
-    latest_board: Optional[np.ndarray] = None
+    latest_wrist: Optional[np.ndarray] = None
     while time.monotonic() < deadline:
         if pose_estimator is not None:
             pose_estimator.check_running()
         sample = stream.poll()
         if sample is not None and sample.received_at != last_received_at:
             last_received_at = sample.received_at
-            filtered = pose_filter.update(sample.transform)
+            world_from_wrist = sample.transform @ board_from_wrist
+            filtered = pose_filter.update(world_from_wrist)
             if filtered is not None:
-                latest_board = filtered
+                latest_wrist = filtered
                 break
         time.sleep(0.01)
-    if latest_board is None:
+    if latest_wrist is None:
         raise TimeoutError("No valid MANUS board pose was received")
 
-    print("MANUS board detected. Hold it at the desired neutral position.")
+    print("MANUS wrist detected. Hold it at the desired neutral position.")
     for remaining in range(countdown_s, 0, -1):
         print(f"Mapping MANUS position to UR5 home in {remaining}...")
         interval_end = time.monotonic() + 1.0
@@ -156,20 +159,21 @@ def countdown_board_capture(
             sample = stream.poll()
             if sample is not None and sample.received_at != last_received_at:
                 last_received_at = sample.received_at
-                filtered = pose_filter.update(sample.transform)
+                world_from_wrist = sample.transform @ board_from_wrist
+                filtered = pose_filter.update(world_from_wrist)
                 if filtered is not None:
-                    latest_board = filtered
+                    latest_wrist = filtered
             time.sleep(0.005)
 
     sample = stream.poll()
     if (
         sample is None
         or time.monotonic() - sample.received_at > 0.25
-        or latest_board is None
+        or latest_wrist is None
     ):
         raise RuntimeError("MANUS board pose was not fresh at countdown end")
-    print("GO: current MANUS board pose is now the UR5 home pose.")
-    return latest_board
+    print("GO: current MANUS wrist pose is now the UR5 home pose.")
+    return latest_wrist
 
 
 def wait_for_robot_state(
@@ -316,6 +320,14 @@ def main() -> None:
     orientation_axis_map = np.asarray(
         mapping["orientation_axis_map"], dtype=np.float64
     )
+    wrist_calibration_path = resolve_path(
+        config_path, tracking["wrist_calibration_file"]
+    )
+    board_from_wrist = load_transform(
+        wrist_calibration_path,
+        "T_board_wrist",
+        "T_board_from_wrist",
+    )
 
     pose_estimator: Optional[PoseEstimatorProcess] = None
     if (
@@ -404,16 +416,17 @@ def main() -> None:
             minimum_confidence=tracking["minimum_confidence"],
         )
 
-        initial_world_board = countdown_board_capture(
+        initial_world_wrist = countdown_wrist_capture(
             pose_stream,
             pose_filter,
+            board_from_wrist=board_from_wrist,
             countdown_s=int(tracking["countdown_s"]),
             timeout_s=tracking["initial_pose_timeout_s"],
             pose_estimator=pose_estimator,
         )
         home_model_ee = ik.forward(home_q)
-        board_mapper = RelativeBoardMapper(
-            initial_world_board=initial_world_board,
+        wrist_mapper = RelativeWristMapper(
+            initial_world_wrist=initial_world_wrist,
             home_model_ee=home_model_ee,
             translation_axis_map=translation_axis_map,
             orientation_axis_map=orientation_axis_map,
@@ -424,7 +437,7 @@ def main() -> None:
         )
         target_model = home_model_ee.copy()
 
-        print("Initial MANUS board position now corresponds to UR5 home.")
+        print("Initial MANUS wrist position now corresponds to UR5 home.")
         print(
             "Home end-effector position in MuJoCo model: "
             f"{home_model_ee[:3, 3].round(4).tolist()}"
@@ -434,7 +447,7 @@ def main() -> None:
             "MANUS left = world +Y -> model -Y."
         )
         print(
-            "Orientation axes: roll, pitch and yaw inverted."
+            "Orientation source: calibrated MANUS wrist frame."
         )
 
         if args.send_to_robot:
@@ -465,9 +478,10 @@ def main() -> None:
             ):
                 raise RuntimeError("MANUS board pose became stale or missing")
 
-            filtered_board = pose_filter.update(sample.transform)
-            if filtered_board is not None:
-                requested_target = board_mapper.target(filtered_board)
+            world_from_wrist = sample.transform @ board_from_wrist
+            filtered_wrist = pose_filter.update(world_from_wrist)
+            if filtered_wrist is not None:
+                requested_target = wrist_mapper.target(filtered_wrist)
                 target_model = limit_pose_step(
                     target_model,
                     requested_target,
