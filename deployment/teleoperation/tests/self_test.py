@@ -43,7 +43,7 @@ def main() -> None:
         np.array([0.2, -0.4, 0.3]),
     )
     axis_map = np.diag([-1.0, -1.0, 1.0])
-    orientation_axis_map = np.diag([-1.0, 1.0, -1.0])
+    orientation_axis_map = -np.eye(3)
     mapper = RelativeBoardMapper(
         initial_world_board=identity,
         home_model_ee=home,
@@ -76,7 +76,7 @@ def main() -> None:
         home[:3, 3] + np.array([0.0, -0.01, 0.0]),
         atol=1e-10,
     )
-    for axis_index, expected_sign in enumerate((-1.0, 1.0, -1.0)):
+    for axis_index, expected_sign in enumerate((-1.0, -1.0, -1.0)):
         rotated = identity.copy()
         rotation_vector = np.zeros(3)
         rotation_vector[axis_index] = 0.1

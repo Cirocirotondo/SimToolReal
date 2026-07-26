@@ -434,7 +434,7 @@ def main() -> None:
             "MANUS left = world +Y -> model -Y."
         )
         print(
-            "Orientation axes: roll and yaw inverted; pitch unchanged."
+            "Orientation axes: roll, pitch and yaw inverted."
         )
 
         if args.send_to_robot:

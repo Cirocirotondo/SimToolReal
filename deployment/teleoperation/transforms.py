@@ -138,11 +138,12 @@ class RelativeBoardMapper:
                 self.initial_world_board[:3, :3].T
                 @ world_board[:3, :3]
             )
-            mapped_relative_rotation = (
-                self.orientation_axis_map
-                @ local_relative_rotation
-                @ self.orientation_axis_map.T
-            )
+            relative_rotation_vector = Rotation.from_matrix(
+                local_relative_rotation
+            ).as_rotvec()
+            mapped_relative_rotation = Rotation.from_rotvec(
+                self.orientation_axis_map @ relative_rotation_vector
+            ).as_matrix()
             result[:3, :3] = project_rotation(
                 self.home_model_ee[:3, :3] @ mapped_relative_rotation
             )
