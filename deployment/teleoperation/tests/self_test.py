@@ -87,7 +87,7 @@ def main() -> None:
         end_effector_body="wrist_3_link",
         damping=0.03,
         position_gain=8.0,
-        orientation_gain=4.0,
+        orientation_gain=8.0,
         maximum_joint_velocity_rad_s=0.8,
     )
     q = np.array([-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571])
@@ -115,10 +115,33 @@ def main() -> None:
         raise AssertionError(
             f"IK did not converge enough: {initial_error} -> {final_error}"
         )
+
+    q_orientation = np.array(
+        [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
+    )
+    orientation_target = ik.forward(q_orientation)
+    orientation_target[:3, :3] = (
+        Rotation.from_rotvec(np.deg2rad([0.0, 0.0, 20.0])).as_matrix()
+        @ orientation_target[:3, :3]
+    )
+    initial_orientation_error = np.deg2rad(20.0)
+    for _ in range(25):
+        q_orientation, diagnostics = ik.step(
+            q_orientation, orientation_target, 1.0 / 50.0
+        )
+    final_orientation_error = diagnostics.orientation_error_rad
+    if not final_orientation_error < np.deg2rad(2.0):
+        raise AssertionError(
+            "IK orientation did not converge enough in 0.5 s: "
+            f"{np.rad2deg(initial_orientation_error):.2f} -> "
+            f"{np.rad2deg(final_orientation_error):.2f} deg"
+        )
     print(
         "teleoperation self-test: OK "
         f"(IK position error {initial_error * 1000:.2f} -> "
-        f"{final_error * 1000:.2f} mm)"
+        f"{final_error * 1000:.2f} mm; orientation error "
+        f"{np.rad2deg(initial_orientation_error):.2f} -> "
+        f"{np.rad2deg(final_orientation_error):.2f} deg in 0.5 s)"
     )
 
 
