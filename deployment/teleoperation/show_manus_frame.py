@@ -49,7 +49,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    python = args.pose_python.expanduser().resolve()
+    # Do not resolve this symlink: executing the resolved /usr/bin/python
+    # would bypass the virtual environment containing zmq and RealSense.
+    python = args.pose_python.expanduser().absolute()
     project = args.pose_project.expanduser().resolve()
     config = args.config.expanduser().resolve()
     script = project / "scripts" / "run_pose_estimation.py"
