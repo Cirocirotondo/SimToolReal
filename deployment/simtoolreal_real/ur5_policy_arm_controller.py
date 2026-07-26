@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import atexit
 import json
 import os
 import re
@@ -30,22 +31,38 @@ NN_DIR = RUN_DIR / "nn"
 LOW_LEVEL_CONFIG_PATH = HERE / "pc_ur_new.json"
 
 CONTROL_HZ = 60.0
+POLICY_ACTION_HZ = 60.0
+POLICY_ACTION_DT = 1.0 / POLICY_ACTION_HZ
 STATE_TIMEOUT_S = 2.0
 PRINT_PERIOD_S = 1.0
 MAX_ARM_TARGET_ERROR_DEG = 10.0
 ARM_DOF = 6
 N_ACT = 26
 N_OBS = 131
+DEFAULT_POSE_ESTIMATION_ADDRESS = "tcp://127.0.0.1:5557"
+DEFAULT_POSE_BOARD_ID = "0"
+DEFAULT_POSE_TIMEOUT_S = 1.5
+DEFAULT_POSE_STARTUP_TIMEOUT_S = 5.0
+DEFAULT_POSE_MIN_CONFIDENCE = 0.5
+STOP_HOLD_DURATION_S = 0.5
+STOP_HOLD_HZ = 100.0
 
 # Policy-side cube scale used by the existing UR5e+Delto MuJoCo adapter.
 CUBE_OBJECT_SCALES = np.array([1.25, 1.25, 1.25], dtype=np.float32)
 OBJECT_BASE_SIZE_M = 0.04
 FAKE_OBJECT_X_OFFSET_M = -0.30
 FAKE_OBJECT_Y_OFFSET_M = 0.15
-FAKE_OBJECT_Z_OFFSET_M = 0.175
+TABLE_SIZE_M = np.array([0.475, 0.4, 0.3], dtype=np.float32)
+TABLE_SURFACE_Z_M = 0.0
 GOAL_OBJECT_OFFSET_M = np.array([0.0, 0.0, 0.124], dtype=np.float32)
 ROBOT_BASE_QUAT_WXYZ = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
 PALM_LOCAL_OFFSET_M = np.array([0.0, 0.16, 0.0], dtype=np.float64)
+
+# The Universal Robots controller `base` frame is rotated by 180 degrees around
+# Z relative to the URDF/MuJoCo base-link convention used by this viewer.
+UR_CONTROLLER_BASE_TO_MODEL_BASE_ROTATION = np.diag(
+    [-1.0, -1.0, 1.0]
+).astype(np.float64)
 
 
 class SimpleRateLimiter:
@@ -154,6 +171,121 @@ def receive_latest_robot_state(state_socket: zmq.Socket) -> Optional[dict]:
             return state
 
 
+def send_zero_velocity_hold(
+    command_socket: zmq.Socket,
+    state_socket: zmq.Socket,
+    fallback_state: Optional[dict],
+    duration_s: float = STOP_HOLD_DURATION_S,
+    frequency_hz: float = STOP_HOLD_HZ,
+) -> bool:
+    """Brake by repeatedly targeting the latest measured joint position.
+
+    The low-level protocol accepts joint positions, not joint velocities. Its
+    joint-mode velocity command is proportional to target_q - current_q, so
+    continuously sending the latest measured Q requests approximately zero
+    joint velocity.
+    """
+    latest_q = None
+    fallback_q = (
+        np.asarray(fallback_state.get("Q", []), dtype=np.float64)
+        if isinstance(fallback_state, dict)
+        else np.empty(0, dtype=np.float64)
+    )
+    if fallback_q.shape[0] >= ARM_DOF and np.all(
+        np.isfinite(fallback_q[:ARM_DOF])
+    ):
+        latest_q = fallback_q[:ARM_DOF].copy()
+
+    deadline = time.monotonic() + duration_s
+    period = 1.0 / frequency_hz
+    sent_count = 0
+    while time.monotonic() < deadline:
+        state = receive_latest_robot_state(state_socket)
+        if state is not None:
+            measured_q = np.asarray(state.get("Q", []), dtype=np.float64)
+            if measured_q.shape[0] >= ARM_DOF and np.all(
+                np.isfinite(measured_q[:ARM_DOF])
+            ):
+                latest_q = measured_q[:ARM_DOF].copy()
+
+        if latest_q is not None:
+            command_socket.send_json({"target_q": latest_q.tolist()})
+            sent_count += 1
+
+        time.sleep(period)
+
+    if sent_count == 0:
+        print(
+            "WARNING: could not send the zero-velocity hold because no valid "
+            "robot joint state was available."
+        )
+        return False
+
+    print(
+        "Zero-velocity hold sent using the latest measured joint position "
+        f"({sent_count} commands over {duration_s:g} s)."
+    )
+    return True
+
+
+def make_pose_estimation_socket(
+    context: zmq.Context,
+    address: str,
+) -> zmq.Socket:
+    socket = context.socket(zmq.SUB)
+    socket.setsockopt(zmq.LINGER, 0)
+    socket.setsockopt(zmq.CONFLATE, 1)
+    socket.setsockopt_string(zmq.SUBSCRIBE, "")
+    socket.connect(address)
+    return socket
+
+
+def receive_latest_object_pose(
+    pose_socket: zmq.Socket,
+    board_id: str,
+    minimum_confidence: float,
+) -> Optional[dict]:
+    latest_pose = None
+    while True:
+        try:
+            message = pose_socket.recv_json(flags=zmq.NOBLOCK)
+        except zmq.Again:
+            return latest_pose
+
+        poses = message.get("poses")
+        if not isinstance(poses, dict):
+            continue
+
+        pose = poses.get(str(board_id))
+        if not isinstance(pose, dict):
+            continue
+
+        confidence = float(pose.get("confidence", 0.0))
+        if confidence < minimum_confidence:
+            continue
+
+        position = np.asarray(pose.get("position"), dtype=np.float64)
+        rotation = np.asarray(pose.get("rotation_matrix"), dtype=np.float64)
+        if position.shape != (3,) or rotation.shape != (3, 3):
+            continue
+        if not np.all(np.isfinite(position)) or not np.all(np.isfinite(rotation)):
+            continue
+
+        # Project small numerical errors onto the closest proper rotation.
+        u, _, vt = np.linalg.svd(rotation)
+        rotation = u @ vt
+        if np.linalg.det(rotation) < 0:
+            u[:, -1] *= -1
+            rotation = u @ vt
+
+        latest_pose = {
+            "position": position,
+            "rotation_matrix": rotation,
+            "confidence": confidence,
+            "publisher_timestamp": message.get("timestamp"),
+        }
+
+
 def robot_state_to_policy_q(
     state: dict,
     previous_q: Optional[np.ndarray],
@@ -258,8 +390,13 @@ def set_viewer_box(
     size: np.ndarray,
     rgba: np.ndarray,
     geom_type,
+    rotation: Optional[np.ndarray] = None,
 ) -> None:
-    mat = np.eye(3, dtype=np.float64).reshape(-1)
+    mat = (
+        np.eye(3, dtype=np.float64)
+        if rotation is None
+        else np.asarray(rotation, dtype=np.float64)
+    ).reshape(-1)
     mujoco = sys.modules["mujoco"]
     mujoco.mjv_initGeom(
         viewer.user_scn.geoms[geom_index],
@@ -275,7 +412,9 @@ def update_viewer_markers(
     viewer,
     table_pos: np.ndarray,
     object_pos: np.ndarray,
+    object_rotation: np.ndarray,
     goal_object_pos: np.ndarray,
+    goal_object_rotation: np.ndarray,
     target_palm_pos: Optional[np.ndarray] = None,
 ) -> None:
     mujoco = sys.modules["mujoco"]
@@ -284,7 +423,7 @@ def update_viewer_markers(
         viewer=viewer,
         geom_index=0,
         pos=table_pos,
-        size=np.array([0.475 / 2.0, 0.4 / 2.0, 0.3 / 2.0], dtype=np.float32),
+        size=TABLE_SIZE_M / 2.0,
         rgba=np.array([0.85, 0.85, 0.85, 0.35], dtype=np.float32),
         geom_type=mujoco.mjtGeom.mjGEOM_BOX,
     )
@@ -295,6 +434,7 @@ def update_viewer_markers(
         size=OBJECT_BASE_SIZE_M * CUBE_OBJECT_SCALES / 2.0,
         rgba=np.array([0.45, 0.45, 0.45, 1.0], dtype=np.float32),
         geom_type=mujoco.mjtGeom.mjGEOM_BOX,
+        rotation=object_rotation,
     )
     set_viewer_box(
         viewer=viewer,
@@ -303,6 +443,7 @@ def update_viewer_markers(
         size=OBJECT_BASE_SIZE_M * CUBE_OBJECT_SCALES / 2.0,
         rgba=np.array([0.1, 0.9, 0.2, 0.35], dtype=np.float32),
         geom_type=mujoco.mjtGeom.mjGEOM_BOX,
+        rotation=goal_object_rotation,
     )
     if target_palm_pos is not None:
         set_viewer_box(
@@ -325,7 +466,16 @@ def main() -> None:
     parser.add_argument("--device", choices=("cpu", "cuda"), default="cpu")
     parser.add_argument("--send-to-robot", action="store_true")
     parser.add_argument("--max-steps", type=int, default=0, help="0 means run forever.")
-    parser.add_argument("--control-hz", type=float, default=CONTROL_HZ)
+    parser.add_argument(
+        "--control-hz",
+        type=float,
+        default=CONTROL_HZ,
+        help=(
+            "Frequency at which the policy target is updated. The action "
+            "increment remains calibrated at 60 Hz, so lower values slow the "
+            "motion instead of making each step larger."
+        ),
+    )
     parser.add_argument("--command-stream-hz", type=float, default=CONTROL_HZ)
     parser.add_argument(
         "--no-viewer",
@@ -340,10 +490,55 @@ def main() -> None:
     parser.add_argument(
         "--ignore-robot-state",
         action="store_true",
-        help="Use the config default joint pose instead of Q from the low-level state publisher.",
+        help=(
+            "Run an ideal closed-loop MuJoCo arm simulation instead of using "
+            "Q from the low-level robot-state publisher."
+        ),
+    )
+    parser.add_argument(
+        "--use-pose-estimation",
+        "--use_pose_estimation",
+        dest="use_pose_estimation",
+        action="store_true",
+        help=(
+            "Use the cube pose published by tag-pose-estimation instead of "
+            "the built-in static cube pose."
+        ),
+    )
+    parser.add_argument(
+        "--pose-estimation-address",
+        default=DEFAULT_POSE_ESTIMATION_ADDRESS,
+        help="ZMQ address of the tag pose-estimation publisher.",
+    )
+    parser.add_argument(
+        "--pose-board-id",
+        default=DEFAULT_POSE_BOARD_ID,
+        help="Board ID in the pose-estimation 'poses' dictionary.",
+    )
+    parser.add_argument(
+        "--pose-min-confidence",
+        type=float,
+        default=DEFAULT_POSE_MIN_CONFIDENCE,
+        help="Minimum accepted pose-estimation confidence.",
+    )
+    parser.add_argument(
+        "--pose-timeout",
+        type=float,
+        default=DEFAULT_POSE_TIMEOUT_S,
+        help="Stop if no valid cube pose is received for this many seconds.",
     )
     parser.add_argument("--print-every", type=float, default=PRINT_PERIOD_S)
     args = parser.parse_args()
+
+    if args.ignore_robot_state and args.send_to_robot:
+        parser.error(
+            "--ignore-robot-state is a simulation mode and cannot be combined "
+            "with --send-to-robot"
+        )
+    if not 0.0 <= args.pose_min_confidence <= 1.0:
+        parser.error("--pose-min-confidence must be between 0 and 1")
+    if args.pose_timeout <= 0.0:
+        parser.error("--pose-timeout must be positive")
 
     if str(REPO_ROOT) not in sys.path:
         sys.path.insert(0, str(REPO_ROOT))
@@ -394,6 +589,11 @@ def main() -> None:
         low_level_cfg = json.load(f)
 
     context, command_socket, state_socket = make_zmq_sockets(low_level_cfg)
+    pose_socket = None
+    if args.use_pose_estimation:
+        pose_socket = make_pose_estimation_socket(
+            context, args.pose_estimation_address
+        )
     print(f"Policy config:     {args.config_path}")
     print(f"Policy checkpoint: {checkpoint_path}")
     print(f"Listening state:   tcp://127.0.0.1:{low_level_cfg['publisher_port']}")
@@ -401,15 +601,49 @@ def main() -> None:
     print("Robot state input: IGNORED." if args.ignore_robot_state else "Robot state input: ENABLED.")
     print("Robot publishing is ENABLED." if args.send_to_robot else "Dry run: not sending robot commands.")
     print(f"Command stream:    {args.command_stream_hz:g} Hz" if args.send_to_robot else "Command stream:    disabled")
+    print(
+        f"Policy target rate: {args.control_hz:g} Hz "
+        f"(action increment calibrated at {POLICY_ACTION_HZ:g} Hz)"
+    )
+    if pose_socket is not None:
+        print(
+            f"Cube pose input:   {args.pose_estimation_address} "
+            f"(board {args.pose_board_id}, confidence >= "
+            f"{args.pose_min_confidence:g})"
+        )
+    else:
+        print("Cube pose input:   built-in static pose")
     command_streamer = None
     if args.send_to_robot:
         command_streamer = CommandStreamer(command_socket, args.command_stream_hz)
         command_streamer.start()
 
+    robot_brake_completed = False
+
+    def brake_robot_before_shutdown(
+        fallback_state: Optional[dict] = None,
+    ) -> None:
+        nonlocal robot_brake_completed
+        if robot_brake_completed or command_streamer is None:
+            return
+        robot_brake_completed = True
+        command_streamer.stop()
+        send_zero_velocity_hold(
+            command_socket,
+            state_socket,
+            fallback_state,
+        )
+
+    # This also covers Ctrl+C during the home-position prompts, before the main
+    # policy loop's try/finally block has started.
+    atexit.register(brake_robot_before_shutdown)
+
     robot_base_y = 0.6 #float(env_cfg.get("robotBaseY", 0.6))
     table_pose_dy = -0.6 # float(env_cfg.get("tablePoseDy", -0.6))
     table_y = robot_base_y + table_pose_dy
-    table_z = float(env_cfg.get("tableResetZ", 0.38))
+    # MuJoCo box positions refer to their center. Put the table center half its
+    # height below zero so that its upper surface is exactly at world z = 0.
+    table_z = TABLE_SURFACE_Z_M - float(TABLE_SIZE_M[2]) / 2.0
 
     model_path = HERE / "assets" / "universal_robots_ur5e" / "scene.xml"
     model = mujoco.MjModel.from_xml_path(str(model_path))
@@ -437,15 +671,83 @@ def main() -> None:
         print_model_pose_debug("after initial qpos/ctrl setup", model, data)
     wrist_3_body_id = model.body("wrist_3_link").id
     table_pos = np.array([0.0, table_y, table_z], dtype=np.float32)
+
+    model_base_quat_wxyz = model.body_quat[base_body_id].copy()
+    model_base_rotation = Rotation.from_quat(
+        model_base_quat_wxyz[[1, 2, 3, 0]]
+    ).as_matrix()
+    controller_base_to_model_world_rotation = (
+        model_base_rotation @ UR_CONTROLLER_BASE_TO_MODEL_BASE_ROTATION
+    )
+    model_base_position = model.body_pos[base_body_id].copy()
+
+    def pose_estimation_to_model_world(pose: dict):
+        position = (
+            model_base_position
+            + controller_base_to_model_world_rotation @ pose["position"]
+        )
+        rotation = (
+            controller_base_to_model_world_rotation
+            @ pose["rotation_matrix"]
+        )
+        quat_xyzw = Rotation.from_matrix(rotation).as_quat()
+        quat_wxyz = quat_xyzw[[3, 0, 1, 2]]
+        return (
+            position.astype(np.float32),
+            rotation.astype(np.float64),
+            quat_wxyz.astype(np.float32),
+        )
+
     object_pos = np.array(
         [
             FAKE_OBJECT_X_OFFSET_M,
             table_y + FAKE_OBJECT_Y_OFFSET_M,
-            table_z + FAKE_OBJECT_Z_OFFSET_M,
+            TABLE_SURFACE_Z_M
+            + OBJECT_BASE_SIZE_M * float(CUBE_OBJECT_SCALES[2]) / 2.0,
         ],
         dtype=np.float32,
     )
+    object_rotation = np.eye(3, dtype=np.float64)
+    object_quat_wxyz = np.array(
+        [1.0, 0.0, 0.0, 0.0], dtype=np.float32
+    )
+    last_valid_pose_time = None
+    latest_pose_confidence = None
+
+    if pose_socket is not None:
+        print(
+            "Waiting for the first valid cube pose from "
+            f"{args.pose_estimation_address}..."
+        )
+        deadline = time.monotonic() + DEFAULT_POSE_STARTUP_TIMEOUT_S
+        initial_pose = None
+        while time.monotonic() < deadline:
+            initial_pose = receive_latest_object_pose(
+                pose_socket,
+                args.pose_board_id,
+                args.pose_min_confidence,
+            )
+            if initial_pose is not None:
+                break
+            time.sleep(0.01)
+        if initial_pose is None:
+            raise TimeoutError(
+                "No valid cube pose received from pose estimation within "
+                f"{DEFAULT_POSE_STARTUP_TIMEOUT_S:g} seconds."
+            )
+        (
+            object_pos,
+            object_rotation,
+            object_quat_wxyz,
+        ) = pose_estimation_to_model_world(initial_pose)
+        last_valid_pose_time = time.monotonic()
+        latest_pose_confidence = initial_pose["confidence"]
+
+    # The goal is anchored once from the initial cube pose; it must not follow
+    # the live cube position, otherwise the policy target would move with it.
     goal_object_pos = object_pos + GOAL_OBJECT_OFFSET_M
+    goal_object_rotation = object_rotation.copy()
+    goal_object_quat_wxyz = object_quat_wxyz.copy()
     if args.debug_step:
         print(
             "[debug] table/object positions: "
@@ -455,7 +757,6 @@ def main() -> None:
             f"goal_object_pos={goal_object_pos.round(6).tolist()}",
             flush=True,
         )
-    object_quat_wxyz = np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float32)
     viewer = None
     if not args.no_viewer:
         viewer = mujoco.viewer.launch_passive(
@@ -465,7 +766,14 @@ def main() -> None:
             show_right_ui=False,
         )
         mujoco.mjv_defaultFreeCamera(model, viewer.cam)
-        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
+        update_viewer_markers(
+            viewer,
+            table_pos,
+            object_pos,
+            object_rotation,
+            goal_object_pos,
+            goal_object_rotation,
+        )
         viewer.sync()
         if args.debug_step:
             print_model_pose_debug("after viewer launch/sync", model, data)
@@ -493,35 +801,57 @@ def main() -> None:
             )
 
     home_q = default_joint_pos[:ARM_DOF].copy()
-    state_q = np.asarray(latest_state["Q"], dtype=np.float32)[:ARM_DOF]
-    # Give the C++ subscriber a moment to connect before the first target.
-    time.sleep(1.0)
-    print_home_confirmation(state_q=state_q, home_q=home_q)
-    wait_for_space("Press Space to send the home command, or q to stop: ")
-    if command_streamer is not None:
-        command_streamer.set_target(home_q)
-        print("Home command streaming.")
+    if args.ignore_robot_state:
+        print(
+            "Simulation mode: initializing the ideal simulated state at the "
+            "policy home pose."
+        )
     else:
-        print("Dry run: home command not sent.")
+        state_q = np.asarray(latest_state["Q"], dtype=np.float32)[:ARM_DOF]
+        # Give the C++ subscriber a moment to connect before the first target.
+        time.sleep(1.0)
+        print_home_confirmation(state_q=state_q, home_q=home_q)
+        wait_for_space("Press Space to send the home command, or q to stop: ")
+        if command_streamer is not None:
+            command_streamer.set_target(home_q)
+            print("Home command streaming.")
+        else:
+            print("Dry run: home command not sent.")
 
     data.qpos[:ARM_DOF] = home_q
     data.qvel[:ARM_DOF] = 0.0
     data.ctrl[:ARM_DOF] = home_q
     mujoco.mj_forward(model, data)
     if viewer is not None:
-        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
+        update_viewer_markers(
+            viewer,
+            table_pos,
+            object_pos,
+            object_rotation,
+            goal_object_pos,
+            goal_object_rotation,
+        )
         viewer.sync()
 
-    wait_for_space("Press Space after the robot is at home to start the policy, or q to stop: ")
-    latest_home_state = None if args.ignore_robot_state else receive_latest_robot_state(state_socket)
-    if latest_home_state is not None and "Q" in latest_home_state:
-        latest_state = latest_home_state
-    else:
+    if args.ignore_robot_state:
         latest_state = {
             "Q": home_q.tolist(),
             "Qd": [0.0] * ARM_DOF,
-            "source": "home_target",
+            "source": "ideal_simulation",
         }
+    else:
+        wait_for_space(
+            "Press Space after the robot is at home to start the policy, or q to stop: "
+        )
+        latest_home_state = receive_latest_robot_state(state_socket)
+        if latest_home_state is not None and "Q" in latest_home_state:
+            latest_state = latest_home_state
+        else:
+            latest_state = {
+                "Q": home_q.tolist(),
+                "Qd": [0.0] * ARM_DOF,
+                "source": "home_target",
+            }
 
     player = create_rl_player(
         simtoolreal_root=REPO_ROOT,
@@ -533,7 +863,14 @@ def main() -> None:
     data.ctrl[:ARM_DOF] = home_q
     mujoco.mj_forward(model, data)
     if viewer is not None:
-        update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
+        update_viewer_markers(
+            viewer,
+            table_pos,
+            object_pos,
+            object_rotation,
+            goal_object_pos,
+            goal_object_rotation,
+        )
         viewer.sync()
     if args.debug_step:
         print_model_pose_debug("after policy load and resync", model, data)
@@ -541,7 +878,11 @@ def main() -> None:
     obs_list = env_cfg["obsList"]
     if args.control_hz <= 0.0:
         raise ValueError(f"--control-hz must be positive, got {args.control_hz}")
-    control_dt = 1.0 / args.control_hz
+    # Keep these two time scales separate. loop_dt describes elapsed wall time
+    # between target updates; POLICY_ACTION_DT is the fixed integration step
+    # used during training. At --control-hz 1, the target therefore advances
+    # by one 60 Hz-sized increment per second instead of one huge 1 Hz step.
+    loop_dt = 1.0 / args.control_hz
     dof_speed_scale = float(env_cfg["dofSpeedScale"])
     arm_moving_average = float(env_cfg["armMovingAverage"])
     hand_moving_average = float(env_cfg["handMovingAverage"])
@@ -559,23 +900,71 @@ def main() -> None:
                 stopped_by_viewer = True
                 break
 
-            state = None if args.ignore_robot_state else receive_latest_robot_state(state_socket)
-            if state is not None:
-                latest_state = state
+            if pose_socket is not None:
+                pose_update = receive_latest_object_pose(
+                    pose_socket,
+                    args.pose_board_id,
+                    args.pose_min_confidence,
+                )
+                if pose_update is not None:
+                    (
+                        object_pos,
+                        object_rotation,
+                        object_quat_wxyz,
+                    ) = pose_estimation_to_model_world(pose_update)
+                    last_valid_pose_time = time.monotonic()
+                    latest_pose_confidence = pose_update["confidence"]
+                elif (
+                    last_valid_pose_time is None
+                    or time.monotonic() - last_valid_pose_time
+                    > args.pose_timeout
+                ):
+                    raise TimeoutError(
+                        "Cube pose estimation is stale: no valid update for "
+                        f"more than {args.pose_timeout:g} seconds."
+                    )
 
-            q, qd = robot_state_to_policy_q(
-                latest_state,
-                previous_q=prev_q,
-                default_joint_pos=default_joint_pos,
-            )
-            prev_q = q
+            if args.ignore_robot_state:
+                q = (
+                    prev_targets.copy()
+                    if prev_targets is not None
+                    else default_joint_pos.copy()
+                )
+                qd = (
+                    np.zeros_like(q)
+                    if prev_q is None
+                    else (q - prev_q) / loop_dt
+                )
+                latest_state = {
+                    "Q": q[:ARM_DOF].tolist(),
+                    "Qd": qd[:ARM_DOF].tolist(),
+                    "source": "ideal_simulation",
+                }
+            else:
+                state = receive_latest_robot_state(state_socket)
+                if state is not None:
+                    latest_state = state
+
+                q, qd = robot_state_to_policy_q(
+                    latest_state,
+                    previous_q=prev_q,
+                    default_joint_pos=default_joint_pos,
+                )
+            prev_q = q.copy()
 
             data.qpos[:ARM_DOF] = q[:ARM_DOF]
             data.qvel[:ARM_DOF] = qd[:ARM_DOF]
             data.ctrl[:ARM_DOF] = q[:ARM_DOF]
             mujoco.mj_forward(model, data)
             if viewer is not None:
-                update_viewer_markers(viewer, table_pos, object_pos, goal_object_pos)
+                update_viewer_markers(
+                    viewer,
+                    table_pos,
+                    object_pos,
+                    object_rotation,
+                    goal_object_pos,
+                    goal_object_rotation,
+                )
                 viewer.sync()
 
             palm_quat_wxyz = data.xquat[wrist_3_body_id].copy()
@@ -594,7 +983,7 @@ def main() -> None:
                 "object_pos": object_pos,
                 "object_quat_wxyz": object_quat_wxyz,
                 "goal_object_pos": goal_object_pos,
-                "goal_object_quat_wxyz": object_quat_wxyz,
+                "goal_object_quat_wxyz": goal_object_quat_wxyz,
             }
 
             obs = build_observation(
@@ -612,7 +1001,7 @@ def main() -> None:
                 actions=action.cpu().numpy()[0],
                 q=q,
                 prev_targets=prev_targets,
-                control_dt=control_dt,
+                control_dt=POLICY_ACTION_DT,
                 dof_speed_scale=dof_speed_scale,
                 arm_moving_average=arm_moving_average,
                 hand_moving_average=hand_moving_average,
@@ -646,7 +1035,9 @@ def main() -> None:
                     viewer,
                     table_pos,
                     object_pos,
+                    object_rotation,
                     goal_object_pos,
+                    goal_object_rotation,
                     target_palm_pos=target_palm_pos,
                 )
                 viewer.sync()
@@ -666,6 +1057,10 @@ def main() -> None:
                 print(f"qd_rad_s:         {qd[:ARM_DOF].round(6).tolist()}")
                 print(f"action_arm:       {action_arm.round(6).tolist()}")
                 print(f"object_pos:       {object_pos.round(6).tolist()}")
+                if latest_pose_confidence is not None:
+                    print(
+                        f"pose_confidence:   {latest_pose_confidence:.3f}"
+                    )
                 print(f"state_source:     {latest_state.get('source', 'robot_state_publisher')}")
                 
                 if "timestamp_ms" in latest_state:
@@ -678,11 +1073,18 @@ def main() -> None:
             now = time.monotonic()
             if not args.debug_step and now - last_print >= args.print_every:
                 last_print = now
+                pose_status = (
+                    f" object_pos={object_pos.round(3).tolist()} "
+                    f"pose_confidence={latest_pose_confidence:.3f}"
+                    if latest_pose_confidence is not None
+                    else ""
+                )
                 print(
                     f"step={step:06d} "
                     f"q_deg={np.rad2deg(q[:ARM_DOF]).round(2).tolist()} "
                     f"target_deg={np.rad2deg(targets[:ARM_DOF]).round(2).tolist()} "
                     f"action_arm={action_arm.round(3).tolist()}"
+                    f"{pose_status}"
                 )
 
             step += 1
@@ -698,16 +1100,53 @@ def main() -> None:
             )
             hold_rate = SimpleRateLimiter(frequency=args.control_hz)
             while viewer is None or viewer.is_running():
-                state = None if args.ignore_robot_state else receive_latest_robot_state(state_socket)
-                if state is not None:
-                    latest_state = state
+                if pose_socket is not None:
+                    pose_update = receive_latest_object_pose(
+                        pose_socket,
+                        args.pose_board_id,
+                        args.pose_min_confidence,
+                    )
+                    if pose_update is not None:
+                        (
+                            object_pos,
+                            object_rotation,
+                            object_quat_wxyz,
+                        ) = pose_estimation_to_model_world(pose_update)
+                        last_valid_pose_time = time.monotonic()
+                        latest_pose_confidence = pose_update["confidence"]
+                    elif (
+                        last_valid_pose_time is None
+                        or time.monotonic() - last_valid_pose_time
+                        > args.pose_timeout
+                    ):
+                        raise TimeoutError(
+                            "Cube pose estimation is stale: no valid update "
+                            f"for more than {args.pose_timeout:g} seconds."
+                        )
 
-                q, qd = robot_state_to_policy_q(
-                    latest_state,
-                    previous_q=prev_q,
-                    default_joint_pos=default_joint_pos,
-                )
-                prev_q = q
+                if args.ignore_robot_state:
+                    q = (
+                        prev_targets.copy()
+                        if prev_targets is not None
+                        else default_joint_pos.copy()
+                    )
+                    qd = np.zeros_like(q)
+                    latest_state = {
+                        "Q": q[:ARM_DOF].tolist(),
+                        "Qd": qd[:ARM_DOF].tolist(),
+                        "source": "ideal_simulation",
+                    }
+                else:
+                    state = receive_latest_robot_state(state_socket)
+                    if state is not None:
+                        latest_state = state
+
+                    q, qd = robot_state_to_policy_q(
+                        latest_state,
+                        previous_q=prev_q,
+                        default_joint_pos=default_joint_pos,
+                    )
+                prev_q = q.copy()
 
                 data.qpos[:ARM_DOF] = q[:ARM_DOF]
                 data.qvel[:ARM_DOF] = qd[:ARM_DOF]
@@ -733,19 +1172,23 @@ def main() -> None:
                         viewer,
                         table_pos,
                         object_pos,
+                        object_rotation,
                         goal_object_pos,
+                        goal_object_rotation,
                         target_palm_pos=target_palm_pos,
                     )
                     viewer.sync()
 
                 hold_rate.sleep()
     except KeyboardInterrupt:
-        pass
+        print("\nCtrl+C received: braking the robot before shutdown.")
     finally:
-        if command_streamer is not None:
-            command_streamer.stop()
+        brake_robot_before_shutdown(latest_state)
+        atexit.unregister(brake_robot_before_shutdown)
         if viewer is not None:
             viewer.close()
+        if pose_socket is not None:
+            pose_socket.close()
         command_socket.close()
         state_socket.close()
         context.term()

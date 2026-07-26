@@ -63,17 +63,53 @@ class RlPlayer:
             config["params"]["config"]["device"] = "cpu"
 
         if checkpoint_path is not None:
+            self._set_expl_num_blocks_from_checkpoint(config, checkpoint_path)
             config["load_path"] = checkpoint_path
+
+        # In CPU eval, checkpoints saved from CUDA runs must be remapped to CPU.
+        # rl_games' default loader uses torch.load(...) without map_location, which
+        # otherwise tries to allocate CUDA storage even when the player device is CPU.
+        if self.device == "cpu":
+            from rl_games.algos_torch import torch_ext
+
+            def _safe_load_cpu(filename):
+                return torch_ext.safe_filesystem_op(
+                    torch.load, filename, map_location="cpu", weights_only=False
+                )
+
+            torch_ext.safe_load = _safe_load_cpu
+
         runner = Runner()
         runner.load(config)
 
-        os.environ["CUDA_VISIBLE_DEVICES"] = "0"
+        if self.device != "cpu":
+            os.environ["CUDA_VISIBLE_DEVICES"] = "0"
         player = runner.create_player()
         player.init_rnn()
         player.has_batch_dimension = True
         if checkpoint_path is not None:
             player.restore(checkpoint_path)
         return player
+
+    def _set_expl_num_blocks_from_checkpoint(
+        self, config: dict, checkpoint_path: str
+    ) -> None:
+        """Match mixed-exploration network size to the saved checkpoint."""
+        checkpoint = torch.load(
+            checkpoint_path,
+            map_location="cpu",
+            weights_only=False,
+        )
+        if isinstance(checkpoint, dict) and 0 in checkpoint:
+            checkpoint = checkpoint[0]
+        elif isinstance(checkpoint, list):
+            checkpoint = checkpoint[0]
+        model_state = checkpoint.get("model", {})
+        extra_params = model_state.get("a2c_network.extra_params")
+        if extra_params is not None:
+            config["params"]["config"]["expl_num_blocks"] = int(
+                extra_params.shape[0]
+            )
 
     def _run_sanity_checks(self) -> None:
         cfg_num_observations = self.cfg["task"]["env"]["numObservations"]
