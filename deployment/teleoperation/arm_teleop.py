@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import threading
 import time
 from typing import Optional
 
@@ -50,6 +51,22 @@ class PoseEstimatorProcess:
         self.script = script
         self.config = config
         self.process: Optional[subprocess.Popen] = None
+        self.output_thread: Optional[threading.Thread] = None
+
+    def _forward_output(self) -> None:
+        assert self.process is not None and self.process.stdout is not None
+        for raw_line in self.process.stdout:
+            line = raw_line.rstrip()
+            if (
+                line.startswith("Running at ")
+                or (
+                    line.startswith("Published ")
+                    and line.endswith(" board poses")
+                )
+            ):
+                continue
+            if line:
+                print(f"[pose estimator] {line}", flush=True)
 
     def start(self) -> None:
         environment = os.environ.copy()
@@ -70,7 +87,17 @@ class PoseEstimatorProcess:
             command,
             cwd=self.project_root,
             env=environment,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            bufsize=1,
         )
+        self.output_thread = threading.Thread(
+            target=self._forward_output,
+            name="pose-estimator-output",
+            daemon=True,
+        )
+        self.output_thread.start()
 
     def check_running(self) -> None:
         if self.process is not None and self.process.poll() is not None:
@@ -80,14 +107,17 @@ class PoseEstimatorProcess:
             )
 
     def stop(self) -> None:
-        if self.process is None or self.process.poll() is not None:
+        if self.process is None:
             return
-        self.process.terminate()
-        try:
-            self.process.wait(timeout=3.0)
-        except subprocess.TimeoutExpired:
-            self.process.kill()
-            self.process.wait(timeout=1.0)
+        if self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3.0)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait(timeout=1.0)
+        if self.output_thread is not None:
+            self.output_thread.join(timeout=1.0)
 
 
 def countdown_board_capture(
