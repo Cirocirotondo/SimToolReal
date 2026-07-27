@@ -234,6 +234,33 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
                                    stocastico con `actionDelayMax=2` e rumore gaussiano additivo
                                    sulle azioni fino a media `0` e deviazione standard `0.003`.
 
+00_train_d1_operational_space_2026-07-...
+   Variante con controllo del braccio nello spazio operativo: la policy produce delta cartesiani
+   dell'end effector, convertiti in target articolari tramite inverse kinematics.
+   │
+   └── 00_train_d2_conservative_operational_space_2026-07-...
+       Riduce velocita' cartesiane e massimo delta articolare rispetto a D1, con una penalita'
+       leggermente maggiore sulle azioni del braccio.
+       │
+       └── train_d3 (preset preparato, non ancora lanciato)
+           Reference State Initialization basata su D2 e mano destra. A ogni reset, con probabilita'
+           `0.5` usa il reset standard di D2; altrimenti campiona uniformemente uno degli otto grasp
+           curati `grasp_candidate_5` ... `grasp_candidate_5_7`, con cubo da 5 cm gia' afferrato e
+           sollevato. Gli stati RSI non ricevono nuovamente il bonus one-shot di sollevamento.
+           │
+           └── train_d4 (preset preparato, non ancora lanciato)
+               Usa `58%` reset standard e `42%` RSI, concentrando la parte RSI su sei grasp
+               campionati uniformemente: `grasp_candidate_5_3`, `grasp_candidate_6` e
+               `grasp_candidate_6_1` ... `grasp_candidate_6_4`. Imposta inoltre
+               `kukaActionsPenaltyScale=0.07` e `armMovingAverage=1.0`.
+               │
+               └── train_d5 (preset preparato, non ancora lanciato)
+                   Porta il mix a `50%` reset standard / `50%` RSI e amplia il pool a dieci grasp, aggiungendo
+                   `grasp_candidate_5`, `grasp_candidate_5_1`, `grasp_candidate_5_2` e
+                   `grasp_candidate_5_4`. Ogni riferimento pesa circa il `5%` dei reset totali.
+                   Riduce inoltre la durata massima dell'episodio da 600 a 420 step (`7 s` a 60 Hz)
+                   e anticipa la deadline di mancato sollevamento a 210 step (`3.5 s`).
+
 
 
 ```

@@ -61,6 +61,8 @@ env:
   resetDofPosRandomIntervalArm: 0.03
   resetDofVelRandomInterval: 0.15
   resetDofPosSampling: gaussian_closest_limit
+  # Per arm DOF: -1 = negative-only, 0 = symmetric, +1 = positive-only.
+  resetDofPosDirectionArm: null
   resetDrCurriculumSteps: 0
   commandDrCurriculumSteps: 0
 

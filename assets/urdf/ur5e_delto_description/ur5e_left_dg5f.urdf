@@ -421,7 +421,7 @@
     <parent link="ll_dg_1_2" />
     <child link="ll_dg_1_3" />
     <axis xyz="1 0 0" />
-    <limit lower="-1.5707963267948966" upper="0.0" effort="7.5" velocity="3.141592653589793" />
+    <limit lower="-1.5707963267948966" upper="1.5707963267948966" effort="7.5" velocity="3.141592653589793" />
   </joint>
   <link name="ll_dg_1_4">
     <inertial>
@@ -907,7 +907,7 @@
     <parent link="ll_dg_5_1" />
     <child link="ll_dg_5_2" />
     <axis xyz="1 0 0" />
-    <limit lower="0.0" upper="0.4188790204786391" effort="7.5" velocity="3.141592653589793" />
+    <limit lower="-0.6108652381980153" upper="0.4188790204786391" effort="7.5" velocity="3.141592653589793" />
   </joint>
   <link name="ll_dg_5_3">
     <inertial>

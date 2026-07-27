@@ -1,0 +1,24 @@
+# Train D5: expanded Reference State Initialization pool.
+# Inherits D4's reset mixture and controller settings, adding four curated
+# lifted grasps to the six-state D4 pool.
+defaults:
+  - SimToolRealTrainD4
+  - _self_
+
+env:
+  # 420 policy steps at 60 Hz = 7 seconds.
+  episodeLength: 420
+  # Reset failed grasps halfway through the episode (210 / 60 = 3.5 s).
+  notLiftedDeadlineStep: 210
+  referenceStateInitProbability: 0
+  referenceStateFiles:
+    - deployment/mujoco_ur5e_delto/grasp_candidate_5.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_5_1.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_5_2.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_5_3.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_5_4.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_1.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_2.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_3.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_4.json

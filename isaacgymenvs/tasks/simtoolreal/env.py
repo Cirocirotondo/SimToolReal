@@ -207,6 +207,26 @@ class SimToolReal(VecTask):
         self.reset_dof_pos_sampling_fingers = self.cfg["env"].get(
             "resetDofPosSamplingFingers", default_reset_dof_pos_sampling
         )
+        reset_dof_pos_direction_arm = self.cfg["env"].get(
+            "resetDofPosDirectionArm"
+        )
+        if reset_dof_pos_direction_arm is None:
+            self.reset_dof_pos_direction_arm = None
+        else:
+            if len(reset_dof_pos_direction_arm) != self.num_arm_dofs:
+                raise ValueError(
+                    "resetDofPosDirectionArm must have one value per arm DOF"
+                )
+            if any(
+                value not in (-1, 0, 1)
+                for value in reset_dof_pos_direction_arm
+            ):
+                raise ValueError(
+                    "resetDofPosDirectionArm values must be -1, 0, or 1"
+                )
+            self.reset_dof_pos_direction_arm = tuple(
+                int(value) for value in reset_dof_pos_direction_arm
+            )
         valid_reset_dof_pos_sampling = {
             "gaussian_closest_limit",
             "split_gaussian",
@@ -958,6 +978,7 @@ class SimToolReal(VecTask):
         self._init_tyler_curriculum()
         self._init_disturbance_curriculum()
         self._init_arm_reset_curriculum()
+        self._init_reference_state_initialization()
 
         self._init_obs_action_queue()
 
@@ -1377,7 +1398,7 @@ class SimToolReal(VecTask):
             object_asset_files = [obj.urdf_path]
             object_asset_scales = [obj.scale]
             need_vhacds = [obj.need_vhacd]
-            object_asset_per_face_colors = [False]
+            object_asset_per_face_colors = [obj.per_face_colors]
 
         elif object_name == "handle_head_primitives":
             (
@@ -2124,6 +2145,7 @@ class SimToolReal(VecTask):
         print(f"Robot rigid bodies: {robot_rigid_body_names}")
 
         robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)
+        self.robot_dof_names = list(self.gym.get_asset_dof_names(robot_asset))
 
         self.arm_hand_dof_lower_limits = []
         self.arm_hand_dof_upper_limits = []
@@ -4046,6 +4068,219 @@ class SimToolReal(VecTask):
 
         self.set_dof_state_object_indices = []
 
+    def _init_reference_state_initialization(self) -> None:
+        env_cfg = self.cfg["env"]
+        self.use_reference_state_initialization = bool(
+            env_cfg.get("useReferenceStateInitialization", False)
+        )
+        self.reference_state_init_probability = float(
+            env_cfg.get("referenceStateInitProbability", 0.0)
+        )
+        if not 0.0 <= self.reference_state_init_probability <= 1.0:
+            raise ValueError("referenceStateInitProbability must be in [0, 1]")
+
+        self.reference_state_reset_mask = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self.reference_state_index = torch.full(
+            (self.num_envs,), -1, dtype=torch.long, device=self.device
+        )
+        self.reference_state_reset_count = 0
+        self.regular_state_reset_count = 0
+        self.reference_state_names = []
+        self.reference_dof_pos = torch.empty(
+            (0, self.num_hand_arm_dofs), dtype=torch.float, device=self.device
+        )
+        self.reference_object_root_states = torch.empty(
+            (0, 13), dtype=torch.float, device=self.device
+        )
+
+        if not self.use_reference_state_initialization:
+            return
+
+        reference_files = list(env_cfg.get("referenceStateFiles", []))
+        if not reference_files:
+            raise ValueError(
+                "useReferenceStateInitialization=True requires referenceStateFiles"
+            )
+
+        position_offset = np.asarray(
+            env_cfg.get("referenceStatePositionOffset", [0.0, 0.0, 0.0]),
+            dtype=np.float32,
+        )
+        if position_offset.shape != (3,):
+            raise ValueError("referenceStatePositionOffset must contain 3 values")
+
+        expected_object_size = np.asarray(
+            env_cfg.get("referenceStateObjectSize", [0.05, 0.05, 0.05]),
+            dtype=np.float32,
+        )
+        repo_root = Path(__file__).resolve().parents[3]
+        dof_positions = []
+        object_root_states = []
+
+        for configured_path in reference_files:
+            path = Path(str(configured_path))
+            if not path.is_absolute():
+                path = repo_root / path
+            if not path.exists():
+                raise FileNotFoundError(f"RSI reference state not found: {path}")
+
+            with path.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+
+            if int(payload.get("format_version", 1)) < 2:
+                raise ValueError(
+                    f"RSI reference {path} uses the legacy grasp format; save it "
+                    "again with grasp_designer.py"
+                )
+            if payload.get("hand_side") != self.hand_side:
+                raise ValueError(
+                    f"RSI reference {path} is for hand_side={payload.get('hand_side')}, "
+                    f"but the task uses {self.hand_side}"
+                )
+            if payload.get("object_name") != "cube":
+                raise ValueError(f"RSI reference {path} is not a cube grasp")
+
+            object_size = np.asarray(payload["object_size_m"], dtype=np.float32)
+            if object_size.shape != (3,) or not np.allclose(
+                object_size, expected_object_size, atol=1e-4
+            ):
+                raise ValueError(
+                    f"RSI reference {path} has object size {object_size.tolist()}, "
+                    f"expected {expected_object_size.tolist()}"
+                )
+
+            joint_names = list(payload["joint_names"])
+            if joint_names != self.robot_dof_names:
+                raise ValueError(
+                    f"RSI joint ordering mismatch in {path}. Expected "
+                    f"{self.robot_dof_names}, got {joint_names}"
+                )
+            joint_pos = np.asarray(payload["joint_pos"], dtype=np.float32)
+            if joint_pos.shape != (self.num_hand_arm_dofs,):
+                raise ValueError(
+                    f"RSI joint_pos in {path} has shape {joint_pos.shape}, expected "
+                    f"{(self.num_hand_arm_dofs,)}"
+                )
+
+            object_pose = payload["object_pose"]
+            object_pos = np.asarray(object_pose["pos"], dtype=np.float32)
+            quat_wxyz = np.asarray(object_pose["quat_wxyz"], dtype=np.float32)
+            if object_pos.shape != (3,) or quat_wxyz.shape != (4,):
+                raise ValueError(f"Invalid RSI object pose in {path}")
+            object_pos = object_pos + position_offset
+            quat_norm = np.linalg.norm(quat_wxyz)
+            if quat_norm <= 0.0:
+                raise ValueError(f"Invalid zero quaternion in RSI reference {path}")
+            quat_wxyz = quat_wxyz / quat_norm
+            quat_xyzw = quat_wxyz[[1, 2, 3, 0]]
+
+            dof_positions.append(joint_pos)
+            object_root_states.append(
+                np.concatenate(
+                    [object_pos, quat_xyzw, np.zeros(6, dtype=np.float32)]
+                )
+            )
+            self.reference_state_names.append(
+                str(payload.get("grasp_name", path.stem))
+            )
+
+        self.reference_dof_pos = torch.tensor(
+            np.stack(dof_positions), dtype=torch.float, device=self.device
+        )
+        self.reference_object_root_states = torch.tensor(
+            np.stack(object_root_states), dtype=torch.float, device=self.device
+        )
+
+        joint_limit_tolerance = float(
+            env_cfg.get("referenceStateJointLimitTolerance", 0.002)
+        )
+        if joint_limit_tolerance < 0.0:
+            raise ValueError("referenceStateJointLimitTolerance must be non-negative")
+        lower_limits = self.arm_hand_dof_lower_limits.unsqueeze(0)
+        upper_limits = self.arm_hand_dof_upper_limits.unsqueeze(0)
+        below_lower = lower_limits - self.reference_dof_pos
+        above_upper = self.reference_dof_pos - upper_limits
+        invalid = (below_lower > joint_limit_tolerance) | (
+            above_upper > joint_limit_tolerance
+        )
+        if invalid.any():
+            state_index, dof_index = invalid.nonzero(as_tuple=False)[0].tolist()
+            raise ValueError(
+                f"RSI state {self.reference_state_names[state_index]!r} has "
+                f"{self.robot_dof_names[dof_index]}="
+                f"{self.reference_dof_pos[state_index, dof_index].item()} outside "
+                f"[{self.arm_hand_dof_lower_limits[dof_index].item()}, "
+                f"{self.arm_hand_dof_upper_limits[dof_index].item()}]"
+            )
+
+        clamped = (below_lower > 0.0) | (above_upper > 0.0)
+        if clamped.any():
+            print(
+                f"Clamping {int(clamped.sum().item())} RSI joint values to URDF limits"
+            )
+            self.reference_dof_pos = torch.maximum(
+                torch.minimum(self.reference_dof_pos, upper_limits), lower_limits
+            )
+
+        print(
+            f"Loaded {len(self.reference_state_names)} RSI states with reset "
+            f"probability {self.reference_state_init_probability}: "
+            f"{self.reference_state_names}"
+        )
+
+    def _apply_reference_state_initialization(self, env_ids: Tensor) -> None:
+        self.reference_state_reset_mask[env_ids] = False
+        self.reference_state_index[env_ids] = -1
+        if not self.use_reference_state_initialization:
+            return
+
+        use_reference = (
+            torch.rand(len(env_ids), device=self.device)
+            < self.reference_state_init_probability
+        )
+        reference_env_ids = env_ids[use_reference]
+        num_reference = len(reference_env_ids)
+        self.reference_state_reset_count += num_reference
+        self.regular_state_reset_count += len(env_ids) - num_reference
+
+        scalars = self.extras.setdefault("scalars", {})
+        scalars["rsi/reference_reset_fraction"] = float(
+            use_reference.float().mean().item()
+        )
+        scalars["rsi/reference_reset_count_total"] = int(
+            self.reference_state_reset_count
+        )
+        if num_reference == 0:
+            return
+
+        state_indices = torch.randint(
+            len(self.reference_state_names),
+            (num_reference,),
+            device=self.device,
+        )
+        robot_pos = self.reference_dof_pos[state_indices]
+        object_states = self.reference_object_root_states[state_indices]
+
+        self.arm_hand_dof_pos[reference_env_ids, :] = robot_pos
+        self.arm_hand_dof_vel[reference_env_ids, :] = 0.0
+        self.prev_targets[
+            reference_env_ids, : self.num_hand_arm_dofs
+        ] = robot_pos
+        self.cur_targets[
+            reference_env_ids, : self.num_hand_arm_dofs
+        ] = robot_pos
+        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
+            self.blue_robot_arm_hand_dof_pos[reference_env_ids, :] = robot_pos
+            self.blue_robot_arm_hand_dof_vel[reference_env_ids, :] = 0.0
+
+        object_indices = self.object_indices[reference_env_ids]
+        self.root_state_tensor[object_indices, :] = object_states
+        self.lifted_object[reference_env_ids] = True
+        self.reference_state_reset_mask[reference_env_ids] = True
+        self.reference_state_index[reference_env_ids] = state_indices
+
     def sample_reset_robot_base_pos(self, num_resets: int):
         base_pos = self.hand_arm_default_dof_pos.unsqueeze(0).repeat(num_resets, 1)
         randomize_arm = torch.ones(
@@ -4235,6 +4470,13 @@ class SimToolReal(VecTask):
 
             arm_slice = slice(0, self.num_arm_dofs)
             finger_slice = slice(self.num_arm_dofs, self.num_hand_arm_dofs)
+            arm_direction_constraints = None
+            if self.reset_dof_pos_direction_arm is not None:
+                arm_direction_constraints = torch.tensor(
+                    self.reset_dof_pos_direction_arm,
+                    dtype=reset_base_pos.dtype,
+                    device=self.device,
+                ).unsqueeze(0)
             rand_delta = torch.zeros_like(reset_base_pos)
             rand_delta[:, arm_slice] = sample_reset_dof_position_delta(
                 base_pos=reset_base_pos[:, arm_slice],
@@ -4242,6 +4484,7 @@ class SimToolReal(VecTask):
                 upper_limits=self.arm_hand_dof_upper_limits[arm_slice],
                 noise_coeff=noise_coeff[:, arm_slice],
                 sampling=self.reset_dof_pos_sampling_arm,
+                direction_constraints=arm_direction_constraints,
             )
             rand_delta[:, finger_slice] = sample_reset_dof_position_delta(
                 base_pos=reset_base_pos[:, finger_slice],
@@ -4315,6 +4558,9 @@ class SimToolReal(VecTask):
                 ].clone()
 
                 self.initial_state_idx += len(env_ids)
+
+        if episode_reset and tensor_reset and reset_buf_idxs is None:
+            self._apply_reference_state_initialization(env_ids)
 
         self.gym.set_dof_position_target_tensor_indexed(
             self.sim,

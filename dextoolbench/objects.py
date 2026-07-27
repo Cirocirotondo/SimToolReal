@@ -19,6 +19,9 @@ class Object:
     need_vhacd: bool
     """Whether the object needs a V-HACD convex decomposition (its convex hull is very different from the original mesh)"""
 
+    per_face_colors: bool = False
+    """Whether visual materials encode the orientation of individual faces."""
+
     def __post_init__(self):
         assert self.urdf_path.exists(), f"Filepath {self.urdf_path} does not exist"
 
@@ -194,3 +197,16 @@ BRUSH_NAME_TO_OBJECT = {
     ),
 }
 NAME_TO_OBJECT.update(BRUSH_NAME_TO_OBJECT)
+
+DUMBBELL_NAME_TO_OBJECT = {
+    "dumbbell_20x9x9cm": Object(
+        urdf_path=(
+            get_repo_root_dir()
+            / "assets/urdf/dumbbell_20x9x9cm/dumbbell_20x9x9cm.urdf"
+        ),
+        scale=rescale_by_factor((0.09, 0.20, 0.09), factor=25),
+        need_vhacd=False,
+        per_face_colors=True,
+    ),
+}
+NAME_TO_OBJECT.update(DUMBBELL_NAME_TO_OBJECT)

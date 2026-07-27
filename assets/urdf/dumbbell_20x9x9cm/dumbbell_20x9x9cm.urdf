@@ -1,0 +1,109 @@
+<?xml version="1.0"?>
+<robot name="dumbbell_20x9x9cm">
+  <link name="dumbbell">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="0.2448"/>
+      <inertia
+        ixx="0.00163644"
+        iyy="0.00027000"
+        izz="0.00163644"
+        ixy="0"
+        ixz="0"
+        iyz="0"/>
+    </inertial>
+
+    <!-- Primitive visuals reproduce the mesh while allowing orientation cues. -->
+    <visual name="handle_visual">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry><box size="0.03 0.14 0.03"/></geometry>
+      <material name="dumbbell_body"><color rgba="0.24 0.28 0.34 1.0"/></material>
+    </visual>
+    <visual name="negative_head_visual">
+      <origin xyz="0 -0.085 0" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.03 0.09"/></geometry>
+      <material name="dumbbell_body"><color rgba="0.24 0.28 0.34 1.0"/></material>
+    </visual>
+    <visual name="positive_head_visual">
+      <origin xyz="0 0.085 0" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.03 0.09"/></geometry>
+      <material name="dumbbell_body"><color rgba="0.24 0.28 0.34 1.0"/></material>
+    </visual>
+
+    <!-- +X red, -X orange. Each color is repeated on both heads. -->
+    <visual name="face_px_negative_head">
+      <origin xyz="0.0455 -0.085 0" rpy="0 0 0"/>
+      <geometry><box size="0.001 0.03 0.09"/></geometry>
+      <material name="face_px"><color rgba="1.0 0.15 0.15 1.0"/></material>
+    </visual>
+    <visual name="face_px_positive_head">
+      <origin xyz="0.0455 0.085 0" rpy="0 0 0"/>
+      <geometry><box size="0.001 0.03 0.09"/></geometry>
+      <material name="face_px"><color rgba="1.0 0.15 0.15 1.0"/></material>
+    </visual>
+    <visual name="face_nx_negative_head">
+      <origin xyz="-0.0455 -0.085 0" rpy="0 0 0"/>
+      <geometry><box size="0.001 0.03 0.09"/></geometry>
+      <material name="face_nx"><color rgba="1.0 0.5 0.0 1.0"/></material>
+    </visual>
+    <visual name="face_nx_positive_head">
+      <origin xyz="-0.0455 0.085 0" rpy="0 0 0"/>
+      <geometry><box size="0.001 0.03 0.09"/></geometry>
+      <material name="face_nx"><color rgba="1.0 0.5 0.0 1.0"/></material>
+    </visual>
+
+    <!-- +Y green, -Y teal. -->
+    <visual name="face_py">
+      <origin xyz="0 0.1005 0" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.001 0.09"/></geometry>
+      <material name="face_py"><color rgba="0.15 0.85 0.15 1.0"/></material>
+    </visual>
+    <visual name="face_ny">
+      <origin xyz="0 -0.1005 0" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.001 0.09"/></geometry>
+      <material name="face_ny"><color rgba="0.1 0.55 0.45 1.0"/></material>
+    </visual>
+
+    <!-- +Z blue, -Z yellow. Each color is repeated on both heads. -->
+    <visual name="face_pz_negative_head">
+      <origin xyz="0 -0.085 0.0455" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.03 0.001"/></geometry>
+      <material name="face_pz"><color rgba="0.2 0.35 1.0 1.0"/></material>
+    </visual>
+    <visual name="face_pz_positive_head">
+      <origin xyz="0 0.085 0.0455" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.03 0.001"/></geometry>
+      <material name="face_pz"><color rgba="0.2 0.35 1.0 1.0"/></material>
+    </visual>
+    <visual name="face_nz_negative_head">
+      <origin xyz="0 -0.085 -0.0455" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.03 0.001"/></geometry>
+      <material name="face_nz"><color rgba="1.0 0.85 0.1 1.0"/></material>
+    </visual>
+    <visual name="face_nz_positive_head">
+      <origin xyz="0 0.085 -0.0455" rpy="0 0 0"/>
+      <geometry><box size="0.09 0.03 0.001"/></geometry>
+      <material name="face_nz"><color rgba="1.0 0.85 0.1 1.0"/></material>
+    </visual>
+
+    <!-- Separate primitive collisions preserve the space around the handle. -->
+    <collision name="handle_collision">
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.03 0.14 0.03"/>
+      </geometry>
+    </collision>
+    <collision name="negative_head_collision">
+      <origin xyz="0 -0.085 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.09 0.03 0.09"/>
+      </geometry>
+    </collision>
+    <collision name="positive_head_collision">
+      <origin xyz="0 0.085 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.09 0.03 0.09"/>
+      </geometry>
+    </collision>
+  </link>
+</robot>

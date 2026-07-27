@@ -27,6 +27,10 @@ _TRAINING_PRESETS = (
     "train_c1",
     "train_d1",
     "train_d2",
+    "train_d3",
+    "train_d4",
+    "train_d5",
+    "train_d6",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -72,8 +76,12 @@ class LaunchTrainingArgs:
         "train_c1",
         "train_d1",
         "train_d2",
+        "train_d3",
+        "train_d4",
+        "train_d5",
+        "train_d6",
     ] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with immediate reset and calibration variation. train_b61_right = right-hand B61 whose reset variation is introduced through a linear curriculum. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b62_right = B61Right plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b63_right = B62Right plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_c1 = simple grasping task with only hand control (no arm). train_d1 = B6-style task where arm actions are operational-space EE deltas solved with IK. train_d2 = D1 with more conservative EE motion and a slightly larger arm action penalty."""
+    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with immediate reset and calibration variation. train_b61_right = right-hand B61 whose reset variation is introduced through a linear curriculum. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b62_right = B61Right plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b63_right = B62Right plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_c1 = simple grasping task with only hand control (no arm). train_d1 = B6-style task where arm actions are operational-space EE deltas solved with IK. train_d2 = D1 with more conservative EE motion and a slightly larger arm action penalty. train_d3 = D2 with mixed standard and curated lifted-grasp resets. train_d4 = D3 with a focused pool of six curated lifted grasps. train_d5 = D4 with four additional curated lifted grasps. train_d6 = D5-bis no-omnireset setup adapted to the fixed 20x9x9 cm dumbbell."""
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
@@ -208,6 +216,10 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_c1": "SimToolRealLSTMAsymmetricTrainC1",
         "train_d1": "SimToolRealLSTMAsymmetricTrainD1",
         "train_d2": "SimToolRealLSTMAsymmetricTrainD2",
+        "train_d3": "SimToolRealLSTMAsymmetricTrainD3",
+        "train_d4": "SimToolRealLSTMAsymmetricTrainD4",
+        "train_d5": "SimToolRealLSTMAsymmetricTrainD5",
+        "train_d6": "SimToolRealLSTMAsymmetricTrainD6",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -229,7 +241,15 @@ def launch_training(args: LaunchTrainingArgs) -> None:
     }:
         force_scale = 6.0 if force_scale is None else force_scale
         torque_scale = 0.5 if torque_scale is None else torque_scale
-    elif args.training_preset in {"train_b5", "train_d1", "train_d2"}:
+    elif args.training_preset in {
+        "train_b5",
+        "train_d1",
+        "train_d2",
+        "train_d3",
+        "train_d4",
+        "train_d5",
+        "train_d6",
+    }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
     elif args.training_preset == "train_10_real_mid_combined":
