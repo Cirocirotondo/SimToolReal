@@ -5,7 +5,7 @@
     "minimum_confidence": 0.5,
     "maximum_pose_age_s": 0.75,
     "countdown_s": 3,
-    "initial_pose_timeout_s": 10.0,
+    "initial_pose_timeout_s": 20.0,
     "auto_start_pose_estimator": true,
     "pose_estimator_python": "/home/duplo/git/robohand-robohand2/.venv/bin/python",
     "pose_estimator_project_root": "/home/duplo/git/robohand/src/tag-pose-estimation",
@@ -73,5 +73,21 @@
   },
   "logging": {
     "print_hz": 2.0
+  },
+  "demonstration": {
+    "enabled": true,
+    "output_directory": "../demonstrations",
+    "object_pose_address": "tcp://127.0.0.1:5558",
+    "object_board_id": "0",
+    "object_minimum_confidence": 0.0,
+    "maximum_object_pose_age_s": 0.5,
+    "hand_bridge_script": "../hand_ros_bridge.py",
+    "hand_bridge_host": "127.0.0.1",
+    "hand_bridge_port": 5564,
+    "maximum_hand_state_age_s": 0.5,
+    "ros_setup": "/opt/ros/humble/setup.bash",
+    "tesollo_workspace_setup": "/home/duplo/git/tesollo_ros2/install_dg5f/setup.bash",
+    "hand_state_topic": "/dg5f_right/joint_states",
+    "hand_command_topic": "/dg5f_right/rj_dg_pospid/reference"
   }
 }

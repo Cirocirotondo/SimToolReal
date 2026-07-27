@@ -12,6 +12,13 @@ from typing import Optional
 
 import numpy as np
 
+from demonstration_recorder import (
+    DemonstrationRecorder,
+    HandBridgeProcess,
+    HandStateStream,
+    matrix_to_pose_xyzw,
+    robot_state_pose_xyzw,
+)
 from ik_solver import Ur5DampedLeastSquaresIk
 from pose_stream import BoardPoseStream, WristPoseFilter
 from robot_io import CommandStreamer, RobotIo
@@ -302,6 +309,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Track translation while holding the initial robot orientation.",
     )
+    parser.add_argument(
+        "--no-record",
+        action="store_true",
+        help="Disable demonstration recording for this run.",
+    )
     return parser.parse_args()
 
 
@@ -315,6 +327,10 @@ def main() -> None:
     filtering = config["filter"]
     ik_config = config["ik"]
     safety = config["safety"]
+    demonstration_config = config.get("demonstration", {})
+    record_demonstration = bool(
+        demonstration_config.get("enabled", True)
+    ) and not args.no_record
 
     model_path = resolve_path(config_path, robot_config["model_path"])
     low_level_config_path = resolve_path(
@@ -381,8 +397,14 @@ def main() -> None:
     robot: Optional[RobotIo] = None
     streamer: Optional[CommandStreamer] = None
     pose_stream: Optional[BoardPoseStream] = None
+    object_pose_stream: Optional[BoardPoseStream] = None
+    hand_bridge: Optional[HandBridgeProcess] = None
+    hand_state_stream: Optional[HandStateStream] = None
+    recorder: Optional[DemonstrationRecorder] = None
     last_state: Optional[dict] = None
     q_command = home_q.copy()
+    termination_reason = "completed"
+    recording_error: Optional[str] = None
 
     try:
         if args.send_to_robot:
@@ -425,6 +447,45 @@ def main() -> None:
             board_id=str(tracking["wrist_board_id"]),
             minimum_confidence=tracking["minimum_confidence"],
         )
+        if record_demonstration:
+            hand_bridge_host = demonstration_config.get(
+                "hand_bridge_host", "127.0.0.1"
+            )
+            hand_bridge_port = int(
+                demonstration_config.get("hand_bridge_port", 5564)
+            )
+            hand_state_stream = HandStateStream(
+                hand_bridge_host,
+                hand_bridge_port,
+            )
+            hand_bridge = HandBridgeProcess(
+                script=resolve_path(
+                    config_path,
+                    demonstration_config["hand_bridge_script"],
+                ),
+                ros_setup=Path(
+                    demonstration_config["ros_setup"]
+                ).expanduser(),
+                workspace_setup=Path(
+                    demonstration_config["tesollo_workspace_setup"]
+                ).expanduser(),
+                host=hand_bridge_host,
+                port=hand_bridge_port,
+                state_topic=demonstration_config["hand_state_topic"],
+                command_topic=demonstration_config["hand_command_topic"],
+            )
+            hand_bridge.start()
+            object_pose_stream = BoardPoseStream(
+                address=demonstration_config["object_pose_address"],
+                board_id=str(
+                    demonstration_config.get("object_board_id", "0")
+                ),
+                minimum_confidence=float(
+                    demonstration_config.get(
+                        "object_minimum_confidence", 0.0
+                    )
+                ),
+            )
 
         initial_world_board = countdown_board_capture(
             pose_stream,
@@ -500,6 +561,38 @@ def main() -> None:
         maximum_workspace = np.asarray(
             safety["workspace_max_model_m"], dtype=np.float64
         )
+        if record_demonstration:
+            output_directory = resolve_path(
+                config_path,
+                demonstration_config["output_directory"],
+            )
+            recorder = DemonstrationRecorder(
+                output_directory=output_directory,
+                metadata={
+                    "created_by": str(Path(__file__).resolve()),
+                    "teleoperation_config": str(config_path),
+                    "teleoperation_config_snapshot": config,
+                    "control_hz": control_hz,
+                    "send_to_robot": bool(args.send_to_robot),
+                    "position_only": bool(args.position_only),
+                    "object_pose_address": demonstration_config[
+                        "object_pose_address"
+                    ],
+                    "object_board_id": str(
+                        demonstration_config.get("object_board_id", "0")
+                    ),
+                    "hand_state_topic": demonstration_config[
+                        "hand_state_topic"
+                    ],
+                    "hand_command_topic": demonstration_config[
+                        "hand_command_topic"
+                    ],
+                },
+            )
+            print(
+                "Recording demonstration to "
+                f"{output_directory} (Ctrl+C ends the episode)."
+            )
 
         while True:
             now = time.monotonic()
@@ -560,6 +653,78 @@ def main() -> None:
                 assert streamer is not None
                 streamer.set_target(q_command)
 
+            if recorder is not None:
+                if last_state is not None:
+                    arm_q = np.asarray(
+                        last_state.get("Q", [])[:6],
+                        dtype=np.float64,
+                    )
+                    arm_dq = np.asarray(
+                        last_state.get("Qd", [])[:6],
+                        dtype=np.float64,
+                    )
+                    if arm_q.shape != (6,):
+                        arm_q = np.full(6, np.nan)
+                    if arm_dq.shape != (6,):
+                        arm_dq = np.full(6, np.nan)
+                    ee_pose_measured = robot_state_pose_xyzw(
+                        last_state.get("pos", [])
+                    )
+                else:
+                    arm_q = q_command.copy()
+                    arm_dq = np.zeros(6, dtype=np.float64)
+                    ee_pose_measured = matrix_to_pose_xyzw(
+                        ik.forward(q_command)
+                    )
+
+                hand_message = (
+                    hand_state_stream.poll()
+                    if hand_state_stream is not None
+                    else None
+                )
+                hand_valid = bool(
+                    hand_state_stream is not None
+                    and hand_state_stream.received_at is not None
+                    and now - hand_state_stream.received_at
+                    <= float(
+                        demonstration_config.get(
+                            "maximum_hand_state_age_s", 0.5
+                        )
+                    )
+                )
+
+                cube_pose = np.full(7, np.nan, dtype=np.float64)
+                cube_confidence = 0.0
+                cube_valid = False
+                if object_pose_stream is not None:
+                    cube_sample = object_pose_stream.poll()
+                    if cube_sample is not None:
+                        cube_confidence = cube_sample.confidence
+                        cube_valid = (
+                            now - cube_sample.received_at
+                            <= float(
+                                demonstration_config.get(
+                                    "maximum_object_pose_age_s", 0.5
+                                )
+                            )
+                        )
+                        if cube_valid:
+                            cube_pose = matrix_to_pose_xyzw(
+                                cube_sample.transform
+                            )
+
+                recorder.append(
+                    arm_q=arm_q,
+                    arm_dq=arm_dq,
+                    ee_pose_measured=ee_pose_measured,
+                    ee_pose_commanded=matrix_to_pose_xyzw(target_model),
+                    hand_message=hand_message,
+                    hand_valid=hand_valid,
+                    cube_pose=cube_pose,
+                    cube_valid=cube_valid,
+                    cube_confidence=cube_confidence,
+                )
+
             if now - last_log >= 1.0 / config["logging"]["print_hz"]:
                 print(
                     f"target_xyz_model={target_model[:3, 3].round(4).tolist()} "
@@ -581,6 +746,11 @@ def main() -> None:
 
     except KeyboardInterrupt:
         print("Stopped by user.")
+        termination_reason = "user_stop"
+    except Exception as error:
+        termination_reason = f"error: {type(error).__name__}: {error}"
+        recording_error = str(error)
+        raise
     finally:
         if streamer is not None:
             streamer.stop()
@@ -590,8 +760,32 @@ def main() -> None:
             robot.close()
         if pose_stream is not None:
             pose_stream.close()
+        if object_pose_stream is not None:
+            object_pose_stream.close()
+        if hand_bridge is not None:
+            hand_bridge.stop()
+        if hand_state_stream is not None:
+            hand_state_stream.close()
         if pose_estimator is not None:
             pose_estimator.stop()
+        if recorder is not None:
+            success = False
+            if recording_error is None:
+                try:
+                    answer = input(
+                        "Was the demonstration successful? [y/N]: "
+                    ).strip().lower()
+                    success = answer in ("y", "yes")
+                except (EOFError, KeyboardInterrupt):
+                    success = False
+            saved = recorder.finalize(
+                success=success,
+                termination_reason=termination_reason,
+            )
+            if saved is not None:
+                data_path, metadata_path = saved
+                print(f"Demonstration saved to: {data_path}")
+                print(f"Metadata saved to: {metadata_path}")
 
 
 if __name__ == "__main__":

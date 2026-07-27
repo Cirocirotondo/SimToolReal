@@ -5,3 +5,4 @@
 # Runtime artifacts.
 __pycache__/
 *.pyc
+/demonstrations/

@@ -6,7 +6,7 @@ official Tesollo ROS 2 MANUS retargeting pipeline in
 
 - This pipeline tracks the position of the right MANUS glove, which mounts a three-AprilTag board (IDs 0,2 and 4).
 - The world frame is given by the 5x7 Charuco Board `/home/duplo/simone/SimToolReal/deployment/teleoperation/calibration/world_charuco_5x7_35mm_26mm/charuco_board.json`.
-- The board should be used with the x (red axes) pointing toward the glove user and the y (green axes) pointing toward left. Indeed, this is the mapping used in the configuration.
+- The board should be used with the x (red axes) pointing toward left of the glove user and the y (green axes) pointing toward the glove user. Indeed, this is the mapping used in the configuration.
 - The camera used in the scripts has ID 242322072500. I suggest to put the camera above the scene in order to avoid occlusions.
 
 
@@ -32,23 +32,13 @@ Capture a frame by pressing `c` and then `Enter`. The calibration will be saved 
 
 The active `overhead_camera.json` already points to this filename.
 
-
-
-## How the relative mapping works
-
-No MANUS-board-to-wrist or world-to-UR5-base calibration is used. At startup,
-the script detects the glove board and starts a three-second countdown. At the
-end of the countdown:
-
-- the current MANUS board pose is assigned to the UR5 home configuration
-  `[-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]`;
-- subsequent translations are applied one-to-one to the robot end effector;
-- MANUS forward is world `-X` and produces robot model `-X`;
-- MANUS left is world `+Y` and produces robot model `+Y`.
-
-The fixed camera extrinsic is still required because it defines these world
-axes. The absolute camera position and the initial MANUS position cancel from
-the relative motion.
+<details>
+<summary>Manus board-wrist calibration</summary>
+This calibration is needed to know what is the relative pose between the Aruco board on the wrist and the hand skeleton.
+Without it, the rotation of the hand is not correctly mapped to the robot.
+By default the script uses this one `/home/duplo/git/robohand-robohand2/src/tag-pose-estimation/config/calibration_gloves/right_wrist2board_calibration.json`.
+You can easily continue to use this, as long as the board on the wrist is not removed or changes position by a lot.
+</details>
 
 
 ## Physical arm
@@ -56,6 +46,10 @@ the relative motion.
 The normal workflow needs two terminals.
 
 In terminal 1, start the existing UR5 low-level arm controller.
+```bash
+cd /home/duplo/simone/SimToolReal/deployment/simtoolreal_real
+./impedance_controller pc_ur_new.json
+```
 
 In terminal 2:
 
@@ -74,20 +68,12 @@ Keep the glove at the desired neutral position during that countdown. When
 `GO` appears, relative motion begins. `Ctrl+C` stops and holds the arm. Finger
 control is independent and can remain in the official Tesollo ROS terminals.
 
-For an initial physical check, use:
-
-```bash
-../simtoolreal_real/.venv/bin/python arm_teleop.py \
-  --send-to-robot \
-  --position-only \
-  --max-runtime 10
-```
-
 If a pose estimator is already running, add
 `--no-start-pose-estimator`; otherwise it is started and stopped
 automatically.
 
-## Safety behavior
+<details>
+<summary>Offline self-test</summary>
 
 Physical commands are disabled by default. When enabled, the controller stops
 and holds the latest measured joint position if:
@@ -100,8 +86,10 @@ and holds the latest measured joint position if:
 - joint tracking error exceeds the configured limit.
 
 All thresholds are in `config/arm_teleop.json`.
+</details>
 
-## Offline self-test
+<details>
+<summary>Safety behavior</summary>
 
 ```bash
 cd /home/duplo/simone/SimToolReal/deployment/teleoperation
@@ -110,9 +98,10 @@ cd /home/duplo/simone/SimToolReal/deployment/teleoperation
 
 This tests the initial-pose mapping and a small MuJoCo IK displacement without
 opening sockets or commanding hardware.
+</details>
 
-
-## IK dry-run
+<details>
+<summary>IK dry-run</summary>
 
 No UR controller is required:
 
@@ -131,3 +120,4 @@ without `--position-only` to test relative orientation as well.
 
 The controller uses damped least-squares IK with MuJoCo Jacobians. No separate
 Mink/DAQP installation is required.
+</details>

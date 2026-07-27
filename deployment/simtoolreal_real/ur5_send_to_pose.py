@@ -34,7 +34,7 @@ USE_REAL_ROBOT = True
 
 # Joint order:
 # shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3
-HOME_DEG = np.array([-90.0, -68.755, 103.132, -34.377, 90.012, -90.012])
+HOME_DEG = np.array([-90.0, -68.755, 103.132, -34.377, 90.012, -150])
 
 
 
