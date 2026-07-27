@@ -1,0 +1,30 @@
+# Train D1: first operational-space arm-control experiment.
+# The policy still emits 26 actions, but the first 6 are interpreted as
+# end-effector deltas [dx, dy, dz, wx, wy, wz] and mapped to arm joint targets
+# with damped least-squares IK. Hand actions remain unchanged.
+defaults:
+  - SimToolRealTrainB6
+  - _self_
+
+env:
+  handSide: right
+  useOperationalSpaceArmControl: True
+  operationalSpaceArmTranslationSpeedScale: 0.25
+  operationalSpaceArmRotationSpeedScale: 1.0
+  operationalSpaceIkDamping: 0.05
+  operationalSpaceMaxJointDelta: 0.05
+  operationalSpaceIkResidualPenaltyScale: 0.0
+  armMovingAverage: 1.0
+
+  # Keep this first test close to B6: no reset/contact/command DR.
+  resetDrCurriculumSteps: 0
+  contactDrCurriculumSteps: 0
+  commandDrCurriculumSteps: 0
+  useActionDelay: False
+  actionDelayMax: 1
+  useObsDelay: False
+  obsDelayMax: 1
+  useObjectStateDelayNoise: False
+  jointVelocityObsNoiseStd: 0.0
+  forceScale: 0.0
+  torqueScale: 0.0

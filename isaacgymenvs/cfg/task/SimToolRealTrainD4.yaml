@@ -1,0 +1,20 @@
+# Train D4: focused Reference State Initialization experiment.
+# Half of episode resets use the standard D3/D2 start. The other half sample
+# uniformly from this focused pool of six curated lifted grasps.
+defaults:
+  - SimToolRealTrainD3
+  - _self_
+
+env:
+  kukaActionsPenaltyScale: 0.07
+  armMovingAverage: 1.0
+
+
+  referenceStateInitProbability: 0.42
+  referenceStateFiles:
+    - deployment/mujoco_ur5e_delto/grasp_candidate_5_3.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_1.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_2.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_3.json
+    - deployment/mujoco_ur5e_delto/grasp_candidate_6_4.json

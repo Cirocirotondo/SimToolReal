@@ -1,0 +1,7 @@
+defaults:
+  - SimToolRealLSTMAsymmetricTrainD1PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:SimToolRealLSTMAsymmetricTrainD2PPO,${....experiment}}

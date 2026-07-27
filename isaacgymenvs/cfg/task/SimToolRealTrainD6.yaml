@@ -1,0 +1,41 @@
+# Train D6: D5-bis setup adapted to the fixed 20x9x9 cm dumbbell.
+# Cube-only RSI states are disabled, matching the no-omnireset D5-bis run.
+defaults:
+  - SimToolRealTrainD5
+  - _self_
+
+env:
+  objectName: dumbbell_20x9x9cm
+
+  # [shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3]
+  defaultArmDofPos: [-1.5708, -1.1, 1.95, -1.0, 1.571, -1.571]
+
+  # Bounding-box dimensions used by object observations and reward keypoints.
+  fixedSizeKeypointReward: True
+  fixedSize: [0.09, 0.20, 0.09]
+  keypointScale: 1.0
+  objectScaleNoiseMultiplierRange: [1.0, 1.0]
+
+  # Place the dumbbell flat on the low table. The 90-degree yaw aligns its
+  # 20 cm axis with world X, as in the MuJoCo grasp-designer references.
+  useFixedInitObjectPose: True
+  objectStartPose: [0.12, -0.12, 0.05, 0.0, 0.0, 0.70710678, 0.70710678]
+  randomizeObjectRotation: False
+  resetPositionNoiseX: 0.0
+  resetPositionNoiseY: 0.0
+  resetPositionNoiseZ: 0.0
+
+  # [shoulder_pan, shoulder_lift, elbow, wrist_1, wrist_2, wrist_3]
+  # Keep shoulder_lift >= -1.1 and wrist_1 <= -1.0 at reset.
+  resetDofPosDirectionArm: [0, 1, 0, -1, 0, 0]
+
+  # Uniform 400 kg/m^3 density over the 3x14x3 cm handle and both
+  # 9x3x9 cm heads. Inertia is about the dumbbell's center of mass.
+  objectMassOverride: 0.2448
+  objectInertiaOverride: [0.00163644, 0.00027, 0.00163644]
+
+  # Existing D3-D5 references contain a 5 cm cube and are incompatible.
+  useReferenceStateInitialization: False
+  referenceStateInitProbability: 0.0
+  referenceStateObjectSize: [0.09, 0.20, 0.09]
+  referenceStateFiles: []

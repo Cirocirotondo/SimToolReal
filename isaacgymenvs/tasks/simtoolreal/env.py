@@ -114,6 +114,7 @@ class SimToolReal(VecTask):
         self.contact_dr_curriculum_step: int = 0
         self.reset_dr_curriculum_step: int = 0
         self.object_state_noise_curriculum_step: int = 0
+        self.command_dr_curriculum_step: int = 0
 
         self.hand_side = self._resolve_hand_side()
         self.robot_asset_file: str = self._resolve_robot_asset_file()
@@ -207,6 +208,26 @@ class SimToolReal(VecTask):
         self.reset_dof_pos_sampling_fingers = self.cfg["env"].get(
             "resetDofPosSamplingFingers", default_reset_dof_pos_sampling
         )
+        reset_dof_pos_direction_arm = self.cfg["env"].get(
+            "resetDofPosDirectionArm"
+        )
+        if reset_dof_pos_direction_arm is None:
+            self.reset_dof_pos_direction_arm = None
+        else:
+            if len(reset_dof_pos_direction_arm) != self.num_arm_dofs:
+                raise ValueError(
+                    "resetDofPosDirectionArm must have one value per arm DOF"
+                )
+            if any(
+                value not in (-1, 0, 1)
+                for value in reset_dof_pos_direction_arm
+            ):
+                raise ValueError(
+                    "resetDofPosDirectionArm values must be -1, 0, or 1"
+                )
+            self.reset_dof_pos_direction_arm = tuple(
+                int(value) for value in reset_dof_pos_direction_arm
+            )
         valid_reset_dof_pos_sampling = {
             "gaussian_closest_limit",
             "split_gaussian",
@@ -277,6 +298,24 @@ class SimToolReal(VecTask):
         self.use_relative_control = self.cfg["env"]["useRelativeControl"]
         self.use_relative_hand_control = self.cfg["env"].get(
             "useRelativeHandControl", False
+        )
+        self.use_operational_space_arm_control = self.cfg["env"].get(
+            "useOperationalSpaceArmControl", False
+        )
+        self.operational_space_arm_translation_speed_scale = float(
+            self.cfg["env"].get("operationalSpaceArmTranslationSpeedScale", 0.25)
+        )
+        self.operational_space_arm_rotation_speed_scale = float(
+            self.cfg["env"].get("operationalSpaceArmRotationSpeedScale", 1.0)
+        )
+        self.operational_space_ik_damping = float(
+            self.cfg["env"].get("operationalSpaceIkDamping", 0.05)
+        )
+        self.operational_space_max_joint_delta = float(
+            self.cfg["env"].get("operationalSpaceMaxJointDelta", 0.05)
+        )
+        self.operational_space_ik_residual_penalty_scale = float(
+            self.cfg["env"].get("operationalSpaceIkResidualPenaltyScale", 0.0)
         )
 
         self.debug_viz = self.cfg["env"]["enableDebugVis"]
@@ -530,6 +569,25 @@ class SimToolReal(VecTask):
         actor_root_state_tensor = self.gym.acquire_actor_root_state_tensor(self.sim)
         dof_state_tensor = self.gym.acquire_dof_state_tensor(self.sim)
         rigid_body_tensor = self.gym.acquire_rigid_body_state_tensor(self.sim)
+        if self.use_operational_space_arm_control:
+            jacobian_tensor = self.gym.acquire_jacobian_tensor(self.sim, "robot")
+            self.robot_jacobian = gymtorch.wrap_tensor(jacobian_tensor)
+            self.gym.refresh_jacobian_tensors(self.sim)
+            if self.robot_jacobian.shape[1] == self.num_hand_arm_bodies:
+                self.arm_ee_jacobian_index = int(self.palm_handle)
+            elif self.robot_jacobian.shape[1] == self.num_hand_arm_bodies - 1:
+                self.arm_ee_jacobian_index = int(self.palm_handle) - 1
+            else:
+                raise ValueError(
+                    "Unexpected robot Jacobian shape "
+                    f"{tuple(self.robot_jacobian.shape)} for "
+                    f"{self.num_hand_arm_bodies} robot rigid bodies"
+                )
+            if not (0 <= self.arm_ee_jacobian_index < self.robot_jacobian.shape[1]):
+                raise ValueError(
+                    f"Invalid EE Jacobian index {self.arm_ee_jacobian_index} "
+                    f"for Jacobian shape {tuple(self.robot_jacobian.shape)}"
+                )
 
         if self.with_fingertip_force_sensors or self.with_table_force_sensor:
             sensor_tensor = self.gym.acquire_force_sensor_tensor(self.sim)
@@ -625,6 +683,21 @@ class SimToolReal(VecTask):
             device=self.device,
         )
         self.action_deltas = torch.zeros_like(self.prev_penalized_actions)
+        self.operational_space_requested_twist = torch.zeros(
+            (self.num_envs, 6), dtype=torch.float, device=self.device
+        )
+        self.operational_space_achieved_twist = torch.zeros_like(
+            self.operational_space_requested_twist
+        )
+        self.operational_space_ik_residual_norm = torch.zeros(
+            self.num_envs, dtype=torch.float, device=self.device
+        )
+        self.operational_space_joint_delta_norm = torch.zeros_like(
+            self.operational_space_ik_residual_norm
+        )
+        self.operational_space_joint_delta_clipped = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
 
         self.global_indices = torch.arange(
             self.num_envs * 3, dtype=torch.int32, device=self.device
@@ -784,6 +857,7 @@ class SimToolReal(VecTask):
             "hand_actions_penalty",
             "arm_action_delta_penalty",
             "hand_action_delta_penalty",
+            "operational_space_ik_penalty",
             "object_lin_vel_penalty",
             "object_ang_vel_penalty",
             "fingertip_spread_penalty",
@@ -905,6 +979,7 @@ class SimToolReal(VecTask):
         self._init_tyler_curriculum()
         self._init_disturbance_curriculum()
         self._init_arm_reset_curriculum()
+        self._init_reference_state_initialization()
 
         self._init_obs_action_queue()
 
@@ -1324,7 +1399,7 @@ class SimToolReal(VecTask):
             object_asset_files = [obj.urdf_path]
             object_asset_scales = [obj.scale]
             need_vhacds = [obj.need_vhacd]
-            object_asset_per_face_colors = [False]
+            object_asset_per_face_colors = [obj.per_face_colors]
 
         elif object_name == "handle_head_primitives":
             (
@@ -1745,6 +1820,7 @@ class SimToolReal(VecTask):
             contact_dr_curriculum_step=self.contact_dr_curriculum_step,
             reset_dr_curriculum_step=self.reset_dr_curriculum_step,
             object_state_noise_curriculum_step=self.object_state_noise_curriculum_step,
+            command_dr_curriculum_step=self.command_dr_curriculum_step,
         )
 
     def set_env_state(self, env_state):
@@ -2088,6 +2164,7 @@ class SimToolReal(VecTask):
         print(f"Robot rigid bodies: {robot_rigid_body_names}")
 
         robot_dof_props = self.gym.get_asset_dof_properties(robot_asset)
+        self.robot_dof_names = list(self.gym.get_asset_dof_names(robot_asset))
 
         self.arm_hand_dof_lower_limits = []
         self.arm_hand_dof_upper_limits = []
@@ -2739,6 +2816,12 @@ class SimToolReal(VecTask):
             * multiplier,
         )
 
+    def _operational_space_ik_penalty(self) -> Tensor:
+        return (
+            -self.operational_space_ik_residual_penalty_scale
+            * self.operational_space_ik_residual_norm
+        )
+
     def _compute_resets(self, is_success):
         ones = torch.ones_like(self.reset_buf)
         zeros = torch.zeros_like(self.reset_buf)
@@ -2994,6 +3077,7 @@ class SimToolReal(VecTask):
         arm_action_delta_penalty, hand_action_delta_penalty = (
             self._action_delta_penalties(lifted_object)
         )
+        operational_space_ik_penalty = self._operational_space_ik_penalty()
 
         fingertip_spread_penalty, fingertip_multi_contact_bonus, fingertip_thumb_bonus = (
             self._fingertip_grasp_shaping(lifted_object)
@@ -3015,6 +3099,7 @@ class SimToolReal(VecTask):
             + hand_actions_penalty
             + arm_action_delta_penalty
             + hand_action_delta_penalty
+            + operational_space_ik_penalty
             + bonus_rew
             + object_lin_vel_penalty
             + object_ang_vel_penalty
@@ -3057,6 +3142,7 @@ class SimToolReal(VecTask):
             (hand_actions_penalty, "hand_actions_penalty"),
             (arm_action_delta_penalty, "arm_action_delta_penalty"),
             (hand_action_delta_penalty, "hand_action_delta_penalty"),
+            (operational_space_ik_penalty, "operational_space_ik_penalty"),
             (bonus_rew, "bonus_rew"),
             (object_lin_vel_penalty, "object_lin_vel_penalty"),
             (object_ang_vel_penalty, "object_ang_vel_penalty"),
@@ -3122,6 +3208,21 @@ class SimToolReal(VecTask):
             "hand_moving_average": float(self.hand_moving_average),
             "dof_speed_scale": float(self.hand_dof_speed_scale),
             "use_relative_hand_control": bool(self.use_relative_hand_control),
+            "use_operational_space_arm_control": bool(
+                self.use_operational_space_arm_control
+            ),
+            "operational_space_ik_residual_norm": float(
+                self.operational_space_ik_residual_norm.mean()
+            ),
+            "operational_space_joint_delta_norm": float(
+                self.operational_space_joint_delta_norm.mean()
+            ),
+            "operational_space_joint_delta_clipped_ratio": float(
+                self.operational_space_joint_delta_clipped.float().mean()
+            ),
+            "operational_space_ik_residual_penalty_scale": float(
+                self.operational_space_ik_residual_penalty_scale
+            ),
             "hand_dof_speed_scale": float(self.relative_hand_dof_speed_scale),
             "reset_dof_pos_noise_arm": float(self.applied_reset_dof_pos_noise_arm),
             "reset_dof_pos_noise_fingers": float(
@@ -3144,6 +3245,7 @@ class SimToolReal(VecTask):
             "object_state_rotation_noise_degrees": float(
                 self.applied_object_state_rotation_noise_degrees
             ),
+            "command_dr_curriculum_scale": self._command_dr_curriculum_scale(),
         }
 
         return self.rew_buf, is_success
@@ -3252,6 +3354,8 @@ class SimToolReal(VecTask):
         self.gym.refresh_dof_state_tensor(self.sim)
         self.gym.refresh_actor_root_state_tensor(self.sim)
         self.gym.refresh_rigid_body_state_tensor(self.sim)
+        if self.use_operational_space_arm_control:
+            self.gym.refresh_jacobian_tensors(self.sim)
 
         if self.with_fingertip_force_sensors or self.with_table_force_sensor:
             self.gym.refresh_force_sensor_tensor(self.sim)
@@ -4048,6 +4152,219 @@ class SimToolReal(VecTask):
 
         self.set_dof_state_object_indices = []
 
+    def _init_reference_state_initialization(self) -> None:
+        env_cfg = self.cfg["env"]
+        self.use_reference_state_initialization = bool(
+            env_cfg.get("useReferenceStateInitialization", False)
+        )
+        self.reference_state_init_probability = float(
+            env_cfg.get("referenceStateInitProbability", 0.0)
+        )
+        if not 0.0 <= self.reference_state_init_probability <= 1.0:
+            raise ValueError("referenceStateInitProbability must be in [0, 1]")
+
+        self.reference_state_reset_mask = torch.zeros(
+            self.num_envs, dtype=torch.bool, device=self.device
+        )
+        self.reference_state_index = torch.full(
+            (self.num_envs,), -1, dtype=torch.long, device=self.device
+        )
+        self.reference_state_reset_count = 0
+        self.regular_state_reset_count = 0
+        self.reference_state_names = []
+        self.reference_dof_pos = torch.empty(
+            (0, self.num_hand_arm_dofs), dtype=torch.float, device=self.device
+        )
+        self.reference_object_root_states = torch.empty(
+            (0, 13), dtype=torch.float, device=self.device
+        )
+
+        if not self.use_reference_state_initialization:
+            return
+
+        reference_files = list(env_cfg.get("referenceStateFiles", []))
+        if not reference_files:
+            raise ValueError(
+                "useReferenceStateInitialization=True requires referenceStateFiles"
+            )
+
+        position_offset = np.asarray(
+            env_cfg.get("referenceStatePositionOffset", [0.0, 0.0, 0.0]),
+            dtype=np.float32,
+        )
+        if position_offset.shape != (3,):
+            raise ValueError("referenceStatePositionOffset must contain 3 values")
+
+        expected_object_size = np.asarray(
+            env_cfg.get("referenceStateObjectSize", [0.05, 0.05, 0.05]),
+            dtype=np.float32,
+        )
+        repo_root = Path(__file__).resolve().parents[3]
+        dof_positions = []
+        object_root_states = []
+
+        for configured_path in reference_files:
+            path = Path(str(configured_path))
+            if not path.is_absolute():
+                path = repo_root / path
+            if not path.exists():
+                raise FileNotFoundError(f"RSI reference state not found: {path}")
+
+            with path.open("r", encoding="utf-8") as file:
+                payload = json.load(file)
+
+            if int(payload.get("format_version", 1)) < 2:
+                raise ValueError(
+                    f"RSI reference {path} uses the legacy grasp format; save it "
+                    "again with grasp_designer.py"
+                )
+            if payload.get("hand_side") != self.hand_side:
+                raise ValueError(
+                    f"RSI reference {path} is for hand_side={payload.get('hand_side')}, "
+                    f"but the task uses {self.hand_side}"
+                )
+            if payload.get("object_name") != "cube":
+                raise ValueError(f"RSI reference {path} is not a cube grasp")
+
+            object_size = np.asarray(payload["object_size_m"], dtype=np.float32)
+            if object_size.shape != (3,) or not np.allclose(
+                object_size, expected_object_size, atol=1e-4
+            ):
+                raise ValueError(
+                    f"RSI reference {path} has object size {object_size.tolist()}, "
+                    f"expected {expected_object_size.tolist()}"
+                )
+
+            joint_names = list(payload["joint_names"])
+            if joint_names != self.robot_dof_names:
+                raise ValueError(
+                    f"RSI joint ordering mismatch in {path}. Expected "
+                    f"{self.robot_dof_names}, got {joint_names}"
+                )
+            joint_pos = np.asarray(payload["joint_pos"], dtype=np.float32)
+            if joint_pos.shape != (self.num_hand_arm_dofs,):
+                raise ValueError(
+                    f"RSI joint_pos in {path} has shape {joint_pos.shape}, expected "
+                    f"{(self.num_hand_arm_dofs,)}"
+                )
+
+            object_pose = payload["object_pose"]
+            object_pos = np.asarray(object_pose["pos"], dtype=np.float32)
+            quat_wxyz = np.asarray(object_pose["quat_wxyz"], dtype=np.float32)
+            if object_pos.shape != (3,) or quat_wxyz.shape != (4,):
+                raise ValueError(f"Invalid RSI object pose in {path}")
+            object_pos = object_pos + position_offset
+            quat_norm = np.linalg.norm(quat_wxyz)
+            if quat_norm <= 0.0:
+                raise ValueError(f"Invalid zero quaternion in RSI reference {path}")
+            quat_wxyz = quat_wxyz / quat_norm
+            quat_xyzw = quat_wxyz[[1, 2, 3, 0]]
+
+            dof_positions.append(joint_pos)
+            object_root_states.append(
+                np.concatenate(
+                    [object_pos, quat_xyzw, np.zeros(6, dtype=np.float32)]
+                )
+            )
+            self.reference_state_names.append(
+                str(payload.get("grasp_name", path.stem))
+            )
+
+        self.reference_dof_pos = torch.tensor(
+            np.stack(dof_positions), dtype=torch.float, device=self.device
+        )
+        self.reference_object_root_states = torch.tensor(
+            np.stack(object_root_states), dtype=torch.float, device=self.device
+        )
+
+        joint_limit_tolerance = float(
+            env_cfg.get("referenceStateJointLimitTolerance", 0.002)
+        )
+        if joint_limit_tolerance < 0.0:
+            raise ValueError("referenceStateJointLimitTolerance must be non-negative")
+        lower_limits = self.arm_hand_dof_lower_limits.unsqueeze(0)
+        upper_limits = self.arm_hand_dof_upper_limits.unsqueeze(0)
+        below_lower = lower_limits - self.reference_dof_pos
+        above_upper = self.reference_dof_pos - upper_limits
+        invalid = (below_lower > joint_limit_tolerance) | (
+            above_upper > joint_limit_tolerance
+        )
+        if invalid.any():
+            state_index, dof_index = invalid.nonzero(as_tuple=False)[0].tolist()
+            raise ValueError(
+                f"RSI state {self.reference_state_names[state_index]!r} has "
+                f"{self.robot_dof_names[dof_index]}="
+                f"{self.reference_dof_pos[state_index, dof_index].item()} outside "
+                f"[{self.arm_hand_dof_lower_limits[dof_index].item()}, "
+                f"{self.arm_hand_dof_upper_limits[dof_index].item()}]"
+            )
+
+        clamped = (below_lower > 0.0) | (above_upper > 0.0)
+        if clamped.any():
+            print(
+                f"Clamping {int(clamped.sum().item())} RSI joint values to URDF limits"
+            )
+            self.reference_dof_pos = torch.maximum(
+                torch.minimum(self.reference_dof_pos, upper_limits), lower_limits
+            )
+
+        print(
+            f"Loaded {len(self.reference_state_names)} RSI states with reset "
+            f"probability {self.reference_state_init_probability}: "
+            f"{self.reference_state_names}"
+        )
+
+    def _apply_reference_state_initialization(self, env_ids: Tensor) -> None:
+        self.reference_state_reset_mask[env_ids] = False
+        self.reference_state_index[env_ids] = -1
+        if not self.use_reference_state_initialization:
+            return
+
+        use_reference = (
+            torch.rand(len(env_ids), device=self.device)
+            < self.reference_state_init_probability
+        )
+        reference_env_ids = env_ids[use_reference]
+        num_reference = len(reference_env_ids)
+        self.reference_state_reset_count += num_reference
+        self.regular_state_reset_count += len(env_ids) - num_reference
+
+        scalars = self.extras.setdefault("scalars", {})
+        scalars["rsi/reference_reset_fraction"] = float(
+            use_reference.float().mean().item()
+        )
+        scalars["rsi/reference_reset_count_total"] = int(
+            self.reference_state_reset_count
+        )
+        if num_reference == 0:
+            return
+
+        state_indices = torch.randint(
+            len(self.reference_state_names),
+            (num_reference,),
+            device=self.device,
+        )
+        robot_pos = self.reference_dof_pos[state_indices]
+        object_states = self.reference_object_root_states[state_indices]
+
+        self.arm_hand_dof_pos[reference_env_ids, :] = robot_pos
+        self.arm_hand_dof_vel[reference_env_ids, :] = 0.0
+        self.prev_targets[
+            reference_env_ids, : self.num_hand_arm_dofs
+        ] = robot_pos
+        self.cur_targets[
+            reference_env_ids, : self.num_hand_arm_dofs
+        ] = robot_pos
+        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
+            self.blue_robot_arm_hand_dof_pos[reference_env_ids, :] = robot_pos
+            self.blue_robot_arm_hand_dof_vel[reference_env_ids, :] = 0.0
+
+        object_indices = self.object_indices[reference_env_ids]
+        self.root_state_tensor[object_indices, :] = object_states
+        self.lifted_object[reference_env_ids] = True
+        self.reference_state_reset_mask[reference_env_ids] = True
+        self.reference_state_index[reference_env_ids] = state_indices
+
     def sample_reset_robot_base_pos(self, num_resets: int):
         base_pos = self.hand_arm_default_dof_pos.unsqueeze(0).repeat(num_resets, 1)
         randomize_arm = torch.ones(
@@ -4237,6 +4554,13 @@ class SimToolReal(VecTask):
 
             arm_slice = slice(0, self.num_arm_dofs)
             finger_slice = slice(self.num_arm_dofs, self.num_hand_arm_dofs)
+            arm_direction_constraints = None
+            if self.reset_dof_pos_direction_arm is not None:
+                arm_direction_constraints = torch.tensor(
+                    self.reset_dof_pos_direction_arm,
+                    dtype=reset_base_pos.dtype,
+                    device=self.device,
+                ).unsqueeze(0)
             rand_delta = torch.zeros_like(reset_base_pos)
             rand_delta[:, arm_slice] = sample_reset_dof_position_delta(
                 base_pos=reset_base_pos[:, arm_slice],
@@ -4244,6 +4568,7 @@ class SimToolReal(VecTask):
                 upper_limits=self.arm_hand_dof_upper_limits[arm_slice],
                 noise_coeff=noise_coeff[:, arm_slice],
                 sampling=self.reset_dof_pos_sampling_arm,
+                direction_constraints=arm_direction_constraints,
             )
             rand_delta[:, finger_slice] = sample_reset_dof_position_delta(
                 base_pos=reset_base_pos[:, finger_slice],
@@ -4318,6 +4643,9 @@ class SimToolReal(VecTask):
 
                 self.initial_state_idx += len(env_ids)
 
+        if episode_reset and tensor_reset and reset_buf_idxs is None:
+            self._apply_reference_state_initialization(env_ids)
+
         self.gym.set_dof_position_target_tensor_indexed(
             self.sim,
             gymtorch.unwrap_tensor(self.prev_targets),
@@ -4380,13 +4708,21 @@ class SimToolReal(VecTask):
         # Modify actions to be delayed
         use_action_delay = self.cfg["env"]["useActionDelay"]
         if use_action_delay:
+            delay_scale = self._command_dr_curriculum_scale()
             # Sample a delay index from the queue
             delay_index = torch.randint(
                 0, self.action_queue.shape[1], (self.num_envs,), device=self.device
             )
-            actions = self.action_queue[
+            delayed_actions = self.action_queue[
                 torch.arange(self.num_envs), delay_index
             ].clone()
+            if delay_scale >= 1.0:
+                actions = delayed_actions
+            elif delay_scale > 0.0:
+                use_delayed = (
+                    torch.rand(self.num_envs, device=self.device) < delay_scale
+                ).unsqueeze(-1)
+                actions = torch.where(use_delayed, delayed_actions, actions)
 
         self.actions = actions.clone()
 
@@ -4413,7 +4749,13 @@ class SimToolReal(VecTask):
             self.action_deltas[reset_env_ids] = 0.0
         self.prev_penalized_actions[:] = control_actions
 
-        if self.use_relative_control:
+        if self.use_operational_space_arm_control:
+            self.cur_targets[:, : self.num_arm_dofs] = (
+                self._operational_space_arm_targets(
+                    actions[:, : self.num_arm_dofs]
+                )
+            )
+        elif self.use_relative_control:
             # arm relative to current position
             targets = (
                 self.arm_hand_dof_pos[:, : self.num_arm_dofs]
@@ -4754,6 +5096,67 @@ class SimToolReal(VecTask):
         RECORD_DATA = self.cfg["env"]["record_data"]
         if RECORD_DATA:
             self._record_data()
+
+    def _operational_space_arm_targets(self, arm_actions: Tensor) -> Tensor:
+        if arm_actions.shape[-1] != 6:
+            raise ValueError(
+                "Operational-space arm control requires 6 arm actions "
+                f"[dx, dy, dz, wx, wy, wz], got shape {tuple(arm_actions.shape)}"
+            )
+
+        desired_twist = torch.empty_like(arm_actions)
+        desired_twist[:, 0:3] = (
+            arm_actions[:, 0:3]
+            * self.operational_space_arm_translation_speed_scale
+            * self.dt
+        )
+        desired_twist[:, 3:6] = (
+            arm_actions[:, 3:6]
+            * self.operational_space_arm_rotation_speed_scale
+            * self.dt
+        )
+
+        j_eef = self.robot_jacobian[
+            :, self.arm_ee_jacobian_index, :, : self.num_arm_dofs
+        ]
+        j_t = torch.transpose(j_eef, 1, 2)
+        damping = self.operational_space_ik_damping
+        identity = torch.eye(6, dtype=torch.float, device=self.device).unsqueeze(0)
+        lhs = torch.bmm(j_eef, j_t) + (damping * damping) * identity
+        q_delta = torch.bmm(
+            j_t, torch.linalg.solve(lhs, desired_twist.unsqueeze(-1))
+        ).squeeze(-1)
+
+        max_delta = self.operational_space_max_joint_delta
+        unclipped_q_delta = q_delta
+        q_delta = torch.clamp(q_delta, -max_delta, max_delta)
+
+        unclamped_targets = self.prev_targets[:, : self.num_arm_dofs] + q_delta
+        targets = tensor_clamp(
+            unclamped_targets,
+            self.arm_hand_dof_lower_limits[: self.num_arm_dofs],
+            self.arm_hand_dof_upper_limits[: self.num_arm_dofs],
+        )
+        applied_q_delta = targets - self.prev_targets[:, : self.num_arm_dofs]
+
+        achieved_twist = torch.bmm(j_eef, applied_q_delta.unsqueeze(-1)).squeeze(-1)
+        residual = desired_twist - achieved_twist
+
+        self.operational_space_requested_twist[:] = desired_twist
+        self.operational_space_achieved_twist[:] = achieved_twist
+        self.operational_space_ik_residual_norm[:] = torch.norm(residual, dim=-1)
+        self.operational_space_joint_delta_norm[:] = torch.norm(
+            applied_q_delta, dim=-1
+        )
+        delta_clipped = torch.any(torch.abs(unclipped_q_delta) > max_delta, dim=-1)
+        limit_clipped = torch.any(
+            torch.abs(applied_q_delta - q_delta) > 1e-6, dim=-1
+        )
+        self.operational_space_joint_delta_clipped[:] = (
+            delta_clipped | limit_clipped
+        )
+
+        return targets
 
     def _use_live_plotter(self):
         if not hasattr(self, "live_plotter"):
@@ -5366,15 +5769,27 @@ class SimToolReal(VecTask):
             )
         )
 
+    def _command_dr_curriculum_scale(self) -> float:
+        schedule_steps = int(
+            self.cfg["env"].get("commandDrCurriculumSteps", 0)
+        )
+        if schedule_steps <= 0:
+            return 1.0
+        return min(self.command_dr_curriculum_step / schedule_steps, 1.0)
+
     def get_domain_randomization_step(self) -> int:
         if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
             return self.contact_dr_curriculum_step
+        if self.cfg["env"].get("commandDrCurriculumSteps", 0) > 0:
+            return self.command_dr_curriculum_step
         return self.gym.get_frame_count(self.sim)
 
     def post_physics_step(self):
         self.frame_since_restart += 1
         if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
             self.contact_dr_curriculum_step += 1
+        if self.cfg["env"].get("commandDrCurriculumSteps", 0) > 0:
+            self.command_dr_curriculum_step += 1
         if self._reset_dr_curriculum_enabled():
             self.reset_dr_curriculum_step += 1
         if self._object_state_noise_curriculum_enabled():

@@ -1,0 +1,93 @@
+# Train B63Right: right-hand command-uncertainty curriculum after B62Right.
+# Keeps B62Right reset/contact DR at full strength, then linearly introduces
+# the B63 action delay/noise.
+defaults:
+  - SimToolRealTrainB62Right
+  - _self_
+
+env:
+  resetDrCurriculumSteps: 0
+  contactDrCurriculumSteps: 0
+  # At 12288 envs this is about 5G transitions, or 25.4k training epochs
+  # with horizon_length=16.
+  commandDrCurriculumSteps: 406901
+  useActionDelay: True
+  actionDelayMax: 2
+
+task:
+  randomize: True
+  randomization_params:
+    frequency: 720
+
+    observations:
+      range: [0.0, 0.0]
+      range_correlated: [0.0, 0.0]
+      operation: additive
+      distribution: gaussian
+
+    # Add zero-mean independent Gaussian noise to policy actions.
+    # In VecTask this second range value is used as the standard deviation.
+    actions:
+      range: [0.0, 0.003]
+      range_correlated: [0.0, 0.0]
+      operation: additive
+      distribution: gaussian
+      schedule: linear
+      schedule_steps: ${task.env.commandDrCurriculumSteps}
+
+    sim_params:
+      gravity:
+        range: [0.0, 0.1]
+        operation: additive
+        distribution: gaussian
+        schedule: null
+        schedule_steps: null
+
+    actor_params:
+      robot:
+        color: null
+        dof_properties: null
+        rigid_body_properties: null
+        rigid_shape_properties: null
+
+      object:
+        rigid_body_properties:
+          mass:
+            range: [0.9, 1.1]
+            operation: scaling
+            distribution: uniform
+            schedule: null
+            schedule_steps: null
+            setup_only: False
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.7, 1.4]
+            operation: scaling
+            distribution: uniform
+            schedule: null
+            schedule_steps: null
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.03]
+            operation: additive
+            distribution: uniform
+            schedule: null
+            schedule_steps: null
+
+      table_object:
+        rigid_shape_properties:
+          friction:
+            num_buckets: 100
+            range: [0.8, 1.3]
+            operation: scaling
+            distribution: uniform
+            schedule: null
+            schedule_steps: null
+          restitution:
+            num_buckets: 20
+            range: [0.0, 0.03]
+            operation: additive
+            distribution: uniform
+            schedule: null
+            schedule_steps: null

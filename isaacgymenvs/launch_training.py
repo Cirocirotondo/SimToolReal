@@ -22,12 +22,19 @@ _TRAINING_PRESETS = (
     "train_b62_linear",
     "train_b62_right",
     "train_b63",
+    "train_b63_right",
     "train_b7",
     "train_b8",
     "train_b81",
     "train_b82",
     "train_b83",
     "train_c1",
+    "train_d1",
+    "train_d2",
+    "train_d3",
+    "train_d4",
+    "train_d5",
+    "train_d6",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -68,14 +75,29 @@ class LaunchTrainingArgs:
         "train_b62_linear",
         "train_b62_right",
         "train_b63",
+        "train_b63_right",
         "train_b7",
         "train_b8",
         "train_b81",
         "train_b82",
         "train_b83",
         "train_c1",
+        "train_d1",
+        "train_d2",
+        "train_d3",
+        "train_d4",
+        "train_d5",
+        "train_d6",
     ] = "default"
-    """default = prior disturbed setup. clean_dr = reduced disturbances. real_dr = heavier sim-to-real DR. train_5_low_table = train-5-like settings on the low-table scene. train_11_simple = train_5_low_table without action delay. train_b1_simple = simple low-table setup with relative hand actions. train_b5 = B1-derived setup with precision curriculum and no lifted-grasp shaping. train_b6 = B5-style setup with mild cube disturbances and looser target precision. train_b61 = first B6 sim-to-real curriculum stage with immediate reset and calibration variation. train_b61_right = right-hand B61 whose reset variation is introduced through a linear curriculum. train_b62 = B61 plus immediate moderate contact and physics randomization. train_b62_linear = B61 plus the same contact DR introduced through a linear curriculum. train_b62_right = B61Right plus the same contact DR introduced through a linear curriculum. train_b63 = B62 plus moderate action delay and Gaussian action noise. train_b7 = B6 task trained from scratch with standard PPO instead of SAPG. train_b8 = B6/SAPG with the right hand and a 5 x 5 x 15 cm cuboid with randomized resting pose. train_b81 = B8 cuboid plus the B61Right reset/calibration curriculum. train_b82 = B81 plus the B62Right contact/physics DR curriculum. train_b83 = B82 plus command uncertainty from B63, with new action noise introduced linearly. train_10_real_mid_combined = intermediate sim2real preset with moderate delay/noise/contact DR. train_c1 = simple grasping task with only hand control (no arm)."""
+    """Select the named training preset.
+
+    B8-B83 are the right-hand 5 x 5 x 15 cm cuboid curricula. B63Right is
+    the right-hand command-randomization curriculum. D1-D2 use
+    operational-space arm actions, D3-D5 add curated reference-state
+    initialization, and D6 adapts the task to the 20 x 9 x 9 cm dumbbell.
+    The remaining names preserve the established cube and hand-only
+    curricula.
+    """
 
     # === Forces/Torques : sim2real disturbances on object (when lifted). ===
     force_scale: Optional[float] = None
@@ -205,12 +227,19 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_b62_linear": "SimToolRealLSTMAsymmetricTrainB62Linear",
         "train_b62_right": "SimToolRealLSTMAsymmetricTrainB62Right",
         "train_b63": "SimToolRealLSTMAsymmetricTrainB63",
+        "train_b63_right": "SimToolRealLSTMAsymmetricTrainB63Right",
         "train_b7": "SimToolRealLSTMAsymmetricTrainB7",
         "train_b8": "SimToolRealLSTMAsymmetricTrainB8",
         "train_b81": "SimToolRealLSTMAsymmetricTrainB81",
         "train_b82": "SimToolRealLSTMAsymmetricTrainB82",
         "train_b83": "SimToolRealLSTMAsymmetricTrainB83",
         "train_c1": "SimToolRealLSTMAsymmetricTrainC1",
+        "train_d1": "SimToolRealLSTMAsymmetricTrainD1",
+        "train_d2": "SimToolRealLSTMAsymmetricTrainD2",
+        "train_d3": "SimToolRealLSTMAsymmetricTrainD3",
+        "train_d4": "SimToolRealLSTMAsymmetricTrainD4",
+        "train_d5": "SimToolRealLSTMAsymmetricTrainD5",
+        "train_d6": "SimToolRealLSTMAsymmetricTrainD6",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -226,6 +255,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_b62_linear",
         "train_b62_right",
         "train_b63",
+        "train_b63_right",
         "train_b7",
         "train_b8",
         "train_b81",
@@ -235,7 +265,15 @@ def launch_training(args: LaunchTrainingArgs) -> None:
     }:
         force_scale = 6.0 if force_scale is None else force_scale
         torque_scale = 0.5 if torque_scale is None else torque_scale
-    elif args.training_preset == "train_b5":
+    elif args.training_preset in {
+        "train_b5",
+        "train_d1",
+        "train_d2",
+        "train_d3",
+        "train_d4",
+        "train_d5",
+        "train_d6",
+    }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
     elif args.training_preset == "train_10_real_mid_combined":

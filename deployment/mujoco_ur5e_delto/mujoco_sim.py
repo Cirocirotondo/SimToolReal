@@ -5,7 +5,7 @@ import tempfile
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 import mujoco
 import mujoco.viewer
@@ -31,6 +31,14 @@ from isaacgymenvs.utils.utils import get_repo_root_dir
 class Ur5eDeltoMujocoConfig:
     enable_viewer: bool = True
     sim_dt: float = 1.0 / 600.0
+    arm_kp: float = 300.0
+    """Arm position-controller proportional gain."""
+    arm_kv: float = 20.0
+    """Arm position-controller velocity damping."""
+    hand_kp: float = 5.0
+    """Hand position-controller proportional gain."""
+    hand_kv: float = 0.25
+    """Hand position-controller velocity damping."""
     hand_side: HandSide = DEFAULT_HAND_SIDE
     robot_urdf_path: Optional[Path] = None
     workspace_y: float = -0.6
@@ -52,6 +60,8 @@ class Ur5eDeltoMujocoConfig:
     show_object_frame: bool = True
     """Display local axes on the movable object in the MuJoCo viewer."""
     initial_joint_pos: np.ndarray = field(default_factory=lambda: DEFAULT_JOINT_POS.copy())
+    joint_limit_overrides: Dict[str, Tuple[float, float]] = field(default_factory=dict)
+    """Optional per-joint limits for specialized interactive tools."""
     object_name: str = "cube"
     object_scales: np.ndarray = field(
         default_factory=lambda: np.array([1.25, 1.25, 1.25], dtype=np.float32)
@@ -67,6 +77,9 @@ class Ur5eDeltoMujocoConfig:
 
     def __post_init__(self) -> None:
         self.hand_side = validate_hand_side(self.hand_side)
+        for name in ("arm_kp", "arm_kv", "hand_kp", "hand_kv"):
+            if getattr(self, name) <= 0.0:
+                raise ValueError(f"{name} must be positive")
         if self.robot_urdf_path is None:
             self.robot_urdf_path = robot_urdf_path_for_hand(self.hand_side)
 
@@ -82,9 +95,20 @@ class Ur5eDeltoMujocoSim:
         self.fingertip_local_offsets = fingertip_local_offsets_for_hand(
             self.config.hand_side
         )
-        self.lower_limits, self.upper_limits = joint_limits_for_hand(
-            self.config.hand_side
-        )
+        lower_limits, upper_limits = joint_limits_for_hand(self.config.hand_side)
+        self.lower_limits = lower_limits.copy()
+        self.upper_limits = upper_limits.copy()
+        for joint_name, limits in self.config.joint_limit_overrides.items():
+            if joint_name not in self.joint_names:
+                raise ValueError(f"Unknown joint limit override: {joint_name}")
+            lower, upper = limits
+            if lower >= upper:
+                raise ValueError(
+                    f"Invalid limits for {joint_name}: lower={lower}, upper={upper}"
+                )
+            index = self.joint_names.index(joint_name)
+            self.lower_limits[index] = lower
+            self.upper_limits[index] = upper
         self.robot_joint_pos_targets = self.config.initial_joint_pos.copy()
         self._tmp_dir = tempfile.TemporaryDirectory(prefix="simtoolreal_mujoco_")
         self._init_scene()
@@ -136,6 +160,9 @@ class Ur5eDeltoMujocoSim:
         self._add_position_actuators(spec)
         self.model = spec.compile()
         self.data = mujoco.MjData(self.model)
+        for joint_name, (lower, upper) in self.config.joint_limit_overrides.items():
+            joint_id = self.model.joint(joint_name).id
+            self.model.jnt_range[joint_id] = np.array([lower, upper])
         self.model.opt.timestep = self.config.sim_dt
         self.model.opt.integrator = mujoco.mjtIntegrator.mjINT_IMPLICITFAST
         self.model.opt.cone = mujoco.mjtCone.mjCONE_ELLIPTIC
@@ -263,6 +290,8 @@ class Ur5eDeltoMujocoSim:
 
         if self.config.object_name == "hammer":
             geoms = self._add_hammer_geoms(body, name, rgba)
+        elif self.config.object_name == "dumbbell_20x9x9cm":
+            geoms = self._add_dumbbell_20x9x9cm_geoms(body, name, rgba)
         else:
             geom = body.add_geom()
             geom.name = f"{name}_cube_geom"
@@ -345,6 +374,107 @@ class Ur5eDeltoMujocoSim:
         self._set_low_bounce_contact(head)
         return [handle, head]
 
+    def _add_dumbbell_20x9x9cm_geoms(
+        self, body, name: str, rgba: np.ndarray
+    ):
+        # The source STL is an exact union of these three boxes. Keeping them
+        # separate avoids MuJoCo convexifying the concave dumbbell silhouette.
+        parts = (
+            ("handle", [0.03, 0.14, 0.03], [0.0, 0.0, 0.0]),
+            ("head_negative_y", [0.09, 0.03, 0.09], [0.0, -0.085, 0.0]),
+            ("head_positive_y", [0.09, 0.03, 0.09], [0.0, 0.085, 0.0]),
+        )
+        geoms = []
+        for part_name, full_size, pos in parts:
+            geom = body.add_geom()
+            geom.name = f"{name}_dumbbell_{part_name}"
+            geom.type = mujoco.mjtGeom.mjGEOM_BOX
+            geom.size = np.asarray(full_size, dtype=np.float64) / 2.0
+            geom.pos = np.asarray(pos, dtype=np.float64)
+            geom.density = 400.0
+            geom.rgba = rgba
+            geom.friction = np.array([1.0, 0.005, 0.0001])
+            self._set_low_bounce_contact(geom)
+            geoms.append(geom)
+
+        # Massless, non-colliding plates disambiguate all six local directions.
+        # MuJoCo box sizes are half-extents.
+        face_alpha = float(rgba[3])
+        face_specs = (
+            (
+                "px_negative_head",
+                [0.0455, -0.085, 0.0],
+                [0.0005, 0.015, 0.045],
+                [1.0, 0.15, 0.15, face_alpha],
+            ),
+            (
+                "px_positive_head",
+                [0.0455, 0.085, 0.0],
+                [0.0005, 0.015, 0.045],
+                [1.0, 0.15, 0.15, face_alpha],
+            ),
+            (
+                "nx_negative_head",
+                [-0.0455, -0.085, 0.0],
+                [0.0005, 0.015, 0.045],
+                [1.0, 0.5, 0.0, face_alpha],
+            ),
+            (
+                "nx_positive_head",
+                [-0.0455, 0.085, 0.0],
+                [0.0005, 0.015, 0.045],
+                [1.0, 0.5, 0.0, face_alpha],
+            ),
+            (
+                "py",
+                [0.0, 0.1005, 0.0],
+                [0.045, 0.0005, 0.045],
+                [0.15, 0.85, 0.15, face_alpha],
+            ),
+            (
+                "ny",
+                [0.0, -0.1005, 0.0],
+                [0.045, 0.0005, 0.045],
+                [0.1, 0.55, 0.45, face_alpha],
+            ),
+            (
+                "pz_negative_head",
+                [0.0, -0.085, 0.0455],
+                [0.045, 0.015, 0.0005],
+                [0.2, 0.35, 1.0, face_alpha],
+            ),
+            (
+                "pz_positive_head",
+                [0.0, 0.085, 0.0455],
+                [0.045, 0.015, 0.0005],
+                [0.2, 0.35, 1.0, face_alpha],
+            ),
+            (
+                "nz_negative_head",
+                [0.0, -0.085, -0.0455],
+                [0.045, 0.015, 0.0005],
+                [1.0, 0.85, 0.1, face_alpha],
+            ),
+            (
+                "nz_positive_head",
+                [0.0, 0.085, -0.0455],
+                [0.045, 0.015, 0.0005],
+                [1.0, 0.85, 0.1, face_alpha],
+            ),
+        )
+        for face_name, pos, size, face_rgba in face_specs:
+            face = body.add_geom()
+            face.name = f"{name}_dumbbell_face_{face_name}"
+            face.type = mujoco.mjtGeom.mjGEOM_BOX
+            face.pos = np.asarray(pos, dtype=np.float64)
+            face.size = np.asarray(size, dtype=np.float64)
+            face.rgba = np.asarray(face_rgba, dtype=np.float64)
+            face.density = 0.0
+            face.contype = 0
+            face.conaffinity = 0
+            geoms.append(face)
+        return geoms
+
     def _add_position_actuators(self, spec: mujoco.MjSpec) -> None:
         for index, name in enumerate(self.joint_names):
             actuator = spec.add_actuator()
@@ -355,8 +485,8 @@ class Ur5eDeltoMujocoSim:
             actuator.ctrlrange = np.array(
                 [self.lower_limits[index], self.upper_limits[index]]
             )
-            kp = 300.0 if index < 6 else 5.0
-            kv = 20.0 if index < 6 else 0.25
+            kp = self.config.arm_kp if index < 6 else self.config.hand_kp
+            kv = self.config.arm_kv if index < 6 else self.config.hand_kv
             actuator.gaintype = mujoco.mjtGain.mjGAIN_FIXED
             actuator.gainprm[0] = kp
             actuator.biastype = mujoco.mjtBias.mjBIAS_AFFINE
@@ -408,6 +538,46 @@ class Ur5eDeltoMujocoSim:
         mujoco.mj_forward(self.model, self.data)
         if self.config.enable_viewer:
             self.viewer.sync()
+
+    def set_object_pose(self, pos: np.ndarray, quat_wxyz: np.ndarray) -> None:
+        if pos.shape != (3,):
+            raise ValueError(f"pos.shape={pos.shape}, expected {(3,)}")
+        if quat_wxyz.shape != (4,):
+            raise ValueError(
+                f"quat_wxyz.shape={quat_wxyz.shape}, expected {(4,)}"
+            )
+        joint = self.model.joint("object_free_joint")
+        qposadr = joint.qposadr[0]
+        dofadr = joint.dofadr[0]
+        self.data.qpos[qposadr : qposadr + 3] = pos
+        self.data.qpos[qposadr + 3 : qposadr + 7] = quat_wxyz
+        self.data.qvel[dofadr : dofadr + 6] = 0.0
+        mujoco.mj_forward(self.model, self.data)
+        if self.config.enable_viewer:
+            self.viewer.sync()
+
+    def add_object_velocity(
+        self,
+        linear_velocity: np.ndarray,
+        angular_velocity: np.ndarray,
+    ) -> None:
+        if linear_velocity.shape != (3,):
+            raise ValueError(
+                f"linear_velocity.shape={linear_velocity.shape}, expected {(3,)}"
+            )
+        if angular_velocity.shape != (3,):
+            raise ValueError(
+                f"angular_velocity.shape={angular_velocity.shape}, expected {(3,)}"
+            )
+        dofadr = self.model.joint("object_free_joint").dofadr[0]
+        self.data.qvel[dofadr : dofadr + 3] += linear_velocity
+        self.data.qvel[dofadr + 3 : dofadr + 6] += angular_velocity
+
+    def set_gravity_enabled(self, enabled: bool) -> None:
+        self.model.opt.gravity[:] = np.array(
+            [0.0, 0.0, -9.81] if enabled else [0.0, 0.0, 0.0],
+            dtype=np.float64,
+        )
 
     def sim_step(self) -> None:
         self.data.ctrl[self._actuator_ids] = self.robot_joint_pos_targets

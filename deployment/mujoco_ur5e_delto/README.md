@@ -67,3 +67,57 @@ This backend reads MuJoCo state directly, builds the same 131-D observation used
 by the Gazebo ROS 2 policy node, runs `deployment.rl_player.RlPlayer`, converts
 the 26-D normalized action into joint position targets, and writes those targets
 to MuJoCo position actuators.
+
+## Interactive grasp designer
+
+Use `grasp_designer.py` to manually design a hand/object grasp in MuJoCo. It
+opens the MuJoCo viewer for the scene and a browser-based `viser` control panel
+for sliders and buttons.
+
+```bash
+python deployment/mujoco_ur5e_delto/grasp_designer.py \
+  --hand-side right \
+  --object-size 0.05,0.05,0.05 \
+  --port 8081
+```
+
+For the 5x5x15 cm cuboid:
+
+```bash
+python deployment/mujoco_ur5e_delto/grasp_designer.py \
+  --hand-side right \
+  --object-size 0.05,0.05,0.15 \
+  --output-path deployment/mujoco_ur5e_delto/grasp_cuboid_5x5x15.json \
+  --port 8081
+```
+
+For the 20x9x9 cm dumbbell:
+
+```bash
+python deployment/mujoco_ur5e_delto/grasp_designer.py \
+  --hand-side right \
+  --object-name dumbbell_20x9x9cm \
+  --output-path deployment/mujoco_ur5e_delto/grasp_dumbbell_20x9x9cm.json \
+  --port 8081
+```
+
+The dumbbell uses three box collision geometries matching the source STL: a
+3x14x3 cm handle and two 9x3x9 cm heads. Separate convex parts preserve the
+space around the handle that would be lost if MuJoCo convexified one concave
+mesh.
+
+The web panel lets you edit arm/hand joints, move and rotate the object, toggle
+physics/gravity, apply linear/angular velocity kicks to the object, and save or
+load grasp candidates as JSON. The grasp name entered in the panel is stored in
+the JSON and used as its filename in the `--output-path` directory. The designer
+uses stiff arm gains (`Kp=10000`, `Kv=170`) to hold poses against gravity; these
+can be changed with `--arm-kp` and `--arm-kv`.
+
+Saved grasps keep the measured MuJoCo joint pose in `joint_pos` and the PD
+command separately in `joint_targets`. This preserves the hand/object geometry
+when a grasp is saved while gravity is active.
+
+Joint limits come from the same combined URDFs used by training and evaluation.
+The default models allow `*_dg_1_3` to move through `[-90, 90]` degrees and use
+the Delto source limits for `*_dg_5_2`: `[-24, 35]` degrees on the right hand
+and `[-35, 24]` degrees on the left hand.

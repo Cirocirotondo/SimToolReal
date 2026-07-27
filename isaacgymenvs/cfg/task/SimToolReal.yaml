@@ -24,6 +24,12 @@ env:
   forceLimitScale: 1.0
   useRelativeControl: False
   useRelativeHandControl: False
+  useOperationalSpaceArmControl: False
+  operationalSpaceArmTranslationSpeedScale: 0.25  # m/s at action magnitude 1
+  operationalSpaceArmRotationSpeedScale: 1.0  # rad/s at action magnitude 1
+  operationalSpaceIkDamping: 0.05
+  operationalSpaceMaxJointDelta: 0.05
+  operationalSpaceIkResidualPenaltyScale: 0.0
   dofSpeedScale: 1.5  # often set to 1.0
   handDofSpeedScale: 1.5  # used only when useRelativeHandControl=True
   handMovingAverage: 0.1  # often set to 0.1 or 1.0
@@ -55,7 +61,10 @@ env:
   resetDofPosRandomIntervalArm: 0.03
   resetDofVelRandomInterval: 0.15
   resetDofPosSampling: gaussian_closest_limit
+  # Per arm DOF: -1 = negative-only, 0 = symmetric, +1 = positive-only.
+  resetDofPosDirectionArm: null
   resetDrCurriculumSteps: 0
+  commandDrCurriculumSteps: 0
 
   # Table reset settings
   robotBaseY: 0.6  # world-frame y of robot base; table center y = robotBaseY + tablePoseDy
