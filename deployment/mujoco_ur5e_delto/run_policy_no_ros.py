@@ -37,7 +37,7 @@ class Args:
     """Path to the SimToolReal policy checkpoint model.pth."""
 
     object_name: str = "cube"
-    """Object primitive to spawn: cube or hammer."""
+    """Object primitive to spawn: cube, cuboid_5x5x15, or hammer."""
 
     scene_height: str = "default"
     """Scene height preset: default, train7, from-config, or high_table."""
@@ -78,7 +78,14 @@ def object_scales_for(name: str) -> np.ndarray:
         return np.array([0.141, 0.03025, 0.0271], dtype=np.float32)
     if name == "cube":
         return np.array([1.2, 1.2, 1.2], dtype=np.float32)
-    raise ValueError(f"Unsupported object_name={name!r}; expected 'cube' or 'hammer'")
+    if name in {"cuboid_5x5x15", "training_cuboid_5x5x15"}:
+        # MuJoCo boxes use objectBaseSize=0.04 m times these scale factors.
+        # This gives a 0.05 x 0.05 x 0.15 m parallelepiped.
+        return np.array([1.25, 1.25, 3.75], dtype=np.float32)
+    raise ValueError(
+        f"Unsupported object_name={name!r}; "
+        "expected 'cube', 'cuboid_5x5x15', 'training_cuboid_5x5x15', or 'hammer'"
+    )
 
 
 def scene_config_for(scene_height: str, env_cfg: dict) -> dict:

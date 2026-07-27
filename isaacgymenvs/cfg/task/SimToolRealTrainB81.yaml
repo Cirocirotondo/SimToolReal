@@ -1,0 +1,41 @@
+# Train B81: first sim-to-real curriculum stage after B8.
+# Keeps the 5 x 5 x 15 cm cuboid from B8 and applies the right-hand
+# reset/calibration curriculum pattern used by B61Right.
+defaults:
+  - SimToolRealTrainB8
+  - _self_
+
+env:
+  # Randomize around the B8 cuboid pose instead of forcing the exact pose.
+  useFixedInitObjectPose: False
+  resetPositionNoiseX: 0.10
+  resetPositionNoiseY: 0.05
+  resetPositionNoiseZ: 0.003
+  # Keep the cuboid resting-pose sampler responsible for orientation.
+  randomizeObjectRotation: False
+
+  # The table center is z=-0.149 and the B8 upright cuboid center is z=0.08.
+  # Preserve that nominal upright height when fixed object initialization is disabled.
+  tableObjectZOffset: 0.229
+  tableResetZRange: 0.005
+
+  # Small robot-state uncertainty around the successful B8 initialization.
+  resetDofPosRandomIntervalFingers: 0.02
+  resetDofPosRandomIntervalArm: 0.045
+  resetDofVelRandomInterval: 0.03
+
+  # At 12288 envs this is about 5G transitions, or 25.4k training epochs
+  # with horizon_length=16.
+  resetDrCurriculumSteps: 406901
+
+  # Start exactly from the B8 reset distribution.
+  resetPositionNoiseXInitial: 0.0
+  resetPositionNoiseYInitial: 0.0
+  resetPositionNoiseZInitial: 0.0
+  tableResetZRangeInitial: 0.0
+  resetDofPosRandomIntervalFingersInitial: 0.0
+  resetDofPosRandomIntervalArmInitial: 0.03
+  resetDofVelRandomIntervalInitial: 0.0
+  # Finger flexion joints start on a limit, so force their half-Gaussian
+  # samples toward the available side. Keep the arm's B8 sampler unchanged.
+  resetDofPosSamplingFingers: split_gaussian

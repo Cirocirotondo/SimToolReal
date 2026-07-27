@@ -1,0 +1,25 @@
+# Train B8: B6/SAPG with the right hand and a 5 x 5 x 15 cm cuboid.
+defaults:
+  - SimToolRealTrainB6
+  - _self_
+
+env:
+  handSide: right
+
+  # Procedural collision and visual geometry, in x/y/z order.
+  cuboidSize: [0.05, 0.05, 0.15]
+  cubeSizeRange: null
+
+  # Match reward keypoints to the cuboid instead of the inherited 5 cm cube.
+  fixedSizeKeypointReward: True
+  fixedSize: [0.05, 0.05, 0.15]
+
+  # Keep the bottom face just above the table (table top is approximately z=0).
+  objectStartPose: [0.12, -0.12, 0.08, 0.0, 0.0, 0.0, 1.0]
+  randomizeObjectRotation: False
+  randomizeCuboidRestingPose: True
+  cuboidUprightProbability: 0.5
+
+  # A 0.2 kg cuboid with dimensions 0.05 x 0.05 x 0.15 m.
+  objectMassOverride: 0.2
+  objectInertiaOverride: [0.00041667, 0.00041667, 0.00008333]

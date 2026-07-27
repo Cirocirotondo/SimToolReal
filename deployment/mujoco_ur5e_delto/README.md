@@ -16,8 +16,9 @@ python deployment/mujoco_ur5e_delto/run_policy_no_ros.py \
   --object-name cube
 ```
 
-Use `--object-name hammer` for the hammer primitive. Add `--max-steps 300` for a
-bounded smoke test, and `--no-enable-viewer` for headless execution.
+Use `--object-name hammer` for the hammer primitive, or `--object-name cuboid_5x5x15`
+for the 5 x 5 x 15 cm training parallelepiped. Add `--max-steps 300` for a bounded
+smoke test, and `--no-enable-viewer` for headless execution.
 
 By default, the table height is read from the policy config. For train_7 and the
 new evaluation setup this is the near-zero table convention:
@@ -28,6 +29,15 @@ python deployment/mujoco_ur5e_delto/run_policy_no_ros.py \
   --config-path train_dir/simtoolreal/2026-06-10/train_07_sim2real_resume_resume_2026-06-10_15-00-42/runs/00_train_07_sim2real_resume_resume_2026-06-10_15-00-42/config.yaml \
   --checkpoint-path train_dir/simtoolreal/2026-06-10/train_07_sim2real_resume_resume_2026-06-10_15-00-42/runs/00_train_07_sim2real_resume_resume_2026-06-10_15-00-42/best/model.pth \
   --object-name cube
+```
+
+For the B8 5 x 5 x 15 cm parallelepiped policy:
+
+```bash
+python deployment/mujoco_ur5e_delto/run_policy_no_ros.py \
+  --config-path train_dir/simtoolreal/2026-07-03/training_b8_parallelepiped_2026-07-03_18-13-35/runs/00_training_b8_parallelepiped_2026-07-03_18-13-35/config.yaml \
+  --checkpoint-path train_dir/simtoolreal/2026-07-03/training_b8_parallelepiped_2026-07-03_18-13-35/runs/00_training_b8_parallelepiped_2026-07-03_18-13-35/last/model.pth \
+  --object-name cuboid_5x5x15
 ```
 
 This places the table body center at `z=-0.125`, so the table top is near

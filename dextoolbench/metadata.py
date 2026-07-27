@@ -29,6 +29,7 @@ DEXTOOLBENCH_DATA_STRUCTURE: Dict[str, Dict[str, List[str]]] = {
     },
     "cube": {
         "training_cube": ["lift_delta"],
+        "training_cuboid_5x5x15": ["lift_delta"],
     },
 }
 

@@ -1,0 +1,37 @@
+# Train B83: command-uncertainty curriculum after B82.
+# Keeps B82's cuboid, reset/calibration curriculum, and contact/physics DR.
+# Adds the B63-style action delay and linearly introduces Gaussian action noise.
+defaults:
+  - SimToolRealTrainB82
+  - _self_
+
+env:
+  # At 12288 envs this is about 5G transitions, or 25.4k training epochs
+  # with horizon_length=16.
+  commandDrCurriculumSteps: 406901
+
+  useActionDelay: True
+  actionDelayMax: 2
+
+  # Enable object-pose observation noise for this stage. Keep the queue length
+  # at 1 so this adds measurement error without adding object-state delay.
+  useObjectStateDelayNoise: True
+  objectStateDelayMax: 1
+  objectStateNoiseCurriculumSteps: 406901
+  objectStateXyzNoiseStdInitial: 0.0
+  objectStateXyzNoiseStd: 0.005
+  objectStateRotationNoiseDegreesInitial: 0.0
+  objectStateRotationNoiseDegrees: 2.0
+
+task:
+  randomize: True
+  randomization_params:
+    # Add zero-mean independent Gaussian noise to policy actions.
+    # In VecTask this second range value is used as the standard deviation.
+    actions:
+      range: [0.0, 0.003]
+      range_correlated: [0.0, 0.0]
+      operation: additive
+      distribution: gaussian
+      schedule: linear
+      schedule_steps: ${task.env.commandDrCurriculumSteps}

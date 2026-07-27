@@ -11,10 +11,13 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 CUBE_CATEGORY = "cube"
 CUBE_OBJECT_NAME = "training_cube"
+CUBOID_5X5X15_OBJECT_NAME = "training_cuboid_5x5x15"
 CUBE_TASK_LIFT_DELTA = "lift_delta"
 
 CUBE_EVAL_URDF = REPO_ROOT / "assets/urdf/eval_cube/cube_5cm.urdf"
+CUBOID_5X5X15_EVAL_URDF = REPO_ROOT / "assets/urdf/eval_cube/cuboid_5x5x15cm.urdf"
 CUBE_FIXED_SIZE = [0.05, 0.05, 0.05]
+CUBOID_5X5X15_FIXED_SIZE = [0.05, 0.05, 0.15]
 #EVAL_DEFAULT_ARM_DOF = [-1.5708, -1.2, 1.8, -0.6, 1.571, -1.571]
 EVAL_DEFAULT_ARM_DOF = [-1.5708, -1.05, 1.95, -0.9, 1.571, -1.571]
 
@@ -94,27 +97,43 @@ def eval_viser_default_arm_dof(num_arm_dofs: int = 6) -> List[float]:
 
 
 def is_cube_eval(category: str, object_name: str) -> bool:
-    return category == CUBE_CATEGORY or object_name == CUBE_OBJECT_NAME
+    return category == CUBE_CATEGORY or object_name in {
+        CUBE_OBJECT_NAME,
+        CUBOID_5X5X15_OBJECT_NAME,
+    }
 
 
-def ensure_cube_eval_urdf() -> Path:
-    if not CUBE_EVAL_URDF.exists():
-        CUBE_EVAL_URDF.parent.mkdir(parents=True, exist_ok=True)
+def cube_eval_fixed_size(object_name: str) -> List[float]:
+    if object_name == CUBOID_5X5X15_OBJECT_NAME:
+        return list(CUBOID_5X5X15_FIXED_SIZE)
+    return list(CUBE_FIXED_SIZE)
+
+
+def cube_eval_urdf_path(object_name: str) -> Path:
+    if object_name == CUBOID_5X5X15_OBJECT_NAME:
+        return CUBOID_5X5X15_EVAL_URDF
+    return CUBE_EVAL_URDF
+
+
+def ensure_cube_eval_urdf(object_name: str = CUBE_OBJECT_NAME) -> Path:
+    urdf_path = cube_eval_urdf_path(object_name)
+    if not urdf_path.exists():
+        urdf_path.parent.mkdir(parents=True, exist_ok=True)
         from isaacgymenvs.tasks.simtoolreal.generate_objects import (
             generate_cuboid_urdf_constant_density,
         )
 
         generate_cuboid_urdf_constant_density(
-            filepath=CUBE_EVAL_URDF,
-            scale=tuple(CUBE_FIXED_SIZE),
+            filepath=urdf_path,
+            scale=tuple(cube_eval_fixed_size(object_name)),
             per_face_colors=True,
         )
-    return CUBE_EVAL_URDF
+    return urdf_path
 
 
 def viser_object_urdf_path(category: str, object_name: str) -> Path:
     if is_cube_eval(category, object_name):
-        return ensure_cube_eval_urdf()
+        return ensure_cube_eval_urdf(object_name)
     from dextoolbench.objects import NAME_TO_OBJECT
 
     return NAME_TO_OBJECT[object_name].urdf_path
@@ -230,7 +249,8 @@ def build_eval_env_overrides(
                 "task.env.handleHeadTypes": ["cube"],
                 "task.env.useSingleHandleHeadTemplate": True,
                 "task.env.numObjectsPerType": 1,
-                "task.env.fixedSize": list(CUBE_FIXED_SIZE),
+                "task.env.fixedSize": cube_eval_fixed_size(object_name),
+                "task.env.cuboidSize": cube_eval_fixed_size(object_name),
                 "task.env.use_hack_object_pos_offset": False,
             }
         )
@@ -245,7 +265,10 @@ def load_trajectory(
 ) -> Dict[str, Any]:
     import json
 
-    path = trajectory_path(category, object_name, task_name)
+    if category == CUBE_CATEGORY and object_name == CUBOID_5X5X15_OBJECT_NAME:
+        path = trajectory_path(CUBE_CATEGORY, CUBE_OBJECT_NAME, task_name)
+    else:
+        path = trajectory_path(category, object_name, task_name)
     assert path.exists(), f"Trajectory file not found: {path}"
     with open(path) as f:
         traj_data = json.load(f)

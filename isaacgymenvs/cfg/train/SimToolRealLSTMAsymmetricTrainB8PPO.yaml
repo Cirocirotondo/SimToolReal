@@ -1,0 +1,8 @@
+# B8 keeps B6's SAPG-compatible network and training setup.
+defaults:
+  - SimToolRealLSTMAsymmetricTrainB6PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:SimToolRealLSTMAsymmetricTrainB8PPO,${....experiment}}

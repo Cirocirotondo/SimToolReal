@@ -113,6 +113,7 @@ class SimToolReal(VecTask):
         )
         self.contact_dr_curriculum_step: int = 0
         self.reset_dr_curriculum_step: int = 0
+        self.object_state_noise_curriculum_step: int = 0
 
         self.hand_side = self._resolve_hand_side()
         self.robot_asset_file: str = self._resolve_robot_asset_file()
@@ -1743,6 +1744,7 @@ class SimToolReal(VecTask):
             frame_since_restart=self.frame_since_restart,
             contact_dr_curriculum_step=self.contact_dr_curriculum_step,
             reset_dr_curriculum_step=self.reset_dr_curriculum_step,
+            object_state_noise_curriculum_step=self.object_state_noise_curriculum_step,
         )
 
     def set_env_state(self, env_state):
@@ -1863,8 +1865,25 @@ class SimToolReal(VecTask):
         object_size_distributions = [
             obj for obj in OBJECT_SIZE_DISTRIBUTIONS if obj.type in handle_head_types
         ]
+        cuboid_size = self.cfg["env"].get("cuboidSize")
         cube_size_range = self.cfg["env"].get("cubeSizeRange")
-        if cube_size_range is not None:
+        if cuboid_size is not None:
+            assert len(cuboid_size) == 3, "cuboidSize must be [size_x, size_y, size_z]"
+            cuboid_size = tuple(float(v) for v in cuboid_size)
+            assert all(v > 0.0 for v in cuboid_size), (
+                "cuboidSize dimensions must all be positive"
+            )
+            object_size_distributions = [
+                replace(
+                    obj,
+                    handle_min_lengths=cuboid_size,
+                    handle_max_lengths=cuboid_size,
+                )
+                if obj.type == "cube"
+                else obj
+                for obj in object_size_distributions
+            ]
+        elif cube_size_range is not None:
             assert len(cube_size_range) == 2, "cubeSizeRange must be [min_size, max_size]"
             cube_min_size, cube_max_size = (float(v) for v in cube_size_range)
             assert 0.0 < cube_min_size <= cube_max_size, (
@@ -3118,6 +3137,13 @@ class SimToolReal(VecTask):
                 getattr(self, "_arm_reset_curriculum_scale", 1.0)
             ),
             "contact_dr_curriculum_scale": self._contact_dr_curriculum_scale(),
+            "object_state_noise_curriculum_scale": self._object_state_noise_curriculum_scale(),
+            "object_state_xyz_noise_std": float(
+                self.applied_object_state_xyz_noise_std
+            ),
+            "object_state_rotation_noise_degrees": float(
+                self.applied_object_state_rotation_noise_degrees
+            ),
         }
 
         return self.rew_buf, is_success
@@ -3313,8 +3339,8 @@ class SimToolReal(VecTask):
             ].clone()
 
             # Add noise to the observed object state
-            xyz_noise_std = self.cfg["env"]["objectStateXyzNoiseStd"]
-            rotation_noise_degrees = self.cfg["env"]["objectStateRotationNoiseDegrees"]
+            xyz_noise_std = self.applied_object_state_xyz_noise_std
+            rotation_noise_degrees = self.applied_object_state_rotation_noise_degrees
             self.observed_object_state[:, 0:3] += (
                 torch.randn_like(self.observed_object_state[:, 0:3]) * xyz_noise_std
             )
@@ -3788,6 +3814,62 @@ class SimToolReal(VecTask):
 
         return new_rot
 
+    def _randomize_cuboid_resting_pose(self, env_ids: Tensor) -> None:
+        cuboid_size = self.cfg["env"].get("cuboidSize")
+        if cuboid_size is None:
+            raise ValueError("randomizeCuboidRestingPose requires cuboidSize")
+        if len(cuboid_size) != 3:
+            raise ValueError("cuboidSize must be [size_x, size_y, size_z]")
+
+        upright_probability = float(
+            self.cfg["env"].get("cuboidUprightProbability", 0.5)
+        )
+        if not 0.0 <= upright_probability <= 1.0:
+            raise ValueError("cuboidUprightProbability must be between 0 and 1")
+
+        num_resets = len(env_ids)
+        samples = torch_rand_float(
+            0.0, 1.0, (num_resets, 2), device=self.device
+        )
+        upright = samples[:, 0] < upright_probability
+        half_yaw = samples[:, 1] * math.pi
+        sin_yaw = torch.sin(half_yaw)
+        cos_yaw = torch.cos(half_yaw)
+
+        # Upright: Rz(yaw). Lying: Rz(yaw) * Ry(pi/2), in xyzw order.
+        upright_rot = torch.stack(
+            (
+                torch.zeros_like(sin_yaw),
+                torch.zeros_like(sin_yaw),
+                sin_yaw,
+                cos_yaw,
+            ),
+            dim=-1,
+        )
+        sqrt_half = math.sqrt(0.5)
+        lying_rot = torch.stack(
+            (
+                -sin_yaw * sqrt_half,
+                cos_yaw * sqrt_half,
+                sin_yaw * sqrt_half,
+                cos_yaw * sqrt_half,
+            ),
+            dim=-1,
+        )
+        self.object_init_state[env_ids, 3:7] = torch.where(
+            upright.unsqueeze(-1), upright_rot, lying_rot
+        )
+
+        size_x, _, size_z = (float(v) for v in cuboid_size)
+        upright_center_z = self.object_init_state[env_ids, 2]
+        table_clearance = upright_center_z - size_z / 2.0
+        lying_center_z = table_clearance + size_x / 2.0
+        self.object_init_state[env_ids, 2] = torch.where(
+            upright,
+            upright_center_z,
+            lying_center_z,
+        )
+
     def reset_target_pose(
         self,
         env_ids: Tensor,
@@ -3854,6 +3936,8 @@ class SimToolReal(VecTask):
                         device=self.device,
                     )
                     self.object_init_state[env_ids, 0:7] = fixed_object_pose
+            if self.cfg["env"].get("randomizeCuboidRestingPose", False):
+                self._randomize_cuboid_resting_pose(env_ids)
             self.root_state_tensor[obj_indices] = self.object_init_state[
                 env_ids
             ].clone()
@@ -5243,6 +5327,45 @@ class SimToolReal(VecTask):
             return float(self.randomize)
         return min(self.contact_dr_curriculum_step / schedule_steps, 1.0)
 
+    @property
+    def applied_object_state_xyz_noise_std(self) -> float:
+        return self._object_state_noise_scale_value(
+            "objectStateXyzNoiseStdInitial", self.cfg["env"]["objectStateXyzNoiseStd"]
+        )
+
+    @property
+    def applied_object_state_rotation_noise_degrees(self) -> float:
+        return self._object_state_noise_scale_value(
+            "objectStateRotationNoiseDegreesInitial",
+            self.cfg["env"]["objectStateRotationNoiseDegrees"],
+        )
+
+    def _object_state_noise_curriculum_enabled(self) -> bool:
+        return (
+            bool(self.cfg["env"].get("useObjectStateDelayNoise", False))
+            and int(self.cfg["env"].get("objectStateNoiseCurriculumSteps", 0)) > 0
+        )
+
+    def _object_state_noise_curriculum_scale(self) -> float:
+        schedule_steps = int(self.cfg["env"].get("objectStateNoiseCurriculumSteps", 0))
+        if schedule_steps <= 0:
+            return 1.0
+        return min(self.object_state_noise_curriculum_step / schedule_steps, 1.0)
+
+    def _object_state_noise_scale_value(
+        self, initial_key: str, final: float
+    ) -> float:
+        if not self._object_state_noise_curriculum_enabled():
+            return float(final)
+        initial = float(self.cfg["env"].get(initial_key, 0.0))
+        return float(
+            self.interpolate(
+                init=initial,
+                final=float(final),
+                alpha=self._object_state_noise_curriculum_scale(),
+            )
+        )
+
     def get_domain_randomization_step(self) -> int:
         if self.cfg["env"].get("contactDrCurriculumSteps", 0) > 0:
             return self.contact_dr_curriculum_step
@@ -5254,6 +5377,8 @@ class SimToolReal(VecTask):
             self.contact_dr_curriculum_step += 1
         if self._reset_dr_curriculum_enabled():
             self.reset_dr_curriculum_step += 1
+        if self._object_state_noise_curriculum_enabled():
+            self.object_state_noise_curriculum_step += 1
 
         self.progress_buf += 1
         self.randomize_buf += 1

@@ -52,8 +52,8 @@ import viser
 from viser.extras import ViserUrdf
 
 from dextoolbench.eval_env_config import (
-    CUBE_FIXED_SIZE,
     ISAAC_ROBOT_BASE_POS,
+    cube_eval_fixed_size,
     build_eval_env_overrides,
     eval_table_center_pos,
     eval_viser_default_arm_dof,
@@ -465,7 +465,8 @@ def sim_worker(
         joint_upper = env.arm_hand_dof_upper_limits[:n_act].cpu().numpy()
 
         # Load policy
-        env.set_env_state(torch.load(checkpoint_path)[0]["env_state"])
+        checkpoint = torch.load(checkpoint_path, map_location=device)
+        env.set_env_state(checkpoint[0]["env_state"])
         policy = RlPlayer(
             int(env.num_obs), n_act, config_path, checkpoint_path, device, env.num_envs
         )
@@ -824,14 +825,15 @@ class InteractiveDemo:
         self._dyn.append(self._goal_frame)
 
         if is_cube_eval(category, object_name):
+            primitive_size = cube_eval_fixed_size(object_name)
             add_colored_cube_viser(
-                self.server, "/object", self._dyn, scale=CUBE_FIXED_SIZE
+                self.server, "/object", self._dyn, scale=primitive_size
             )
             add_colored_cube_viser(
                 self.server,
                 "/goal",
                 self._dyn,
-                scale=CUBE_FIXED_SIZE,
+                scale=primitive_size,
                 opacity=0.85,
             )
         else:

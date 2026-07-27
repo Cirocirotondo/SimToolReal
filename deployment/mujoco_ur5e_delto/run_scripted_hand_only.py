@@ -27,7 +27,7 @@ class Args:
     """Path to the C1 task YAML with scriptedArmTrajectory."""
 
     object_name: str = "cube"
-    """Object primitive to spawn: cube or hammer."""
+    """Object primitive to spawn: cube, cuboid_5x5x15, or hammer."""
 
     enable_viewer: bool = True
     """Open the passive MuJoCo viewer."""

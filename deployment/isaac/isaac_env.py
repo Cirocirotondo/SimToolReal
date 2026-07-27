@@ -89,15 +89,22 @@ def create_env_from_cfg(
 
     # If eval is requested on CPU, force the full Isaac Gym stack to CPU as
     # well; otherwise Hydra defaults would keep pipeline/sim/rl devices on CUDA.
-    if str(cfg.sim_device).startswith("cpu") or str(cfg.rl_device).startswith("cpu"):
+    cpu_eval = str(cfg.sim_device).startswith("cpu") or str(cfg.rl_device).startswith("cpu")
+    if cpu_eval:
         cfg.pipeline = "cpu"
         cfg.sim_device = "cpu"
         cfg.rl_device = "cpu"
         cfg.num_threads = max(int(cfg.num_threads), 4)
 
-    # HACK: Assume that graphics_device_id should be 0
-    # This is a pretty reasonable assumption because we are typically doing this testing on a workstation with 1 GPU
-    cfg.graphics_device_id = 0
+        # In headless CPU eval, avoid creating any CUDA graphics/camera context.
+        # Isaac Gym can still try to allocate GPU memory for the graphics device
+        # even when Physics Device is CPU and GPU Pipeline is disabled.
+        cfg.graphics_device_id = -1
+        cfg.task.env.enableCameraSensors = False
+    else:
+        # HACK: Assume that graphics_device_id should be 0
+        # This is a pretty reasonable assumption because we are typically doing this testing on a workstation with 1 GPU
+        cfg.graphics_device_id = 0
 
     # Modify the config for the task
     if overrides is not None:
@@ -137,7 +144,7 @@ def create_env_from_cfg(
         graphics_device_id=cfg.graphics_device_id,
         headless=cfg.headless,
         virtual_screen_capture=False,
-        force_render=True,
+        force_render=not cpu_eval,
     )
     return env
 

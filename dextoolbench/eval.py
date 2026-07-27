@@ -23,8 +23,8 @@ from viser.extras import ViserUrdf
 from deployment.isaac.isaac_env import create_env
 from deployment.rl_player import RlPlayer
 from dextoolbench.eval_env_config import (
-    CUBE_FIXED_SIZE,
     ISAAC_ROBOT_BASE_POS,
+    cube_eval_fixed_size,
     build_eval_env_overrides,
     eval_table_center_pos,
     is_cube_eval,
@@ -136,14 +136,15 @@ class ViserServer:
         )
         self._viser_dyn = []
         if is_cube_eval(object_category, object_name):
+            primitive_size = cube_eval_fixed_size(object_name)
             add_colored_cube_viser(
-                self.server, "/object", self._viser_dyn, scale=CUBE_FIXED_SIZE
+                self.server, "/object", self._viser_dyn, scale=primitive_size
             )
             add_colored_cube_viser(
                 self.server,
                 "/goal",
                 self._viser_dyn,
-                scale=CUBE_FIXED_SIZE,
+                scale=primitive_size,
                 opacity=0.85,
             )
         else:
