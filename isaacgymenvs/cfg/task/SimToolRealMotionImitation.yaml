@@ -91,6 +91,7 @@ env:
   goalObjectPose: [0.0, 0.0, -10.0, 0.0, 0.0, 0.0, 1.0]
   disableObjectGravity: True
   disableObjectCollisions: True
+  disableObjectSimulation: True
   randomizeObjectRotation: False
 
   # The table is 0.30 m thick: center z=-0.18 puts its surface at z=-0.03.

@@ -1533,6 +1533,7 @@ class SimToolReal(VecTask):
             0,
             0,
         )
+        self._disable_placeholder_actor_simulation(env_ptr, goal_handle)
         goal_object_idx = self.gym.get_actor_index(
             env_ptr, goal_handle, gymapi.DOMAIN_SIM
         )
@@ -2421,6 +2422,7 @@ class SimToolReal(VecTask):
                 0,
                 0,
             )
+            self._disable_placeholder_actor_simulation(env_ptr, object_handle)
             object_init_state.append(
                 [
                     self.object_start_pose.p.x,
@@ -2618,6 +2620,19 @@ class SimToolReal(VecTask):
             tmp_assets_dir.cleanup()
         except Exception:
             pass
+
+    def _disable_placeholder_actor_simulation(self, env_ptr, actor_handle) -> None:
+        """Disable physics for actors retained only to preserve tensor layout."""
+        if not self.cfg["env"].get("disableObjectSimulation", False):
+            return
+        rigid_body_props = self.gym.get_actor_rigid_body_properties(
+            env_ptr, actor_handle
+        )
+        for prop in rigid_body_props:
+            prop.flags |= gymapi.RIGID_BODY_DISABLE_SIMULATION
+        self.gym.set_actor_rigid_body_properties(
+            env_ptr, actor_handle, rigid_body_props
+        )
 
     def _get_original_object_masses_and_inertias_and_coms(
         self,
