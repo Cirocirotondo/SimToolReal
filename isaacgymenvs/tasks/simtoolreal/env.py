@@ -1452,6 +1452,9 @@ class SimToolReal(VecTask):
         ):
             object_asset_options = gymapi.AssetOptions()
             object_asset_options.vhacd_enabled = need_vhacd
+            object_asset_options.disable_gravity = bool(
+                self.cfg["env"].get("disableObjectGravity", False)
+            )
 
             # WARNING: This should not be done if trying to set different densities for different parts of the object, unless handled appropriately in the URDF
             object_asset_options.collapse_fixed_joints = True
@@ -2403,8 +2406,20 @@ class SimToolReal(VecTask):
             object_asset_idx = i % len(object_assets)
             object_asset = object_assets[object_asset_idx]
 
+            # Some derived tasks retain the object actor only because the base
+            # tensor layout expects it. Give those placeholders a unique
+            # collision group so they cannot interact with the robot or table.
+            object_collision_group = i
+            if self.cfg["env"].get("disableObjectCollisions", False):
+                object_collision_group = i + 2 * self.num_envs
             object_handle = self.gym.create_actor(
-                env_ptr, object_asset, self.object_start_pose, "object", i, 0, 0
+                env_ptr,
+                object_asset,
+                self.object_start_pose,
+                "object",
+                object_collision_group,
+                0,
+                0,
             )
             object_init_state.append(
                 [

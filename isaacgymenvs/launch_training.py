@@ -35,6 +35,7 @@ _TRAINING_PRESETS = (
     "train_d4",
     "train_d5",
     "train_d6",
+    "motion_imitation",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -88,6 +89,7 @@ class LaunchTrainingArgs:
         "train_d4",
         "train_d5",
         "train_d6",
+        "motion_imitation",
     ] = "default"
     """Select the named training preset.
 
@@ -95,6 +97,7 @@ class LaunchTrainingArgs:
     the right-hand command-randomization curriculum. D1-D2 use
     operational-space arm actions, D3-D5 add curated reference-state
     initialization, and D6 adapts the task to the 20 x 9 x 9 cm dumbbell.
+    MotionImitation selects the DeepMimic-style demonstration-tracking task.
     The remaining names preserve the established cube and hand-only
     curricula.
     """
@@ -240,6 +243,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_d4": "SimToolRealLSTMAsymmetricTrainD4",
         "train_d5": "SimToolRealLSTMAsymmetricTrainD5",
         "train_d6": "SimToolRealLSTMAsymmetricTrainD6",
+        "motion_imitation": "SimToolRealMotionImitation",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -273,6 +277,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_d4",
         "train_d5",
         "train_d6",
+        "motion_imitation",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
@@ -283,19 +288,17 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         force_scale = 20.0 if force_scale is None else force_scale
         torque_scale = 2.0 if torque_scale is None else torque_scale
 
+    is_motion_imitation = args.training_preset == "motion_imitation"
+
     cmd_parts = [
         "python",
         "-m",
         "isaacgymenvs.train",
-        "++task.env.useSparseReward=False",
         f"headless={not args.show_viewer}",
         f"task.env.numEnvs={args.num_envs}",
         # === Training ===
         f"train.params.config.minibatch_size={minibatch}",
         "multi_gpu=False",
-        "train.params.config.good_reset_boundary=0",
-        "task.env.goodResetBoundary=0",
-        f"train.params.config.central_value_config.minibatch_size={minibatch}",
         # === Wandb ===
         f"wandb_project={args.wandb_project}",
         f"wandb_entity={args.wandb_entity}",
@@ -313,7 +316,19 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         f"task.env.objectAngVelPenaltyScale={args.object_ang_vel_penalty_scale}",
     ]
 
-    if args.training_preset != "train_b7":
+    if not is_motion_imitation:
+        cmd_parts.extend(
+            [
+                "++task.env.useSparseReward=False",
+                "train.params.config.good_reset_boundary=0",
+                "task.env.goodResetBoundary=0",
+                f"train.params.config.central_value_config.minibatch_size={minibatch}",
+            ]
+        )
+
+    # Motion imitation intentionally starts from standard PPO. Its dense
+    # phase-conditioned reward and RSI do not require SAPG exploration.
+    if args.training_preset not in {"train_b7", "motion_imitation"}:
         cmd_parts.extend(
             [
                 f"train.params.config.expl_coef_block_size={args.sapg_block_size}",
@@ -337,7 +352,11 @@ def launch_training(args: LaunchTrainingArgs) -> None:
     if args.show_viewer:
         # Ensure draw_viewer runs each sub-step; disable long wandb video capture (it toggles sync).
         cmd_parts.extend(
-            ["force_render=True", "task.env.capture_video=False"]
+            [
+                "force_render=True",
+                "capture_video=False",
+                "task.env.capture_video=False",
+            ]
         )
 
     if args.handle_head_type is not None:

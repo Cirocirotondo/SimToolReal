@@ -43,6 +43,8 @@ class Ur5eDeltoMujocoConfig:
     robot_urdf_path: Optional[Path] = None
     workspace_y: float = -0.6
     """Table/object y position in front of the robot base."""
+    floor_z: float = 0.0
+    """World z position of the floor plane."""
     table_center_z: float = 0.38
     """Z position of the table body center."""
     table_object_z_offset: float = 0.25
@@ -190,6 +192,7 @@ class Ur5eDeltoMujocoSim:
         floor.name = "floor"
         floor.type = mujoco.mjtGeom.mjGEOM_PLANE
         floor.size = np.array([1.5, 1.5, 0.05])
+        floor.pos = np.array([0.0, 0.0, self.config.floor_z])
         floor.rgba = np.array([0.2, 0.25, 0.28, 1.0])
 
         table = spec.worldbody.add_body()

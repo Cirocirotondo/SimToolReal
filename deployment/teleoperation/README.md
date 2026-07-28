@@ -100,6 +100,32 @@ This tests the initial-pose mapping and a small MuJoCo IK displacement without
 opening sockets or commanding hardware.
 </details>
 
+## Demonstration viewer
+
+Replay a saved demonstration in a MuJoCo window by passing its name, stem, or
+full `.npz`/`.json` path:
+
+```bash
+cd /home/duplo/simone/SimToolReal/deployment/teleoperation
+
+../../.venv/bin/python demo_viewer.py \
+  demo_20260727_152316_454926
+```
+
+The viewer uses the combined UR5e + right Tesollo DG5F model also used by
+`deployment/mujoco_ur5e_delto/grasp_designer.py`. It replays measured arm and
+hand joints using the recording timestamps and displays the tracked cube when
+its pose is valid. The recorded scene uses a 5 x 5 x 15 cm cuboid and a 60
+degree DG5F mount offset. These values are stored in the metadata of new
+recordings; the viewer uses them as defaults for older recordings. The 15 cm
+dimension is assigned to the cuboid's local X axis so that its long axis is
+horizontal in the tracked pose. The table surface is placed 3 cm below the
+robot base plane and is visual only, with collisions disabled.
+The background floor is at `z = -0.20 m` and is also visual only.
+`--hand-source commanded` to show commanded instead of measured finger
+positions. The options `--speed 2`, `--loop`, and `--info` provide faster
+playback, repeated playback, or validation without a window.
+
 <details>
 <summary>IK dry-run</summary>
 

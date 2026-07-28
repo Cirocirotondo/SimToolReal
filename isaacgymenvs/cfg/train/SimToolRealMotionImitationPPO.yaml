@@ -1,0 +1,12 @@
+defaults:
+  - SimToolRealPPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationPPO,${....experiment}}
+    reward_shaper:
+      scale_value: 1.0
+    # Same rollout batch as the previous training: 4800 envs x 16 = 76800.
+    horizon_length: 16
+    minibatch_size: 76800

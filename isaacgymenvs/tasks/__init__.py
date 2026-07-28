@@ -28,9 +28,11 @@
 
 from .simtoolreal.env import SimToolReal
 from .simtoolreal.env_hand_only import SimToolRealHandOnly
+from .simtoolreal.env_motion_imitation import SimToolRealMotionImitation
 
 # Mappings from strings to environments
 isaacgym_task_map = {
     "SimToolReal": SimToolReal,
     "SimToolRealHandOnly": SimToolRealHandOnly,
+    "SimToolRealMotionImitation": SimToolRealMotionImitation,
 }

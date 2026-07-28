@@ -42,21 +42,25 @@ sigma: ''
 # set to True to use multi-gpu training
 multi_gpu: False
 
-wandb_activate: False
-wandb_group: ''
+wandb_activate: True
+wandb_group: 'motion_imitation'
 wandb_name: ${train.params.config.name}
-wandb_entity: ''
-wandb_project: 'isaacgymenvs'
+wandb_entity: 'simonecirelli-eth'
+wandb_project: 'simtoolreal'
 wandb_tags: []
 wandb_logcode_dir: '' 
 
+# Keep the generic Gym RecordVideo wrapper disabled: in headless mode it
+# requires the external Xvfb executable. SimToolReal tasks use their native
+# camera-sensor recorder (`task.env.capture_video`) and upload those videos to
+# W&B directly.
 capture_video: False
 capture_video_freq: 1464
 capture_video_len: 100
 force_render: True
 
 # disables rendering
-headless: False
+headless: True
 
 # set default task and default training config based on task
 defaults:
@@ -71,4 +75,3 @@ hydra:
   output_subdir: null
   run:
     dir: .
-

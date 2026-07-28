@@ -1,0 +1,176 @@
+{
+  "created_by": "/home/duplo/simone/SimToolReal/deployment/teleoperation/arm_teleop.py",
+  "teleoperation_config": "/home/duplo/simone/SimToolReal/deployment/teleoperation/config/arm_teleop.json",
+  "teleoperation_config_snapshot": {
+    "tracking": {
+      "pose_address": "tcp://127.0.0.1:5557",
+      "wrist_board_id": "0",
+      "minimum_confidence": 0.5,
+      "maximum_pose_age_s": 0.75,
+      "countdown_s": 3,
+      "initial_pose_timeout_s": 20.0,
+      "auto_start_pose_estimator": true,
+      "pose_estimator_python": "/home/duplo/git/robohand-robohand2/.venv/bin/python",
+      "pose_estimator_project_root": "/home/duplo/git/robohand/src/tag-pose-estimation",
+      "pose_estimator_script": "/home/duplo/git/robohand/src/tag-pose-estimation/scripts/run_pose_estimation.py",
+      "pose_estimator_config": "manus_overhead_pose_estimation.json"
+    },
+    "robot": {
+      "model_path": "../../simtoolreal_real/assets/universal_robots_ur5e/scene.xml",
+      "end_effector_body": "wrist_3_link",
+      "low_level_config_path": "../../simtoolreal_real/pc_ur_new.json",
+      "home_q_rad": [
+        -1.5708,
+        -1.05,
+        1.95,
+        -0.9,
+        1.571,
+        -2.61799387799
+      ],
+      "control_hz": 50.0,
+      "command_stream_hz": 100.0
+    },
+    "mapping": {
+      "translation_axis_map": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "orientation_axis_map": [
+        [
+          0.70710678,
+          0.0,
+          -0.70710678
+        ],
+        [
+          0.70710678,
+          0.0,
+          0.70710678
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ]
+      ],
+      "orientation_mapping_mode": "spatial-relative",
+      "spatial_orientation_axis_map": [
+        [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        [
+          0.0,
+          0.0,
+          1.0
+        ]
+      ],
+      "tracking_origin_offset_board_m": [
+        -0.0004548951,
+        0.0005457156,
+        -0.0002523359
+      ],
+      "position_scale": 1.0,
+      "track_orientation": true
+    },
+    "filter": {
+      "translation_alpha": 0.7,
+      "rotation_alpha": 0.85,
+      "maximum_input_jump_m": 0.08,
+      "maximum_input_rotation_jump_deg": 35.0
+    },
+    "ik": {
+      "damping": 0.03,
+      "position_gain": 8.0,
+      "orientation_gain": 8.0,
+      "maximum_joint_velocity_rad_s": 1.0
+    },
+    "safety": {
+      "home_timeout_s": 30.0,
+      "home_tolerance_deg": 1.0,
+      "home_settle_s": 0.3,
+      "command_connection_delay_s": 0.5,
+      "robot_state_start_timeout_s": 5.0,
+      "maximum_robot_state_age_s": 0.25,
+      "maximum_joint_tracking_error_deg": 90.0,
+      "maximum_target_speed_m_s": 0.3,
+      "maximum_target_rotation_speed_deg_s": 180.0,
+      "workspace_min_model_m": [
+        -0.55,
+        0.1,
+        0.05
+      ],
+      "workspace_max_model_m": [
+        0.35,
+        0.8,
+        0.7
+      ],
+      "shutdown_hold_s": 0.5
+    },
+    "logging": {
+      "print_hz": 2.0
+    },
+    "demonstration": {
+      "enabled": true,
+      "output_directory": "../demonstrations",
+      "object_pose_address": "tcp://127.0.0.1:5558",
+      "object_board_id": "0",
+      "object_minimum_confidence": 0.0,
+      "maximum_object_pose_age_s": 0.5,
+      "hand_bridge_script": "../hand_ros_bridge.py",
+      "hand_bridge_host": "127.0.0.1",
+      "hand_bridge_port": 5564,
+      "maximum_hand_state_age_s": 0.5,
+      "ros_setup": "/opt/ros/humble/setup.bash",
+      "tesollo_workspace_setup": "/home/duplo/git/tesollo_ros2/install_dg5f/setup.bash",
+      "hand_state_topic": "/dg5f_right/joint_states",
+      "hand_command_topic": "/dg5f_right/rj_dg_pospid/reference"
+    }
+  },
+  "control_hz": 50.0,
+  "send_to_robot": true,
+  "position_only": false,
+  "object_pose_address": "tcp://127.0.0.1:5558",
+  "object_board_id": "0",
+  "hand_state_topic": "/dg5f_right/joint_states",
+  "hand_command_topic": "/dg5f_right/rj_dg_pospid/reference",
+  "episode_id": "demo_20260727_152551_335339",
+  "started_at_utc": "2026-07-27T15:25:51.335339+00:00",
+  "ended_at_utc": "2026-07-27T15:26:10.124640+00:00",
+  "duration_s": 18.789312648121268,
+  "sample_count": 924,
+  "episode_success": false,
+  "termination_reason": "error: RuntimeError: MANUS board pose became stale or missing",
+  "data_file": "demo_20260727_152551_335339.npz",
+  "schema_version": 1,
+  "units": {
+    "joint_position": "rad",
+    "joint_velocity": "rad/s",
+    "position": "m",
+    "quaternion": "xyzw",
+    "timestamp": "s"
+  },
+  "coordinate_frames": {
+    "ee_pose_measured": "ur5_base",
+    "ee_pose_commanded": "ur5_base/model_base",
+    "cube_pose": "ur5_base"
+  }
+}

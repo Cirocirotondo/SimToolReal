@@ -1,0 +1,122 @@
+# DeepMimic-style imitation of one recorded UR5e + right DG5F motion.
+defaults:
+  - SimToolRealTrainD1
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Match the parallelism used by the previous SimToolReal training.
+  numEnvs: 4800
+
+  # A bare stem is resolved in deployment/teleoperation/demonstrations.
+  demonstration: deployment/teleoperation/demonstrations_good/demo_20260727_152551_335339.npz
+  demonstrationHandSource: measured
+
+  # Transform the physical UR-base EE samples into the Isaac simulation world,
+  # then from that EE frame to the virtual palm center used by this task.
+  demonstrationWorldYawOffsetDeg: 180.0
+  demonstrationWorldPositionOffset: [0.0, 0.6, 0.0]
+  demonstrationEeToPalmOffset: [0.0, 0.0, 0.16]
+  demonstrationEeToPalmQuatXyzw: [0.0, 0.0, 0.0, 1.0]
+
+  # Reference State Initialization samples phase uniformly in [0, max].
+  referenceInitMaxPhase: 1.0
+  useReferenceStateInitialization: True
+  referenceStateInitProbability: 1.0
+  referenceStateFiles: []
+
+  # 26 q + 26 qd + 26 previous targets + 3 palm position +
+  # 4 palm quaternion + 15 fingertip-relative positions + 1 phase = 101.
+  phaseObsSize: 1
+  stateList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "palm_rot",
+    "fingertip_pos_rel_palm",
+    "phase",
+  ]
+  obsList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "palm_rot",
+    "fingertip_pos_rel_palm",
+    "phase",
+  ]
+
+  # First six actions are palm-center twist commands; the remaining twenty are
+  # relative DG5F joint commands.
+  useOperationalSpaceArmControl: True
+  operationalSpaceArmTranslationSpeedScale: 0.25
+  operationalSpaceArmRotationSpeedScale: 1.0
+  operationalSpaceIkDamping: 0.05
+  operationalSpaceMaxJointDelta: 0.05
+  armMovingAverage: 1.0
+  useRelativeHandControl: True
+  handDofSpeedScale: 1.5
+  handMovingAverage: 1.0
+
+  # DeepMimic-style bounded imitation terms:
+  # r = wp exp(-kp ep^2) + wR exp(-kR eR^2) + wh exp(-kh eh^2).
+  eePositionRewardWeight: 0.4
+  eeRotationRewardWeight: 0.3
+  handPoseRewardWeight: 0.3
+  eePositionRewardScale: 100.0
+  eeRotationRewardScale: 2.0
+  handPoseRewardScale: 0.5
+
+  kukaActionsPenaltyScale: 0.001
+  handActionsPenaltyScale: 0.0001
+  armActionDeltaPenaltyScale: 0.001
+  handActionDeltaPenaltyScale: 0.0001
+
+  imitationEarlyTermination: True
+  eePositionTerminationDistance: 0.25  # ||p_palm - p*|| > 0.25 m
+  eeRotationTerminationAngleRad: 1.57079632679  # 2 acos(|q_palm · q*|) > 90°
+  handTerminationError: 4.0   # L2-norm of the error of the 20 joints of the hand > 4.0 rad
+  forceNoReset: False
+
+  # Phase, rather than this safety ceiling, normally ends the episode.
+  episodeLength: 2000
+  controlFrequencyInv: 1
+
+  # No object information or object physics is used by this task.
+  # Retain the inherited actor only as an inert placeholder below the scene.
+  useFixedInitObjectPose: True
+  objectStartPose: [0.0, 0.0, -10.0, 0.0, 0.0, 0.0, 1.0]
+  goalObjectPose: [0.0, 0.0, -10.0, 0.0, 0.0, 0.0, 1.0]
+  disableObjectGravity: True
+  disableObjectCollisions: True
+  randomizeObjectRotation: False
+
+  # The table is 0.30 m thick: center z=-0.18 puts its surface at z=-0.03.
+  tableResetZ: -0.18
+  tableResetZRange: 0.0
+
+  # Domain Randomization is disabled for this imitation task
+  resetPositionNoiseX: 0.0
+  resetPositionNoiseY: 0.0
+  resetPositionNoiseZ: 0.0
+  forceScale: 0.0
+  torqueScale: 0.0
+  linVelImpulseScale: 0.0
+  angVelImpulseScale: 0.0
+  useActionDelay: False
+  useObsDelay: False
+  useObjectStateDelayNoise: False
+  jointVelocityObsNoiseStd: 0.0
+  resetDofPosRandomIntervalArm: 0.0
+  resetDofPosRandomIntervalFingers: 0.0
+  resetDofVelRandomInterval: 0.0
+
+  # Video recording
+  enableCameraSensors: True
+  capture_video: True
+
+
+task:
+  randomize: False

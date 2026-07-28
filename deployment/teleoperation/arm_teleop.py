@@ -581,6 +581,19 @@ def main() -> None:
                     "object_board_id": str(
                         demonstration_config.get("object_board_id", "0")
                     ),
+                    "object": {
+                        "type": demonstration_config.get(
+                            "object_type", "cuboid"
+                        ),
+                        "size_m": demonstration_config.get(
+                            "object_size_m", [0.15, 0.05, 0.05]
+                        ),
+                    },
+                    "hand_mount_yaw_offset_deg": float(
+                        demonstration_config.get(
+                            "hand_mount_yaw_offset_deg", 60.0
+                        )
+                    ),
                     "hand_state_topic": demonstration_config[
                         "hand_state_topic"
                     ],
