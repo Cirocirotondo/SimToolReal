@@ -236,10 +236,32 @@ class RLGPUAlgoObserver(AlgoObserver):
         
         # log these if and only if we have new finished episodes
         if self.new_finished_episodes:
+            episode_steps = self.episode_cumulative_avg.get("episode_steps")
+            episode_steps_array = (
+                np.asarray(episode_steps, dtype=np.float64)
+                if episode_steps is not None
+                else None
+            )
             for key in self.episode_cumulative_avg:
-                self.writer.add_scalar(f'episode_cumulative/{key}', np.mean(self.episode_cumulative_avg[key]), frame)
-                self.writer.add_scalar(f'episode_cumulative_min/{key}_min', np.min(self.episode_cumulative_avg[key]), frame)
-                self.writer.add_scalar(f'episode_cumulative_max/{key}_max', np.max(self.episode_cumulative_avg[key]), frame)
+                values = np.asarray(
+                    self.episode_cumulative_avg[key], dtype=np.float64
+                )
+                self.writer.add_scalar(f'episode_cumulative/{key}', np.mean(values), frame)
+                self.writer.add_scalar(f'episode_cumulative_min/{key}_min', np.min(values), frame)
+                self.writer.add_scalar(f'episode_cumulative_max/{key}_max', np.max(values), frame)
+                if (
+                    episode_steps_array is not None
+                    and key != "episode_steps"
+                    and len(values) == len(episode_steps_array)
+                ):
+                    per_step_values = values / np.maximum(
+                        episode_steps_array, 1.0
+                    )
+                    self.writer.add_scalar(
+                        f'episode_mean_per_step/{key}',
+                        np.mean(per_step_values),
+                        frame,
+                    )
             self.new_finished_episodes = False
         
         # Pretty print

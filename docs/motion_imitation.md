@@ -94,3 +94,15 @@ r = wp exp(-kp ||p - p*||²)
 Action-magnitude and consecutive-action-difference penalties are added
 separately for arm and hand. An episode ends at phase 1 or early when palm
 position, palm orientation, or hand pose exceeds its configured threshold.
+
+## W&B metrics
+
+The task reports the weighted position, orientation, hand-pose, and combined
+imitation rewards, all four action penalties, and total reward under
+`reward_step/*`. Episode totals use `episode_cumulative/*`; because RSI produces
+episodes of different lengths, `episode_mean_per_step/*` is the preferred
+episode-level comparison.
+
+Tracking errors and termination causes are reported under `imitation/*`.
+Action and action-delta RMS values, plus the operational-space joint-delta
+clipping fraction, are reported under `control/*`.

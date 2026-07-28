@@ -125,6 +125,8 @@ class SimToolRealMotionImitation(SimToolReal):
             "ee_position_reward",
             "ee_rotation_reward",
             "hand_pose_reward",
+            "imitation_reward",
+            "episode_steps",
         ):
             if key not in self.rewards_episode:
                 self.rewards_episode[key] = torch.zeros(
@@ -360,13 +362,16 @@ class SimToolRealMotionImitation(SimToolReal):
         self.rew_buf[:] = reward
 
         finished = self.phase >= 1.0
+        position_diverged = (
+            position_error > self.ee_position_termination_distance
+        )
+        rotation_diverged = (
+            rotation_error > self.ee_rotation_termination_angle
+        )
+        hand_diverged = hand_error > self.hand_termination_error
         diverged = torch.zeros_like(finished)
         if self.early_termination:
-            diverged = (
-                (position_error > self.ee_position_termination_distance)
-                | (rotation_error > self.ee_rotation_termination_angle)
-                | (hand_error > self.hand_termination_error)
-            )
+            diverged = position_diverged | rotation_diverged | hand_diverged
         self.reset_buf[:] = finished | diverged
         self.reset_goal_buf[:] = False
 
@@ -374,20 +379,50 @@ class SimToolRealMotionImitation(SimToolReal):
             "ee_position_reward": self.ee_position_reward_weight * position_reward,
             "ee_rotation_reward": self.ee_rotation_reward_weight * rotation_reward,
             "hand_pose_reward": self.hand_pose_reward_weight * hand_reward,
+            "imitation_reward": imitation_reward,
             "kuka_actions_penalty": arm_action_penalty,
             "hand_actions_penalty": hand_action_penalty,
             "arm_action_delta_penalty": arm_delta_penalty,
             "hand_action_delta_penalty": hand_delta_penalty,
             "total_reward": reward,
+            "episode_steps": torch.ones_like(reward),
         }
         for name, value in components.items():
             self.rewards_episode[name] += value
         self.extras["rewards_episode"] = self.rewards_episode
+        # RLGPUAlgoObserver treats these as current-step values. It logs their
+        # means under reward_step/* and accumulates them until each episode ends.
+        self.extras["episode_cumulative"] = components
         self.extras["imitation/position_error_m"] = position_error.mean()
         self.extras["imitation/rotation_error_rad"] = rotation_error.mean()
         self.extras["imitation/hand_error_rad"] = hand_error.mean()
         self.extras["imitation/phase"] = self.phase.mean()
         self.extras["imitation/early_termination_fraction"] = diverged.float().mean()
+        self.extras["imitation/completion_fraction"] = finished.float().mean()
+        self.extras["imitation/termination_position_fraction"] = (
+            position_diverged.float().mean()
+        )
+        self.extras["imitation/termination_rotation_fraction"] = (
+            rotation_diverged.float().mean()
+        )
+        self.extras["imitation/termination_hand_fraction"] = (
+            hand_diverged.float().mean()
+        )
+        self.extras["control/arm_action_rms"] = torch.sqrt(
+            torch.mean(arm_actions.square())
+        )
+        self.extras["control/hand_action_rms"] = torch.sqrt(
+            torch.mean(hand_actions.square())
+        )
+        self.extras["control/arm_action_delta_rms"] = torch.sqrt(
+            torch.mean(arm_delta.square())
+        )
+        self.extras["control/hand_action_delta_rms"] = torch.sqrt(
+            torch.mean(hand_delta.square())
+        )
+        self.extras["control/osc_joint_delta_clipped_fraction"] = (
+            self.operational_space_joint_delta_clipped.float().mean()
+        )
         return reward, finished
 
     def populate_obs_and_states_buffers(self) -> None:
