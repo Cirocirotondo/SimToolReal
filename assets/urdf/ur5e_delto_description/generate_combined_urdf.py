@@ -4,8 +4,10 @@
 from __future__ import annotations
 
 import copy
+import math
 import xml.etree.ElementTree as ET
 from pathlib import Path
+from typing import Optional
 
 
 HERE = Path(__file__).resolve().parent
@@ -62,7 +64,12 @@ def _correct_right_hand_limits(
                 limit.set("upper", left_upper)
 
 
-def generate(side: str) -> Path:
+def generate(
+    side: str,
+    *,
+    mount_yaw_deg: float = 0.0,
+    output: Optional[Path] = None,
+) -> Path:
     if side not in {"left", "right"}:
         raise ValueError(f"side must be 'left' or 'right', got {side!r}")
 
@@ -107,17 +114,31 @@ def generate(side: str) -> Path:
 
     link_prefix = "ll" if side == "left" else "rl"
     mount = ET.Element("joint", {"name": "ur5e_dg5f_mount", "type": "fixed"})
-    ET.SubElement(mount, "origin", {"xyz": "0 0 0", "rpy": "0 0 0"})
+    mount_yaw_rad = math.radians(float(mount_yaw_deg))
+    ET.SubElement(
+        mount,
+        "origin",
+        {"xyz": "0 0 0", "rpy": f"0 0 {mount_yaw_rad:.15g}"},
+    )
     ET.SubElement(mount, "parent", {"link": "wrist_3_link"})
     ET.SubElement(mount, "child", {"link": f"{link_prefix}_dg_mount"})
     robot.insert(insert_at, mount)
 
     _indent(robot)
-    output = HERE / f"ur5e_{side}_dg5f.urdf"
+    if output is None:
+        output = HERE / f"ur5e_{side}_dg5f.urdf"
     tree.write(output, encoding="utf-8", xml_declaration=True)
+    with output.open("a", encoding="utf-8") as stream:
+        stream.write("\n")
     return output
 
 
 if __name__ == "__main__":
-    generated = generate("right")
-    print(generated)
+    generated_default = generate("right")
+    generated_motion_imitation = generate(
+        "right",
+        mount_yaw_deg=60.0,
+        output=HERE / "ur5e_right_dg5f_mount_60deg.urdf",
+    )
+    print(generated_default)
+    print(generated_motion_imitation)

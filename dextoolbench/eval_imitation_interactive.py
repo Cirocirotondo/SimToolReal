@@ -21,8 +21,8 @@ from dextoolbench.interactive_eval_common import (
     install_path_is_relative_to_backport,
 )
 from dextoolbench.eval_env_config import (
+    motion_imitation_robot_urdf_path_for_hand,
     policy_config_hand_side,
-    robot_urdf_path_for_hand,
 )
 from dextoolbench.reward_episode_plotter import RewardEpisodePlotter
 
@@ -359,7 +359,7 @@ class ImitationInteractiveDemo:
             color=(180, 130, 70),
             opacity=0.85,
         )
-        robot_urdf = robot_urdf_path_for_hand(self.hand_side)
+        robot_urdf = motion_imitation_robot_urdf_path_for_hand(self.hand_side)
         self.server.scene.add_frame(
             "/actual", position=self.robot_base, show_axes=False
         )

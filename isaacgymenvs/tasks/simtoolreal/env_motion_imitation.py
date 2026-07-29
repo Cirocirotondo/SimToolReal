@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 from typing import Tuple
 
 from isaacgym import gymtorch
@@ -19,6 +20,10 @@ from isaacgymenvs.utils.torch_jit_utils import quat_rotate, tensor_clamp, unscal
 class SimToolRealMotionImitation(SimToolReal):
     """Track a teleoperation clip without using object state."""
 
+    RIGHT_HAND_60_DEG_ASSET = (
+        "urdf/ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf"
+    )
+
     def __init__(
         self,
         cfg,
@@ -29,6 +34,42 @@ class SimToolRealMotionImitation(SimToolReal):
         virtual_screen_capture,
         force_render,
     ):
+        env_cfg = cfg["env"]
+        hand_mount_yaw_deg = float(env_cfg.get("handMountYawOffsetDeg", 60.0))
+        if str(env_cfg.get("handSide", "right")).lower() != "right":
+            raise ValueError("Motion imitation currently supports the right DG5F only")
+        if not math.isclose(hand_mount_yaw_deg, 60.0, abs_tol=1e-6):
+            raise ValueError(
+                "The motion-imitation robot asset is calibrated for a 60 degree "
+                f"DG5F mount, got {hand_mount_yaw_deg:g}"
+            )
+
+        half_mount_yaw = math.radians(hand_mount_yaw_deg) / 2.0
+        mount_quat_xyzw = [
+            0.0,
+            0.0,
+            math.sin(half_mount_yaw),
+            math.cos(half_mount_yaw),
+        ]
+        # Migrate saved configs from before the physical hand-mount transform
+        # was represented in the imitation task.
+        env_cfg["asset"]["robot"] = self.RIGHT_HAND_60_DEG_ASSET
+        env_cfg["asset"]["deltoRobots"]["right"] = self.RIGHT_HAND_60_DEG_ASSET
+        env_cfg["palmOrientationOffsetQuatXyzw"] = mount_quat_xyzw
+        legacy_reference_quat = env_cfg.get(
+            "demonstrationEeToPalmQuatXyzw",
+            [0.0, 0.0, 0.0, 1.0],
+        )
+        if "handMountYawOffsetDeg" not in env_cfg and all(
+            math.isclose(float(value), expected, abs_tol=1e-7)
+            for value, expected in zip(
+                legacy_reference_quat,
+                [0.0, 0.0, 0.0, 1.0],
+            )
+        ):
+            env_cfg["demonstrationEeToPalmQuatXyzw"] = mount_quat_xyzw
+        env_cfg["handMountYawOffsetDeg"] = hand_mount_yaw_deg
+
         super().__init__(
             cfg,
             rl_device,
@@ -53,9 +94,7 @@ class SimToolRealMotionImitation(SimToolReal):
                 env_cfg.get("demonstrationEeToPalmOffset", [0.0, 0.0, 0.16])
             ),
             ee_to_palm_quat_xyzw=tuple(
-                env_cfg.get(
-                    "demonstrationEeToPalmQuatXyzw", [0.0, 0.0, 0.0, 1.0]
-                )
+                env_cfg.get("demonstrationEeToPalmQuatXyzw", mount_quat_xyzw)
             ),
         )
         reference_q = torch.cat(
@@ -291,7 +330,7 @@ class SimToolRealMotionImitation(SimToolReal):
             :, self.arm_ee_jacobian_index, :, : self.num_arm_dofs
         ]
         local_offset = self.palm_center_offset
-        world_offset = quat_rotate(self._palm_rot, local_offset)
+        world_offset = quat_rotate(self._palm_link_rot, local_offset)
         linear = wrist_jacobian[:, :3] - torch.bmm(
             self._skew(world_offset), wrist_jacobian[:, 3:]
         )

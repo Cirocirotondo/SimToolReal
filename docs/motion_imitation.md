@@ -74,12 +74,20 @@ to the virtual palm center. Defaults are:
 demonstrationWorldYawOffsetDeg: 180.0
 demonstrationWorldPositionOffset: [0.0, 0.6, 0.0]
 demonstrationEeToPalmOffset: [0.0, 0.0, 0.16]
-demonstrationEeToPalmQuatXyzw: [0.0, 0.0, 0.0, 1.0]
+handMountYawOffsetDeg: 60.0
+palmOrientationOffsetQuatXyzw: [0.0, 0.0, 0.5, 0.8660254037844386]
+demonstrationEeToPalmQuatXyzw: [0.0, 0.0, 0.5, 0.8660254037844386]
 ```
 
-For the default demonstration, comparison against FK of the combined
-UR5e-DG5F model gives approximately 1.7 mm position discrepancy and less than
-0.3 degrees orientation discrepancy.
+The quaternion is the physical `+60°` DG5F mounting yaw around the UR wrist's
+local Z axis. Motion imitation uses a dedicated combined URDF carrying the same
+fixed transform. The legacy combined URDF remains unchanged so existing
+non-imitation policies preserve their original kinematics.
+
+Legacy motion-imitation run configs are migrated to this transform when they
+are loaded for evaluation. Their checkpoints can still be inspected, but a
+policy trained before this correction saw the wrist quaternion and identity
+hand mount; retraining is recommended for a physically consistent policy.
 
 ## Reward and termination
 

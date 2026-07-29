@@ -72,6 +72,7 @@ from isaacgymenvs.utils.observation_action_utils_sharpa import (
 )
 from isaacgymenvs.utils.torch_jit_utils import (
     get_axis_params,
+    quat_mul,
     quat_rotate,
     scale,
     tensor_clamp,
@@ -416,6 +417,21 @@ class SimToolReal(VecTask):
         self.palm_offset = np.array(
             self.cfg["env"].get("palmOffset", [-0.00, -0.02, 0.16]), dtype=np.float32
         )
+        self.palm_orientation_offset_xyzw = np.asarray(
+            self.cfg["env"].get(
+                "palmOrientationOffsetQuatXyzw",
+                [0.0, 0.0, 0.0, 1.0],
+            ),
+            dtype=np.float32,
+        )
+        if self.palm_orientation_offset_xyzw.shape != (4,):
+            raise ValueError("palmOrientationOffsetQuatXyzw must contain 4 values")
+        orientation_offset_norm = np.linalg.norm(
+            self.palm_orientation_offset_xyzw
+        )
+        if orientation_offset_norm <= 1e-8:
+            raise ValueError("palmOrientationOffsetQuatXyzw cannot be zero")
+        self.palm_orientation_offset_xyzw /= orientation_offset_norm
 
         assert self.num_fingertips == len(self.fingertips)
         self.fingertip_thumb_index = self._resolve_fingertip_thumb_index()
@@ -3512,9 +3528,18 @@ class SimToolReal(VecTask):
         )
         self._palm_state = self.rigid_body_states[:, self.palm_handle][:, 0:13]
         self._palm_pos = self.rigid_body_states[:, self.palm_handle][:, 0:3]
-        self._palm_rot = self.rigid_body_states[:, self.palm_handle][:, 3:7]
+        self._palm_link_rot = self.rigid_body_states[:, self.palm_handle][:, 3:7]
         self.palm_center_pos = self._palm_pos + quat_rotate(
-            self._palm_rot, self.palm_center_offset
+            self._palm_link_rot, self.palm_center_offset
+        )
+        palm_orientation_offset = torch.as_tensor(
+            self.palm_orientation_offset_xyzw,
+            dtype=self._palm_link_rot.dtype,
+            device=self.device,
+        ).expand_as(self._palm_link_rot)
+        self._palm_rot = quat_mul(
+            self._palm_link_rot,
+            palm_orientation_offset,
         )
 
         self.fingertip_state = self.rigid_body_states[:, self.fingertip_handles][

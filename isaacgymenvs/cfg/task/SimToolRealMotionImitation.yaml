@@ -18,7 +18,15 @@ env:
   demonstrationWorldYawOffsetDeg: 180.0
   demonstrationWorldPositionOffset: [0.0, 0.6, 0.0]
   demonstrationEeToPalmOffset: [0.0, 0.0, 0.16]
-  demonstrationEeToPalmQuatXyzw: [0.0, 0.0, 0.0, 1.0]
+  # Physical DG5F mount: +60° yaw about the UR wrist's local Z axis.
+  handMountYawOffsetDeg: 60.0
+  palmOrientationOffsetQuatXyzw: [0.0, 0.0, 0.5, 0.8660254037844386]
+  demonstrationEeToPalmQuatXyzw: [0.0, 0.0, 0.5, 0.8660254037844386]
+  asset:
+    robot: "urdf/ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf"
+    deltoRobots:
+      right: "urdf/ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf"
+      left: "urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
 
   # Reference State Initialization samples phase uniformly in [0, max].
   referenceInitMaxPhase: 1.0

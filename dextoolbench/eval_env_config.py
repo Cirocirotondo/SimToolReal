@@ -50,6 +50,19 @@ def robot_urdf_path_for_hand(hand_side: HandSide = "right") -> Path:
     return REPO_ROOT / "assets" / robot_urdf_rel_for_hand(hand_side)
 
 
+def motion_imitation_robot_urdf_path_for_hand(
+    hand_side: HandSide = "right",
+) -> Path:
+    """Combined robot with the physical +60° right-DG5F mount."""
+    if hand_side == "right":
+        return (
+            REPO_ROOT
+            / "assets/urdf/ur5e_delto_description"
+            / "ur5e_right_dg5f_mount_60deg.urdf"
+        )
+    return robot_urdf_path_for_hand(hand_side)
+
+
 def policy_config_hand_side(config_path: Union[str, Path]) -> Optional[HandSide]:
     """Read handedness recorded by a new or legacy policy configuration."""
     path = Path(config_path)
