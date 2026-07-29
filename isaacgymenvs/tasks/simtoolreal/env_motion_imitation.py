@@ -520,6 +520,32 @@ class SimToolRealMotionImitation(SimToolReal):
             dim=-1,
         )
 
+    def _update_reference_visualization_robot(self) -> None:
+        """Move the camera environment's green robot to the current reference."""
+        if not self.VISUALIZE_REFERENCE_ROBOT:
+            return
+
+        env_id = int(self.index_to_view)
+        reference_q = torch.cat(
+            [
+                self.current_reference.arm_q[env_id],
+                self.current_reference.hand_q[env_id],
+            ],
+            dim=-1,
+        )
+        self.visualization_robot_arm_hand_dof_pos[env_id].copy_(reference_q)
+        self.visualization_robot_arm_hand_dof_vel[env_id].zero_()
+
+        actor_index = self.visualization_robot_indices[env_id : env_id + 1].to(
+            torch.int32
+        )
+        self.gym.set_dof_state_tensor_indexed(
+            self.sim,
+            gymtorch.unwrap_tensor(self.dof_state),
+            gymtorch.unwrap_tensor(actor_index),
+            1,
+        )
+
     def post_physics_step(self) -> None:
         self.frame_since_restart += 1
         self.progress_buf += 1
@@ -527,6 +553,7 @@ class SimToolRealMotionImitation(SimToolReal):
         self.phase.add_(self.phase_delta).clamp_(max=1.0)
         self.populate_sim_buffers()
         self.current_reference = self.reference.sample(self.phase)
+        self._update_reference_visualization_robot()
         _, finished = self.compute_imitation_reward()
         self.populate_obs_and_states_buffers()
         self.clamp_obs()

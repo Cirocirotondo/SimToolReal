@@ -92,15 +92,15 @@ env:
   episodeLength: 2000
   controlFrequencyInv: 1
 
-  # No object information or object physics is used by this task.
-  # Retain the inherited actor only as an inert placeholder below the scene.
+  # No object information or object physics is used by this task. Retain the
+  # inherited actors only as inert placeholders, far outside the camera view.
   useFixedInitObjectPose: True
-  objectStartPose: [0.0, 0.0, -10.0, 0.0, 0.0, 0.0, 1.0]
-  goalObjectPose: [0.0, 0.0, -10.0, 0.0, 0.0, 0.0, 1.0]
+  objectStartPose: [100.0, 100.0, -10.0, 0.0, 0.0, 0.0, 1.0]
+  goalObjectPose: [100.0, 100.0, -10.0, 0.0, 0.0, 0.0, 1.0]
   disableObjectGravity: True
   disableObjectCollisions: True
   # RIGID_BODY_DISABLE_SIMULATION makes GPU PhysX segfault in prepare_sim.
-  # The placeholders remain harmless at z=-10, gravity-free and non-colliding.
+  # The placeholders remain harmless far away, gravity-free and non-colliding.
   disableObjectSimulation: False
   randomizeObjectRotation: False
 
@@ -127,6 +127,16 @@ env:
   # Video recording
   enableCameraSensors: True
   capture_video: True
+  # Render the demonstration pose as a collision-free green robot in videos.
+  visualizeReferenceRobotInVideo: True
+  # Enabled only by the isolated one-environment periodic evaluator. Creating
+  # an extra articulation in every one of the 4800 training envs is too costly.
+  referenceVisualizationActorEnabled: False
+
+  # Deterministic phase-zero evaluation, isolated from SAPG rollouts.
+  periodicEvaluation: True
+  evaluationFrequencyEpochs: 500
+  evaluationTimeoutSeconds: 600
 
 
 task:

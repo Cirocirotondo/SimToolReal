@@ -663,16 +663,16 @@ class SimToolReal(VecTask):
         ]
         self.arm_hand_dof_pos = self.arm_hand_dof_state[..., 0]
         self.arm_hand_dof_vel = self.arm_hand_dof_state[..., 1]
-        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-            self.blue_robot_arm_hand_dof_state = self.dof_state.view(
+        if self.VISUALIZE_AUXILIARY_ROBOT:
+            self.visualization_robot_arm_hand_dof_state = self.dof_state.view(
                 self.num_envs, -1, 2
             )[:, self.num_hand_arm_dofs :]
-            self.blue_robot_arm_hand_dof_pos = self.blue_robot_arm_hand_dof_state[
-                ..., 0
-            ]
-            self.blue_robot_arm_hand_dof_vel = self.blue_robot_arm_hand_dof_state[
-                ..., 1
-            ]
+            self.visualization_robot_arm_hand_dof_pos = (
+                self.visualization_robot_arm_hand_dof_state[..., 0]
+            )
+            self.visualization_robot_arm_hand_dof_vel = (
+                self.visualization_robot_arm_hand_dof_state[..., 1]
+            )
 
         self.rigid_body_states = gymtorch.wrap_tensor(rigid_body_tensor).view(
             self.num_envs, -1, 13
@@ -2175,6 +2175,9 @@ class SimToolReal(VecTask):
 
         max_agg_bodies = self.num_hand_arm_bodies
         max_agg_shapes = self.num_hand_arm_shapes
+        if self.VISUALIZE_AUXILIARY_ROBOT:
+            max_agg_bodies += self.num_hand_arm_bodies
+            max_agg_shapes += self.num_hand_arm_shapes
 
         robot_rigid_body_names = [
             self.gym.get_asset_rigid_body_name(robot_asset, i)
@@ -2263,8 +2266,8 @@ class SimToolReal(VecTask):
 
         self.robots = []
         self.envs = []
-        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-            self.blue_robots = []
+        if self.VISUALIZE_AUXILIARY_ROBOT:
+            self.visualization_robots = []
         self.objects = []
 
         object_init_state = []
@@ -2273,8 +2276,8 @@ class SimToolReal(VecTask):
         self.rigid_body_name_to_idx = {}
 
         self.robot_indices = []
-        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-            self.blue_robot_indices = []
+        if self.VISUALIZE_AUXILIARY_ROBOT:
+            self.visualization_robot_indices = []
         object_indices = []
         table_indices = []
         object_scales = []
@@ -2317,8 +2320,8 @@ class SimToolReal(VecTask):
         self.object_rb_handles = list(
             range(self.num_hand_arm_bodies, self.num_hand_arm_bodies + object_rb_count)
         )
-        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-            # Account for the blue robot's additional rigid bodies
+        if self.VISUALIZE_AUXILIARY_ROBOT:
+            # Account for the visualization robot's additional rigid bodies.
             self.object_rb_handles = list(
                 range(
                     2 * self.num_hand_arm_bodies,
@@ -2395,29 +2398,37 @@ class SimToolReal(VecTask):
             if self.with_dof_force_sensors:
                 self.gym.enable_actor_dof_force_sensors(env_ptr, robot_actor)
 
-            if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-                blue_robot_actor = self.gym.create_actor(
+            if self.VISUALIZE_AUXILIARY_ROBOT:
+                visualization_robot_actor = self.gym.create_actor(
                     env_ptr,
                     robot_asset,
                     robot_pose,
-                    "blue_robot",
+                    "visualization_robot",
                     i + self.num_envs * 2,
-                    -1,
+                    1,
                     0,
                 )
                 self.gym.set_actor_dof_properties(
                     env_ptr,
-                    blue_robot_actor,
+                    visualization_robot_actor,
                     robot_dof_props,
                 )
-                self.blue_robots.append(blue_robot_actor)
-                BLUE = (0, 0, 1)
-                self._set_actor_color(env_ptr, blue_robot_actor, BLUE)
-
-                blue_robot_idx = self.gym.get_actor_index(
-                    env_ptr, blue_robot_actor, gymapi.DOMAIN_SIM
+                self.visualization_robots.append(visualization_robot_actor)
+                color = (
+                    (0.1, 0.9, 0.2)
+                    if self.VISUALIZE_REFERENCE_ROBOT
+                    else (0.0, 0.0, 1.0)
                 )
-                self.blue_robot_indices.append(blue_robot_idx)
+                self._set_actor_color(
+                    env_ptr, visualization_robot_actor, color
+                )
+
+                visualization_robot_idx = self.gym.get_actor_index(
+                    env_ptr, visualization_robot_actor, gymapi.DOMAIN_SIM
+                )
+                self.visualization_robot_indices.append(
+                    visualization_robot_idx
+                )
 
             # add object
             object_asset_idx = i % len(object_assets)
@@ -2607,9 +2618,11 @@ class SimToolReal(VecTask):
         self.table_indices = to_torch(
             table_indices, dtype=torch.long, device=self.device
         )
-        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-            self.blue_robot_indices = to_torch(
-                self.blue_robot_indices, dtype=torch.long, device=self.device
+        if self.VISUALIZE_AUXILIARY_ROBOT:
+            self.visualization_robot_indices = to_torch(
+                self.visualization_robot_indices,
+                dtype=torch.long,
+                device=self.device,
             )
 
         self.object_scales = to_torch(
@@ -4410,9 +4423,13 @@ class SimToolReal(VecTask):
         self.cur_targets[
             reference_env_ids, : self.num_hand_arm_dofs
         ] = robot_pos
-        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-            self.blue_robot_arm_hand_dof_pos[reference_env_ids, :] = robot_pos
-            self.blue_robot_arm_hand_dof_vel[reference_env_ids, :] = 0.0
+        if self.VISUALIZE_AUXILIARY_ROBOT:
+            self.visualization_robot_arm_hand_dof_pos[
+                reference_env_ids, :
+            ] = robot_pos
+            self.visualization_robot_arm_hand_dof_vel[
+                reference_env_ids, :
+            ] = 0.0
 
         object_indices = self.object_indices[reference_env_ids]
         self.root_state_tensor[object_indices, :] = object_states
@@ -4641,9 +4658,11 @@ class SimToolReal(VecTask):
             )
 
             self.arm_hand_dof_pos[env_ids, :] = robot_pos
-            if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
-                self.blue_robot_arm_hand_dof_pos[env_ids, :] = robot_pos.clone()
-                self.blue_robot_arm_hand_dof_vel[env_ids, :] = 0.0
+            if self.VISUALIZE_AUXILIARY_ROBOT:
+                self.visualization_robot_arm_hand_dof_pos[
+                    env_ids, :
+                ] = robot_pos.clone()
+                self.visualization_robot_arm_hand_dof_vel[env_ids, :] = 0.0
 
             rand_vel_floats = torch_rand_float(
                 -1.0, 1.0, (len(env_ids), self.num_hand_arm_dofs), device=self.device
@@ -4944,17 +4963,21 @@ class SimToolReal(VecTask):
 
         self.prev_targets[:, :] = self.cur_targets[:, :]
 
-        if self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT:
+        if self.VISUALIZE_AUXILIARY_ROBOT:
             self.cur_targets[:, self.num_hand_arm_dofs :] = self.cur_targets[
                 :, : self.num_hand_arm_dofs
             ].clone()
-            self.blue_robot_arm_hand_dof_pos[:] = self.cur_targets[
+            self.visualization_robot_arm_hand_dof_pos[:] = self.cur_targets[
                 :, self.num_hand_arm_dofs :
             ].clone()
-            self.blue_robot_arm_hand_dof_vel[:] = 0.0
+            self.visualization_robot_arm_hand_dof_vel[:] = 0.0
 
-            blue_robot_indices = self.blue_robot_indices.to(torch.int32)
-            self.deferred_set_dof_state_tensor_indexed([blue_robot_indices])
+            visualization_robot_indices = self.visualization_robot_indices.to(
+                torch.int32
+            )
+            self.deferred_set_dof_state_tensor_indexed(
+                [visualization_robot_indices]
+            )
 
         self.set_dof_state_tensor_indexed()
         self.gym.set_dof_position_target_tensor(
@@ -6347,6 +6370,9 @@ class SimToolReal(VecTask):
         self.enable_viewer_sync = False
 
     def _capture_video_if_needed(self) -> None:
+        if self.cfg["env"].get("_suppressAutomaticVideoCapture", False):
+            return
+
         # If capture_video is False, we don't need to capture video
         if not self.cfg["env"]["capture_video"]:
             return
@@ -6794,6 +6820,23 @@ class SimToolReal(VecTask):
         if "VISUALIZE_PD_TARGET_AS_BLUE_ROBOT" in self.cfg["env"]:
             return self.cfg["env"]["VISUALIZE_PD_TARGET_AS_BLUE_ROBOT"]
         return False
+
+    @property
+    def VISUALIZE_REFERENCE_ROBOT(self) -> bool:
+        env_cfg = self.cfg["env"]
+        return bool(
+            env_cfg.get("visualizeReferenceRobotInVideo", False)
+            and env_cfg.get("referenceVisualizationActorEnabled", False)
+            and env_cfg.get("capture_video", False)
+            and env_cfg.get("enableCameraSensors", False)
+        )
+
+    @property
+    def VISUALIZE_AUXILIARY_ROBOT(self) -> bool:
+        return (
+            self.VISUALIZE_PD_TARGET_AS_BLUE_ROBOT
+            or self.VISUALIZE_REFERENCE_ROBOT
+        )
 
     def sample_random_unit_axis(self, shape) -> Tensor:
         v = torch_rand_float(0.0, 1.0, shape, device=self.device)
