@@ -106,3 +106,30 @@ episode-level comparison.
 Tracking errors and termination causes are reported under `imitation/*`.
 Action and action-delta RMS values, plus the operational-space joint-delta
 clipping fraction, are reported under `control/*`.
+
+## Interactive evaluation
+
+Use the dedicated evaluator with the `config.yaml` and a policy checkpoint from
+the same training run:
+
+```bash
+.venv/bin/python dextoolbench/eval_imitation_interactive.py \
+  --config-path train_dir/.../runs/00_EXPERIMENT/config.yaml \
+  --checkpoint-path train_dir/.../runs/00_EXPERIMENT/nn/00_EXPERIMENT.pth
+```
+
+Open the URL printed in the terminal (by default
+`http://localhost:8080`), click **Load Policy**, then run an episode. The solid
+robot is the deterministic policy rollout; the translucent green robot is the
+interpolated demonstration reference at the same phase. The panel shows phase,
+reference time, tracking errors, reward components, episode return, and the
+termination reason.
+
+The initial phase can be chosen with the slider or sampled randomly from the
+configured RSI interval. Disable **Run at 60 Hz** to evaluate as fast as the
+simulator allows. Optional per-episode reward CSVs and plots can be enabled
+with:
+
+```bash
+  --plot-rewards --reward-plot-dir eval_reward_plots/motion_imitation
+```

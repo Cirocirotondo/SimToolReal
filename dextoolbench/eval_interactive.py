@@ -34,19 +34,13 @@ from typing import List, Optional, Tuple
 
 import numpy as np
 
-# Python 3.8 compatibility:
-# viser's HTTP static-file path check relies on Path.is_relative_to(), which is
-# available in Python 3.9+. On Python 3.8 this causes HTTP 500 at "/" while
-# websocket handshake still works. Provide a backport shim before importing viser.
-if not hasattr(Path, "is_relative_to"):
-    def _is_relative_to(self: Path, *other: Path) -> bool:
-        try:
-            self.relative_to(*other)
-            return True
-        except ValueError:
-            return False
+from dextoolbench.interactive_eval_common import (
+    install_path_is_relative_to_backport,
+    quat_xyzw_to_wxyz,
+)
 
-    Path.is_relative_to = _is_relative_to  # type: ignore[attr-defined]
+# Viser relies on Path.is_relative_to(), which Python 3.8 does not provide.
+install_path_is_relative_to_backport()
 
 import viser
 from viser.extras import ViserUrdf
@@ -257,10 +251,6 @@ CATEGORY_DESCRIPTIONS = {
 def _snake_to_title(s: str) -> str:
     """Convert snake_case to Title Case for display."""
     return s.replace("_", " ").title()
-
-
-def quat_xyzw_to_wxyz(q):
-    return (q[3], q[0], q[1], q[2])
 
 
 # ═══════════════════════════════════════════════════════════════════

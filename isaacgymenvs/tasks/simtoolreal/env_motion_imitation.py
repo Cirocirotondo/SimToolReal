@@ -209,7 +209,32 @@ class SimToolRealMotionImitation(SimToolReal):
             self.reference_state_reset_count
         )
 
-        reference = self.reference.sample(self.phase[env_ids])
+        self.set_reference_phase(env_ids, self.phase[env_ids], flush=False)
+
+    def set_reference_phase(
+        self,
+        env_ids: Tensor,
+        phase,
+        *,
+        flush: bool = True,
+    ) -> None:
+        """Place selected environments exactly at a demonstration phase."""
+        if len(env_ids) == 0:
+            return
+        phase_tensor = torch.as_tensor(
+            phase, dtype=self.phase.dtype, device=self.device
+        )
+        if phase_tensor.ndim == 0:
+            phase_tensor = phase_tensor.expand(len(env_ids))
+        phase_tensor = phase_tensor.reshape(-1)
+        if len(phase_tensor) != len(env_ids):
+            raise ValueError(
+                f"Expected {len(env_ids)} phase values, got {len(phase_tensor)}"
+            )
+        phase_tensor = phase_tensor.clamp(0.0, 1.0)
+        self.phase[env_ids] = phase_tensor
+
+        reference = self.reference.sample(phase_tensor)
         robot_pos = torch.cat([reference.arm_q, reference.hand_q], dim=-1)
         robot_vel = torch.cat([reference.arm_dq, reference.hand_dq], dim=-1)
         robot_pos = tensor_clamp(
@@ -232,6 +257,12 @@ class SimToolRealMotionImitation(SimToolReal):
             len(env_ids),
         )
         self.deferred_set_dof_state_tensor_indexed([robot_indices])
+        self.current_reference = self.reference.sample(self.phase)
+        if flush:
+            self.set_dof_state_tensor_indexed()
+            self.populate_sim_buffers()
+            self.populate_obs_and_states_buffers()
+            self.clamp_obs()
 
     @staticmethod
     def _skew(vector: Tensor) -> Tensor:

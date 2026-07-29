@@ -45,6 +45,10 @@ def _configure_interactive_matplotlib() -> str:
 
 # Main terms from env.py compute_reward (order preserved for stable legends).
 STEP_REWARD_KEYS: Tuple[str, ...] = (
+    "ee_position_reward",
+    "ee_rotation_reward",
+    "hand_pose_reward",
+    "imitation_reward",
     "fingertip_delta_rew",
     "hand_delta_penalty",
     "lifting_rew",

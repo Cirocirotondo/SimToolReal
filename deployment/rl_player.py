@@ -24,6 +24,7 @@ class RlPlayer:
         checkpoint_path: Optional[str],
         device: str,
         num_envs: int = 1,
+        append_exploration_observation: bool = True,
     ) -> None:
         self.num_observations = num_observations
         self.num_actions = num_actions
@@ -37,6 +38,7 @@ class RlPlayer:
             low=-1, high=1, shape=(num_actions,), dtype=np.float32
         )
         self.num_envs = num_envs
+        self.append_exploration_observation = append_exploration_observation
         self.set_env_state = lambda *args, **kwargs: None
 
         self.cfg = read_cfg(config_path=config_path, device=self.device)
@@ -130,10 +132,12 @@ class RlPlayer:
         batch_size = obs.shape[0]
         assert_equals(obs.shape, (batch_size, self.num_observations))
 
-        # SAPG HACK: Need to idx to end of observation
-        obs = torch.cat(
-            [obs, 50.0 + torch.zeros((batch_size, 1), device=self.device)], dim=1
-        )
+        # Legacy SAPG policies expect one exploration-coefficient observation.
+        if self.append_exploration_observation:
+            obs = torch.cat(
+                [obs, 50.0 + torch.zeros((batch_size, 1), device=self.device)],
+                dim=1,
+            )
 
         normalized_action = self.player.get_action(
             obs=obs, is_deterministic=deterministic_actions
