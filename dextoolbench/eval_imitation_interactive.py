@@ -43,6 +43,19 @@ def _read_env_config(config_path: str) -> Dict[str, Any]:
     return task.get("env", config.get("env", {}))
 
 
+def _uses_sapg_exploration_observation(config_path: str) -> bool:
+    """Return whether the saved policy expects the SAPG population identifier."""
+    with Path(config_path).open("r", encoding="utf-8") as config_file:
+        config = yaml.safe_load(config_file) or {}
+    expl_type = (
+        config.get("train", {})
+        .get("params", {})
+        .get("config", {})
+        .get("expl_type", "none")
+    )
+    return str(expl_type).startswith("mixed_expl")
+
+
 def _checkpoint_env_state(checkpoint) -> Optional[Dict[str, Any]]:
     payload = checkpoint_payload(checkpoint)
     env_state = payload.get("env_state")
@@ -252,7 +265,9 @@ def sim_worker(
             checkpoint_path,
             device,
             env.num_envs,
-            append_exploration_observation=False,
+            append_exploration_observation=(
+                _uses_sapg_exploration_observation(config_path)
+            ),
         )
         obs = _reset_at_phase(env, 0.0)
         del obs

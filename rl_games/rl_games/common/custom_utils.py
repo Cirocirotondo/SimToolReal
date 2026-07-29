@@ -14,10 +14,22 @@ def remove_envs_from_info(infos, num_envs):
     for key in list(infos.keys()):
         if isinstance(infos[key], dict):
             infos[key] = remove_envs_from_info(infos[key], num_envs)
-        elif isinstance(infos[key], list) or isinstance(infos[key], (np.ndarray, torch.Tensor)):
+        elif isinstance(infos[key], (np.ndarray, torch.Tensor)):
+            # Scalar summary metrics have no environment axis. Motion-imitation
+            # logging includes several of these; slicing them for SAPG's leader
+            # block raises IndexError before the first update.
+            if infos[key].ndim == 0:
+                continue
             if key in ['successes', 'closest_keypoint_max_dist']:
                 block_size = len(infos[key]) - num_envs
-                if len(infos[key]) % block_size == 0:
+                if block_size > 0 and len(infos[key]) % block_size == 0:
+                    for i in range(len(infos[key]) // block_size):
+                        infos[f"{key}_per_block/block_{i}"] = infos[key][i*block_size:(i+1)*block_size]
+            infos[key] = infos[key][num_envs:]
+        elif isinstance(infos[key], list):
+            if key in ['successes', 'closest_keypoint_max_dist']:
+                block_size = len(infos[key]) - num_envs
+                if block_size > 0 and len(infos[key]) % block_size == 0:
                     for i in range(len(infos[key]) // block_size):
                         infos[f"{key}_per_block/block_{i}"] = infos[key][i*block_size:(i+1)*block_size]
             infos[key] = infos[key][num_envs:]

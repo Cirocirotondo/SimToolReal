@@ -60,6 +60,14 @@ class LaunchTrainingArgs:
     hand_side: Literal["right", "left"] = "right"
     """Delto hand used by the task. Right is the default; use left for legacy runs."""
 
+    algorithm: Literal["auto", "ppo", "sapg"] = "auto"
+    """Policy optimizer/exploration setup.
+
+    Auto preserves the established presets: SAPG is used for all presets except
+    TrainB7. MotionImitation therefore uses SAPG by default; pass ``ppo`` to
+    reproduce the original motion-imitation baseline.
+    """
+
     training_preset: Literal[
         "default",
         "clean_dr",
@@ -289,6 +297,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         torque_scale = 2.0 if torque_scale is None else torque_scale
 
     is_motion_imitation = args.training_preset == "motion_imitation"
+    use_sapg = args.algorithm == "sapg" or (
+        args.algorithm == "auto" and args.training_preset != "train_b7"
+    )
 
     cmd_parts = [
         "python",
@@ -326,9 +337,10 @@ def launch_training(args: LaunchTrainingArgs) -> None:
             ]
         )
 
-    # Motion imitation intentionally starts from standard PPO. Its dense
-    # phase-conditioned reward and RSI do not require SAPG exploration.
-    if args.training_preset not in {"train_b7", "motion_imitation"}:
+    # Match the established grasping SAPG setup: six (by default) exploration
+    # populations, lead/follower experience sharing, entropy-conditioned
+    # exploration, and one learned sigma vector per population.
+    if use_sapg:
         cmd_parts.extend(
             [
                 f"train.params.config.expl_coef_block_size={args.sapg_block_size}",
