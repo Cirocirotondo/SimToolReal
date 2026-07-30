@@ -1,0 +1,7 @@
+# MI00: robot-only motion-imitation task baseline.
+defaults:
+  - SimToolRealMotionImitation
+  - _self_
+
+# All MI00/MI01/MI02 task configs share the same Python environment class.
+name: SimToolRealMotionImitation

@@ -36,6 +36,9 @@ _TRAINING_PRESETS = (
     "train_d5",
     "train_d6",
     "motion_imitation",
+    "motion_imitation_mi00",
+    "motion_imitation_mi01",
+    "motion_imitation_mi02",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -63,9 +66,9 @@ class LaunchTrainingArgs:
     algorithm: Literal["auto", "ppo", "sapg"] = "auto"
     """Policy optimizer/exploration setup.
 
-    Auto preserves the established presets: SAPG is used for all presets except
-    TrainB7. MotionImitation therefore uses SAPG by default; pass ``ppo`` to
-    reproduce the original motion-imitation baseline.
+    Auto preserves the established presets: SAPG is used except for TrainB7
+    and the versioned MIxx presets, whose train profiles are PPO. The legacy
+    MotionImitation preset retains its previous automatic SAPG behavior.
     """
 
     training_preset: Literal[
@@ -98,6 +101,9 @@ class LaunchTrainingArgs:
         "train_d5",
         "train_d6",
         "motion_imitation",
+        "motion_imitation_mi00",
+        "motion_imitation_mi01",
+        "motion_imitation_mi02",
     ] = "default"
     """Select the named training preset.
 
@@ -105,7 +111,9 @@ class LaunchTrainingArgs:
     the right-hand command-randomization curriculum. D1-D2 use
     operational-space arm actions, D3-D5 add curated reference-state
     initialization, and D6 adapts the task to the 20 x 9 x 9 cm dumbbell.
-    MotionImitation selects the DeepMimic-style demonstration-tracking task.
+    MotionImitation is the legacy DeepMimic-style preset. MI00 is the original
+    adaptive-PPO baseline, MI01 keeps the same task with fixed-LR PPO, and MI02
+    adds triangular phase RSI, no action penalties, and linear LR decay.
     The remaining names preserve the established cube and hand-only
     curricula.
     """
@@ -252,6 +260,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_d5": "SimToolRealLSTMAsymmetricTrainD5",
         "train_d6": "SimToolRealLSTMAsymmetricTrainD6",
         "motion_imitation": "SimToolRealMotionImitation",
+        "motion_imitation_mi00": "SimToolRealMotionImitationMI00",
+        "motion_imitation_mi01": "SimToolRealMotionImitationMI00",
+        "motion_imitation_mi02": "SimToolRealMotionImitationMI02",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -286,6 +297,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "train_d5",
         "train_d6",
         "motion_imitation",
+        "motion_imitation_mi00",
+        "motion_imitation_mi01",
+        "motion_imitation_mi02",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
@@ -296,9 +310,21 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         force_scale = 20.0 if force_scale is None else force_scale
         torque_scale = 2.0 if torque_scale is None else torque_scale
 
-    is_motion_imitation = args.training_preset == "motion_imitation"
+    is_motion_imitation = args.training_preset in {
+        "motion_imitation",
+        "motion_imitation_mi00",
+        "motion_imitation_mi01",
+        "motion_imitation_mi02",
+    }
+    auto_ppo_presets = {
+        "train_b7",
+        "motion_imitation_mi00",
+        "motion_imitation_mi01",
+        "motion_imitation_mi02",
+    }
     use_sapg = args.algorithm == "sapg" or (
-        args.algorithm == "auto" and args.training_preset != "train_b7"
+        args.algorithm == "auto"
+        and args.training_preset not in auto_ppo_presets
     )
 
     cmd_parts = [
@@ -336,6 +362,15 @@ def launch_training(args: LaunchTrainingArgs) -> None:
                 f"train.params.config.central_value_config.minibatch_size={minibatch}",
             ]
         )
+
+    motion_imitation_train_profiles = {
+        "motion_imitation_mi00": "SimToolRealMotionImitationMI00PPO",
+        "motion_imitation_mi01": "SimToolRealMotionImitationMI01PPO",
+        "motion_imitation_mi02": "SimToolRealMotionImitationMI02PPO",
+    }
+    train_profile = motion_imitation_train_profiles.get(args.training_preset)
+    if train_profile is not None:
+        cmd_parts.append(f"train={train_profile}")
 
     # Match the established grasping SAPG setup: six (by default) exploration
     # populations, lead/follower experience sharing, entropy-conditioned

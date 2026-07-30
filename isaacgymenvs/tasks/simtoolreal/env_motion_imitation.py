@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 from isaacgym import gymtorch
 import torch
@@ -12,6 +12,7 @@ from torch import Tensor
 from isaacgymenvs.tasks.simtoolreal.demonstration_reference import (
     DemonstrationReference,
     ReferenceSample,
+    sample_reference_phases,
 )
 from isaacgymenvs.tasks.simtoolreal.env import SimToolReal
 from isaacgymenvs.utils.torch_jit_utils import quat_rotate, tensor_clamp, unscale
@@ -132,6 +133,17 @@ class SimToolRealMotionImitation(SimToolReal):
         )
         if not 0.0 < self.reference_init_max_phase <= 1.0:
             raise ValueError("referenceInitMaxPhase must be in (0, 1]")
+        self.reference_init_distribution = str(
+            env_cfg.get("referenceInitDistribution", "uniform")
+        ).lower()
+        if self.reference_init_distribution not in {
+            "uniform",
+            "triangular",
+        }:
+            raise ValueError(
+                "referenceInitDistribution must be 'uniform' or "
+                f"'triangular', got {self.reference_init_distribution!r}"
+            )
 
         self.ee_position_reward_weight = float(env_cfg["eePositionRewardWeight"])
         self.ee_rotation_reward_weight = float(env_cfg["eeRotationRewardWeight"])
@@ -229,9 +241,11 @@ class SimToolRealMotionImitation(SimToolReal):
                 torch.rand(len(env_ids), device=self.device)
                 < self.reference_state_init_probability
             )
-        sampled_phase = (
-            torch.rand(len(env_ids), device=self.device)
-            * self.reference_init_max_phase
+        sampled_phase = sample_reference_phases(
+            len(env_ids),
+            self.reference_init_max_phase,
+            self.reference_init_distribution,
+            self.device,
         )
         self.phase[env_ids] = torch.where(
             use_random_phase, sampled_phase, torch.zeros_like(sampled_phase)
@@ -246,6 +260,14 @@ class SimToolRealMotionImitation(SimToolReal):
         )
         scalars["rsi/reference_reset_count_total"] = int(
             self.reference_state_reset_count
+        )
+        scalars["rsi/start_phase_mean"] = float(
+            self.phase[env_ids].mean().item()
+        )
+        scalars["rsi/random_start_phase_mean"] = (
+            float(sampled_phase[use_random_phase].mean().item())
+            if bool(use_random_phase.any().item())
+            else 0.0
         )
 
         self.set_reference_phase(env_ids, self.phase[env_ids], flush=False)
@@ -520,31 +542,56 @@ class SimToolRealMotionImitation(SimToolReal):
             dim=-1,
         )
 
-    def _update_reference_visualization_robot(self) -> None:
-        """Move the camera environment's green robot to the current reference."""
+    def _set_reference_visualization_robot(
+        self,
+        reference: ReferenceSample,
+        *,
+        flush: bool = True,
+    ) -> None:
+        """Set the green robot before simulation updates its link transforms."""
         if not self.VISUALIZE_REFERENCE_ROBOT:
             return
 
         env_id = int(self.index_to_view)
         reference_q = torch.cat(
             [
-                self.current_reference.arm_q[env_id],
-                self.current_reference.hand_q[env_id],
+                reference.arm_q[env_id],
+                reference.hand_q[env_id],
             ],
             dim=-1,
         )
         self.visualization_robot_arm_hand_dof_pos[env_id].copy_(reference_q)
         self.visualization_robot_arm_hand_dof_vel[env_id].zero_()
+        self.cur_targets[
+            env_id, self.num_hand_arm_dofs :
+        ].copy_(reference_q)
 
         actor_index = self.visualization_robot_indices[env_id : env_id + 1].to(
             torch.int32
         )
-        self.gym.set_dof_state_tensor_indexed(
-            self.sim,
-            gymtorch.unwrap_tensor(self.dof_state),
-            gymtorch.unwrap_tensor(actor_index),
-            1,
-        )
+        self.deferred_set_dof_state_tensor_indexed([actor_index])
+        if flush:
+            self.set_dof_state_tensor_indexed()
+            self.gym.set_dof_position_target_tensor(
+                self.sim,
+                gymtorch.unwrap_tensor(self.cur_targets),
+            )
+
+    def _update_reference_visualization_robot(self) -> None:
+        """Compatibility helper for explicitly positioning the current reference."""
+        self._set_reference_visualization_robot(self.current_reference)
+
+    def pre_physics_step(
+        self, actions, joint_pos_targets: Optional[Tensor] = None
+    ) -> None:
+        super().pre_physics_step(actions, joint_pos_targets=joint_pos_targets)
+        if self.VISUALIZE_REFERENCE_ROBOT:
+            # post_physics_step advances phase before rendering, so place the
+            # green actor at that same upcoming reference before PhysX runs.
+            next_phase = (self.phase + self.phase_delta).clamp(max=1.0)
+            self._set_reference_visualization_robot(
+                self.reference.sample(next_phase)
+            )
 
     def post_physics_step(self) -> None:
         self.frame_since_restart += 1
@@ -553,7 +600,6 @@ class SimToolRealMotionImitation(SimToolReal):
         self.phase.add_(self.phase_delta).clamp_(max=1.0)
         self.populate_sim_buffers()
         self.current_reference = self.reference.sample(self.phase)
-        self._update_reference_visualization_robot()
         _, finished = self.compute_imitation_reward()
         self.populate_obs_and_states_buffers()
         self.clamp_obs()

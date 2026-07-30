@@ -1,0 +1,12 @@
+# MI00: original adaptive-PPO baseline.
+defaults:
+  - SimToolRealPPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI00PPO,${....experiment}}
+    reward_shaper:
+      scale_value: 1.0
+    horizon_length: 16
+    minibatch_size: 76800

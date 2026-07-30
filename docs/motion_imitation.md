@@ -9,19 +9,51 @@ does not observe or reward the object.
 From the repository root:
 
 ```bash
-.venv/bin/python isaacgymenvs/launch_training.py \
-  --training-preset motion_imitation \
-  --custom-experiment-name motion_imitation_demo_20260727_152551 \
+source /home/simone/.venv/bin/activate
+
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_mi02 \
+  --algorithm ppo \
+  --custom-experiment-name mi02_ppo_linear_triangular_rsi_no_action_penalties \
   --num-envs 4800
 ```
 
 Headless execution, Reference State Initialization, Weights & Biases logging,
 and periodic video capture are enabled by default. The default W&B project is
 `simtoolreal`, the entity is `simonecirelli-eth`, and the group is
-`motion_imitation`. Training uses 4800 parallel environments, a rollout horizon
-of 16 steps, and a minibatch of 76800 samples, matching the previous
-SimToolReal training setup. The launcher appends a timestamp to the experiment
-name and creates its output directory automatically.
+`motion_imitation`. The `motion_imitation_mi02` PPO preset linearly anneals
+the learning rate from `5e-5` to the rl_games floor of `1e-6` over 6000
+epochs. It samples RSI phase from a triangular distribution on `[0, 1]` with
+its mode at zero, and sets the arm/hand action and action-delta penalty scales
+to zero. The expected initial phase is therefore `1/3`, instead of `1/2` for
+uniform RSI. The command uses 4800 parallel environments and a rollout horizon
+of 16 steps, yielding a 76800-sample rollout and minibatch. The launcher
+appends a timestamp to the experiment name and creates its output directory
+automatically.
+
+The legacy `motion_imitation` preset remains available so existing commands
+continue to work.
+
+## Experiment lineage
+
+Motion-imitation experiments use zero-padded `MIxx` identifiers. Task YAMLs
+describe the MDP and reset/reward semantics; train YAMLs describe PPO
+optimization. A preset selects one of each.
+
+| ID | Task change | PPO profile | Preset |
+| --- | --- | --- | --- |
+| `MI00` | Robot-only baseline, uniform RSI, original penalties | Original adaptive LR | `motion_imitation_mi00` |
+| `MI01` | Same `MI00` task | Fixed LR `5e-5` | `motion_imitation_mi01` |
+| `MI02` | Triangular RSI, action penalties disabled | Linear `5e-5` to `1e-6`, 6000 epochs | `motion_imitation_mi02` |
+
+`MI0x` is reserved for robot-only imitation. `MI1x` will be used for the
+object-tracking generation, beginning with grounded-only RSI. The launcher
+timestamp identifies the chronological execution; the `MIxx` identifier
+captures logical lineage.
+
+The native W&B `video` stream contains only the simulated robot, avoiding an
+auxiliary articulation in every training environment. The isolated
+`eval/video` stream additionally shows the green demonstration pose.
 
 Select another recording with a Hydra override:
 
@@ -31,8 +63,9 @@ Select another recording with a Hydra override:
   task.env.demonstration=deployment/teleoperation/demonstrations/demo_NAME.npz
 ```
 
-The default task configuration is
-`isaacgymenvs/cfg/task/SimToolRealMotionImitation.yaml`.
+The shared task backbone is
+`isaacgymenvs/cfg/task/SimToolRealMotionImitation.yaml`. Versioned task
+variants inherit from it.
 
 ## Time and interpolation
 
@@ -46,9 +79,11 @@ The loader uses the recording's actual timestamps rather than assuming exact
 50 Hz spacing. Joint positions and palm positions use linear interpolation;
 palm orientation uses shortest-path quaternion SLERP.
 
-At reset, Reference State Initialization samples a phase uniformly and sets
-the arm and hand joint positions and velocities from the interpolated
-reference. Values marginally outside the simulation URDF limits are clamped.
+At reset, Reference State Initialization samples a phase according to
+`referenceInitDistribution` and sets the arm and hand joint positions and
+velocities from the interpolated reference. Supported distributions are
+`uniform` and `triangular`; triangular has its mode at phase zero. Values
+marginally outside the simulation URDF limits are clamped.
 
 ## Observation and action
 
@@ -99,17 +134,19 @@ r = wp exp(-kp ||p - p*||²)
   + wh exp(-kh ||q_hand - q_hand*||²)
 ```
 
-Action-magnitude and consecutive-action-difference penalties are added
-separately for arm and hand. An episode ends at phase 1 or early when palm
-position, palm orientation, or hand pose exceeds its configured threshold.
+Action-magnitude and consecutive-action-difference penalties can be added
+separately for arm and hand. The `motion_imitation_mi02` preset disables all
+four by setting their scales to zero. An episode ends at phase 1 or early when
+palm position, palm orientation, or hand pose exceeds its configured
+threshold.
 
 ## W&B metrics
 
 The task reports the weighted position, orientation, hand-pose, and combined
-imitation rewards, all four action penalties, and total reward under
-`reward_step/*`. Episode totals use `episode_cumulative/*`; because RSI produces
-episodes of different lengths, `episode_mean_per_step/*` is the preferred
-episode-level comparison.
+imitation rewards, all four action-penalty terms, and total reward under
+`reward_step/*`. Disabled penalties are reported as zero. Episode totals use
+`episode_cumulative/*`; because RSI produces episodes of different lengths,
+`episode_mean_per_step/*` is the preferred episode-level comparison.
 
 Tracking errors and termination causes are reported under `imitation/*`.
 Action and action-delta RMS values, plus the operational-space joint-delta

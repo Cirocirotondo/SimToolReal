@@ -15,6 +15,35 @@ DEFAULT_DEMONSTRATION_DIRECTORY = (
 )
 
 
+def sample_reference_phases(
+    num_samples: int,
+    max_phase: float,
+    distribution: str,
+    device,
+) -> torch.Tensor:
+    """Sample RSI phases from a uniform or phase-zero-weighted distribution."""
+    if num_samples < 0:
+        raise ValueError("num_samples must be non-negative")
+    if not 0.0 < max_phase <= 1.0:
+        raise ValueError("max_phase must be in (0, 1]")
+
+    distribution = str(distribution).lower()
+    uniform = torch.rand(num_samples, device=device)
+    if distribution == "uniform":
+        normalized_phase = uniform
+    elif distribution == "triangular":
+        # Inverse CDF of Triangular(0, 1, mode=0):
+        # F(x) = 1 - (1 - x)^2. Its density is largest at phase zero,
+        # decreases linearly, and has mean 1/3.
+        normalized_phase = 1.0 - torch.sqrt(1.0 - uniform)
+    else:
+        raise ValueError(
+            "referenceInitDistribution must be 'uniform' or 'triangular', "
+            f"got {distribution!r}"
+        )
+    return normalized_phase * max_phase
+
+
 def resolve_demonstration(path_or_name: str) -> Path:
     supplied = Path(path_or_name).expanduser()
     candidates = [supplied]

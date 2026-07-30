@@ -2599,6 +2599,28 @@ class SimToolReal(VecTask):
         self.goal_states[:, self.up_axis_idx] -= 0.04
         self.goal_init_state = self.goal_states.clone()
 
+        # Asset-domain body indices happen to match environment-domain indices
+        # while the robot is the only articulation. Resolve them explicitly
+        # from the primary actor so observations remain correct when an
+        # auxiliary reference robot is present in the same environment.
+        primary_env = self.envs[0]
+        primary_robot = self.robots[0]
+        self.palm_handle = self.gym.find_actor_rigid_body_index(
+            primary_env,
+            primary_robot,
+            palm_link_name,
+            gymapi.DOMAIN_ENV,
+        )
+        self.fingertip_handles = [
+            self.gym.find_actor_rigid_body_index(
+                primary_env,
+                primary_robot,
+                name,
+                gymapi.DOMAIN_ENV,
+            )
+            for name in self.fingertips
+        ]
+
         self.fingertip_handles = to_torch(
             self.fingertip_handles, dtype=torch.long, device=self.device
         )
@@ -4963,7 +4985,10 @@ class SimToolReal(VecTask):
 
         self.prev_targets[:, :] = self.cur_targets[:, :]
 
-        if self.VISUALIZE_AUXILIARY_ROBOT:
+        if (
+            self.VISUALIZE_AUXILIARY_ROBOT
+            and not self.VISUALIZE_REFERENCE_ROBOT
+        ):
             self.cur_targets[:, self.num_hand_arm_dofs :] = self.cur_targets[
                 :, : self.num_hand_arm_dofs
             ].clone()

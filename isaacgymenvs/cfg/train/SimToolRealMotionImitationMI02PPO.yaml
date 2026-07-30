@@ -1,0 +1,15 @@
+# MI02: linearly decayed PPO profile for the MI02 task.
+defaults:
+  - SimToolRealMotionImitationMI01PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI02PPO,${....experiment}}
+    # rl_games linearly anneals this to its 1e-6 floor over max_epochs.
+    learning_rate: 5e-5
+    lr_schedule: linear
+    schedule_type: standard
+    max_epochs: 6000
+    # Use epochs, rather than the inherited frame limit, as the scheduler clock.
+    max_frames: -1

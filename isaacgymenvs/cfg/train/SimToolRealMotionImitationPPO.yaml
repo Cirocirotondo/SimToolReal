@@ -5,6 +5,11 @@ defaults:
 params:
   config:
     name: ${resolve_default:00_SimToolRealMotionImitationPPO,${....experiment}}
+    # Conservative fixed policy learning rate for the PPO imitation baseline.
+    # Any value other than "adaptive" or "linear" selects rl_games'
+    # IdentityScheduler, so the optimizer stays at 5e-5 throughout training.
+    learning_rate: 5e-5
+    lr_schedule: constant
     reward_shaper:
       scale_value: 1.0
     # Same rollout batch as the previous training: 4800 envs x 16 = 76800.

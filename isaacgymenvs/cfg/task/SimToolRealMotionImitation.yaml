@@ -27,9 +27,12 @@ env:
     deltoRobots:
       right: "urdf/ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf"
       left: "urdf/ur5e_delto_description/ur5e_left_dg5f.urdf"
+    flipVisualAttachments: True
 
-  # Reference State Initialization samples phase uniformly in [0, max].
+  # Reference State Initialization phase distribution. The decay preset
+  # overrides this with "triangular" (mode at zero).
   referenceInitMaxPhase: 1.0
+  referenceInitDistribution: uniform
   useReferenceStateInitialization: True
   referenceStateInitProbability: 1.0
   referenceStateFiles: []

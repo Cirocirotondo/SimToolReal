@@ -1,0 +1,8 @@
+# MI01: same MI00 task, with the conservative fixed-LR PPO profile.
+defaults:
+  - SimToolRealMotionImitationPPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI01PPO,${....experiment}}

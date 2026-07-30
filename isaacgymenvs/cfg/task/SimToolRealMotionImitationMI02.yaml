@@ -1,0 +1,17 @@
+# MI02: triangular RSI with action regularization removed.
+defaults:
+  - SimToolRealMotionImitationMI00
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Triangular(0, referenceInitMaxPhase, mode=0): early phases are sampled
+  # more frequently and the expected normalized start phase is 1/3.
+  referenceInitDistribution: triangular
+
+  # MI02 optimizes only the positive imitation terms.
+  kukaActionsPenaltyScale: 0.0
+  handActionsPenaltyScale: 0.0
+  armActionDeltaPenaltyScale: 0.0
+  handActionDeltaPenaltyScale: 0.0

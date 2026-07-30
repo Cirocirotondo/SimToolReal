@@ -49,17 +49,49 @@ def _component(extras: Dict[str, Any], name: str) -> float:
 
 def _reset_at_phase_zero(env):
     import torch
+    from isaacgym import gymtorch
 
     env_ids = torch.arange(env.num_envs, dtype=torch.long, device=env.device)
     env.reset_idx(env_ids, tensor_reset=True)
-    env.set_reference_phase(env_ids, 0.0, flush=True)
+    # Isaac Gym tensor setters must be called at most once between simulation
+    # steps. Queue the main and reference actors, then apply both DOF states in
+    # one indexed call; otherwise the second setter (green robot) replaces the
+    # pending phase-zero reset of the controlled robot.
+    env.set_reference_phase(env_ids, 0.0, flush=False)
     env.set_actor_root_state_tensor_indexed()
+    env._set_reference_visualization_robot(
+        env.current_reference,
+        flush=False,
+    )
+    env.set_dof_state_tensor_indexed()
+
+    # Indexed DOF-state writes do not immediately update all rigid-body link
+    # transforms used by observations and rendering. Advance PhysX once while
+    # holding both robots at the phase-zero target, without advancing the task
+    # phase or progress counters.
+    env.gym.set_dof_position_target_tensor(
+        env.sim,
+        gymtorch.unwrap_tensor(env.cur_targets),
+    )
+    env.gym.simulate(env.sim)
+    env.gym.fetch_results(env.sim, True)
+    env.populate_sim_buffers()
+    env.current_reference = env.reference.sample(env.phase)
+    env.populate_obs_and_states_buffers()
+    env.clamp_obs()
     return env.obs_buf.to(env.rl_device)
 
 
 def _capture_frame(env) -> np.ndarray:
     from isaacgym import gymapi
 
+    # Match SimToolReal._capture_video: synchronize completed GPU physics and
+    # update the graphics transforms before rendering camera sensors. Without
+    # step_graphics(), each rigid body's visual remains at a stale transform
+    # and an articulated robot appears as disconnected links.
+    if env.device != "cpu":
+        env.gym.fetch_results(env.sim, True)
+    env.gym.step_graphics(env.sim)
     env.gym.render_all_camera_sensors(env.sim)
     image = env.gym.get_camera_image(
         env.sim,
@@ -93,6 +125,8 @@ def evaluate(
     config_path: str,
     checkpoint_path: str,
     output_dir: str,
+    *,
+    visualize_reference: bool = True,
 ) -> Dict[str, Any]:
     # Isaac Gym must be imported before torch.
     from isaacgym import gymapi  # noqa: F401
@@ -113,13 +147,22 @@ def evaluate(
         config_path=config_path,
         headless=True,
         device=device,
+        # Training saves a complete resolved Hydra config. Merging it with the
+        # deployment wrapper's generic SimToolRealLSTM config changes robot
+        # construction/reset state and produces detached-looking links.
+        merge_with_default_config=False,
         overrides={
             "task.env.capture_video": True,
             "task.env.enableCameraSensors": True,
-            "task.env.visualizeReferenceRobotInVideo": True,
-            "task.env.referenceVisualizationActorEnabled": True,
+            "task.env.visualizeReferenceRobotInVideo": visualize_reference,
+            "task.env.referenceVisualizationActorEnabled": visualize_reference,
             "task.env.useReferenceStateInitialization": False,
             "task.env.referenceStateInitProbability": 0.0,
+            # A periodic evaluation video should cover the complete
+            # demonstration even when the policy crosses a training-time
+            # termination threshold. Threshold violations are reported
+            # separately in the metrics below.
+            "task.env.imitationEarlyTermination": False,
         },
     )
     if not isinstance(env, SimToolRealMotionImitation):
@@ -155,7 +198,29 @@ def evaluate(
     )
     policy.reset()
     obs = _reset_at_phase_zero(env)
-    env._update_reference_visualization_robot()
+    if visualize_reference:
+        env._update_reference_visualization_robot()
+
+    initial_reference = env.reference.sample(env.phase)
+    initial_position_error = torch.linalg.vector_norm(
+        env.palm_center_pos - initial_reference.palm_pos, dim=-1
+    )[0]
+    initial_rotation_error = env._quaternion_angle(
+        env._palm_rot, initial_reference.palm_quat_xyzw
+    )[0]
+    initial_hand_error = torch.linalg.vector_norm(
+        env.arm_hand_dof_pos[:, env.num_arm_dofs :]
+        - initial_reference.hand_q,
+        dim=-1,
+    )[0]
+    initial_robot_q = env.arm_hand_dof_pos[0].detach().cpu().tolist()
+    initial_reference_q = torch.cat(
+        [initial_reference.arm_q[0], initial_reference.hand_q[0]], dim=-1
+    ).detach().cpu().tolist()
+    initial_max_joint_error = max(
+        abs(actual - target)
+        for actual, target in zip(initial_robot_q, initial_reference_q)
+    )
 
     component_names = (
         "ee_position_reward",
@@ -175,11 +240,15 @@ def evaluate(
         "hand_error_rad": [],
     }
     frames = [_capture_frame(env)]
+    max_abs_action = 0.0
+    first_threshold_violation_step: Optional[int] = None
+    first_threshold_violation_reason: Optional[str] = None
     max_steps = int(math.ceil(env.reference.duration_s / env.control_dt)) + 2
     completed = False
 
     for step in range(1, max_steps + 1):
         action = policy.get_normalized_action(obs, deterministic_actions=True)
+        max_abs_action = max(max_abs_action, float(action.abs().max().item()))
         obs_dict, _, done, extras = env.step(action)
         obs = obs_dict["obs"]
 
@@ -194,6 +263,25 @@ def evaluate(
         errors["hand_error_rad"].append(
             _scalar(extras["imitation/hand_error_rad"])
         )
+        if first_threshold_violation_step is None:
+            threshold_reasons = []
+            if (
+                errors["position_error_m"][-1]
+                > env.ee_position_termination_distance
+            ):
+                threshold_reasons.append("position")
+            if (
+                errors["rotation_error_rad"][-1]
+                > env.ee_rotation_termination_angle
+            ):
+                threshold_reasons.append("orientation")
+            if errors["hand_error_rad"][-1] > env.hand_termination_error:
+                threshold_reasons.append("hand")
+            if threshold_reasons:
+                first_threshold_violation_step = step
+                first_threshold_violation_reason = "+".join(
+                    threshold_reasons
+                )
         frames.append(_capture_frame(env))
 
         if bool(done[0].item()):
@@ -203,10 +291,11 @@ def evaluate(
         step = max_steps
 
     video_path = output_path / "evaluation.mp4"
+    fps = int(round(1.0 / env.control_dt))
     imageio.mimsave(
         video_path,
         frames,
-        fps=int(round(1.0 / env.control_dt)),
+        fps=fps,
     )
 
     final_errors = {
@@ -222,6 +311,24 @@ def evaluate(
         "termination_reason": _termination_reason(
             env, completed, final_errors
         ),
+        "visualized_reference": int(visualize_reference),
+        "initial_position_error_m": float(initial_position_error.item()),
+        "initial_rotation_error_rad": float(initial_rotation_error.item()),
+        "initial_hand_error_rad": float(initial_hand_error.item()),
+        "initial_max_joint_error_rad": initial_max_joint_error,
+        "initial_robot_q": initial_robot_q,
+        "initial_reference_q": initial_reference_q,
+        "threshold_violated": int(first_threshold_violation_step is not None),
+        "first_threshold_violation_step": first_threshold_violation_step,
+        "first_threshold_violation_s": (
+            first_threshold_violation_step * float(env.control_dt)
+            if first_threshold_violation_step is not None
+            else None
+        ),
+        "first_threshold_violation_reason": (
+            first_threshold_violation_reason
+        ),
+        "max_abs_action": max_abs_action,
         "video_path": str(video_path),
     }
     for name, total in component_sums.items():
@@ -249,9 +356,19 @@ def main() -> None:
     parser.add_argument("--checkpoint", required=True)
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--result-json", required=True)
+    parser.add_argument(
+        "--disable-reference-visualization",
+        action="store_true",
+        help="Evaluate without creating the auxiliary green reference actor.",
+    )
     args = parser.parse_args()
 
-    metrics = evaluate(args.config, args.checkpoint, args.output_dir)
+    metrics = evaluate(
+        args.config,
+        args.checkpoint,
+        args.output_dir,
+        visualize_reference=not args.disable_reference_visualization,
+    )
     result_path = Path(args.result_json).resolve()
     result_path.parent.mkdir(parents=True, exist_ok=True)
     result_path.write_text(json.dumps(metrics, indent=2), encoding="utf-8")
