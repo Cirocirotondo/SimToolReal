@@ -34,6 +34,16 @@ to the experiment name and creates its output directory automatically.
 The legacy `motion_imitation` preset remains available so existing commands
 continue to work.
 
+Launch the velocity-tracking successor with:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_mi03 \
+  --algorithm ppo \
+  --custom-experiment-name mi03_ppo_filtered_velocity_tracking \
+  --num-envs 4800
+```
+
 ## Experiment lineage
 
 Motion-imitation experiments use zero-padded `MIxx` identifiers. Task YAMLs
@@ -45,6 +55,7 @@ optimization. A preset selects one of each.
 | `MI00` | Robot-only baseline, uniform RSI, original penalties | Original adaptive LR | `motion_imitation_mi00` |
 | `MI01` | Same `MI00` task | Fixed LR `5e-5` | `motion_imitation_mi01` |
 | `MI02` | Triangular RSI, action penalties disabled | Linear `5e-5` to `1e-6` over 6000 epochs, then manual stop | `motion_imitation_mi02` |
+| `MI03` | MI02 plus filtered palm linear, palm angular, and hand-joint velocity rewards | Same as MI02 | `motion_imitation_mi03` |
 
 `MI0x` is reserved for robot-only imitation. `MI1x` will be used for the
 object-tracking generation, beginning with grounded-only RSI. The launcher
@@ -78,6 +89,13 @@ phase_delta = (1 / 60) / demonstration_duration
 The loader uses the recording's actual timestamps rather than assuming exact
 50 Hz spacing. Joint positions and palm positions use linear interpolation;
 palm orientation uses shortest-path quaternion SLERP.
+
+MI03 derives reference velocities once when the original demonstration is
+loaded; it does not modify or replace the recording. Linear and hand-joint
+velocities use centered finite differences over monotonic timestamps. Angular
+velocity is obtained from shortest-path relative quaternions in the simulation
+world frame. All three signals use a centered triangular smoothing window
+configured by `demonstrationVelocityFilterWindowS` (0.15 s in MI03).
 
 At reset, Reference State Initialization samples a phase according to
 `referenceInitDistribution` and sets the arm and hand joint positions and
@@ -140,6 +158,22 @@ four by setting their scales to zero. An episode ends at phase 1 or early when
 palm position, palm orientation, or hand pose exceeds its configured
 threshold.
 
+MI03 keeps the MI02 pose objective dominant and adds:
+
+```text
+r = 0.8 r_pose + 0.2 r_velocity
+
+r_velocity =
+    0.4 exp(-50.0 ||v_palm - v*_palm||²)
+  + 0.3 exp(- 5.0 ||omega_palm - omega*_palm||²)
+  + 0.3 exp(- 0.2 ||dq_hand - dq*_hand||²)
+```
+
+The palm-center linear velocity includes the rigid offset from the UR palm
+link. Velocity errors are logged but are deliberately not early-termination
+conditions. The observation vector is unchanged: target poses and velocities
+remain implicit in the phase signal.
+
 ## W&B metrics
 
 The task reports the weighted position, orientation, hand-pose, and combined
@@ -151,6 +185,9 @@ imitation rewards, all four action-penalty terms, and total reward under
 Tracking errors and termination causes are reported under `imitation/*`.
 Action and action-delta RMS values, plus the operational-space joint-delta
 clipping fraction, are reported under `control/*`.
+MI03 additionally reports linear velocity error in m/s, angular velocity error
+in rad/s, and hand-joint velocity error in rad/s under `imitation/*`, together
+with the three weighted terms under `reward_step/*`.
 
 ## Interactive evaluation
 

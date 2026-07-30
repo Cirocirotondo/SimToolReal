@@ -97,6 +97,9 @@ class SimToolRealMotionImitation(SimToolReal):
             ee_to_palm_quat_xyzw=tuple(
                 env_cfg.get("demonstrationEeToPalmQuatXyzw", mount_quat_xyzw)
             ),
+            velocity_filter_window_s=float(
+                env_cfg.get("demonstrationVelocityFilterWindowS", 0.0)
+            ),
         )
         reference_q = torch.cat(
             [self.reference.arm_q, self.reference.hand_q], dim=-1
@@ -116,12 +119,15 @@ class SimToolRealMotionImitation(SimToolReal):
             clamped_reference_q[:, self.num_arm_dofs :]
         )
         if clamped_count:
-            hand_velocity = torch.gradient(
-                self.reference.hand_q,
-                spacing=(self.reference.time,),
-                dim=(0,),
-            )[0]
-            self.reference.hand_dq.copy_(hand_velocity)
+            if self.reference.velocity_filter_window_s > 0.0:
+                self.reference.recompute_hand_velocity()
+            else:
+                hand_velocity = torch.gradient(
+                    self.reference.hand_q,
+                    spacing=(self.reference.time,),
+                    dim=(0,),
+                )[0]
+                self.reference.hand_dq.copy_(hand_velocity)
             print(
                 f"Clamped {clamped_count} demonstration joint samples "
                 "to the simulation URDF limits"
@@ -159,6 +165,54 @@ class SimToolRealMotionImitation(SimToolReal):
         if abs(weight_sum - 1.0) > 1e-6:
             raise ValueError("Imitation reward weights must sum to 1")
 
+        self.velocity_tracking_enabled = bool(
+            env_cfg.get("velocityTrackingEnabled", False)
+        )
+        self.pose_imitation_reward_weight = 1.0
+        self.velocity_imitation_reward_weight = 0.0
+        if self.velocity_tracking_enabled:
+            self.pose_imitation_reward_weight = float(
+                env_cfg["poseImitationRewardWeight"]
+            )
+            self.velocity_imitation_reward_weight = float(
+                env_cfg["velocityImitationRewardWeight"]
+            )
+            outer_weight_sum = (
+                self.pose_imitation_reward_weight
+                + self.velocity_imitation_reward_weight
+            )
+            if abs(outer_weight_sum - 1.0) > 1e-6:
+                raise ValueError(
+                    "Pose and velocity imitation reward weights must sum to 1"
+                )
+
+            self.palm_linear_velocity_reward_weight = float(
+                env_cfg["palmLinearVelocityRewardWeight"]
+            )
+            self.palm_angular_velocity_reward_weight = float(
+                env_cfg["palmAngularVelocityRewardWeight"]
+            )
+            self.hand_velocity_reward_weight = float(
+                env_cfg["handVelocityRewardWeight"]
+            )
+            velocity_weight_sum = (
+                self.palm_linear_velocity_reward_weight
+                + self.palm_angular_velocity_reward_weight
+                + self.hand_velocity_reward_weight
+            )
+            if abs(velocity_weight_sum - 1.0) > 1e-6:
+                raise ValueError("Velocity reward weights must sum to 1")
+
+            self.palm_linear_velocity_reward_scale = float(
+                env_cfg["palmLinearVelocityRewardScale"]
+            )
+            self.palm_angular_velocity_reward_scale = float(
+                env_cfg["palmAngularVelocityRewardScale"]
+            )
+            self.hand_velocity_reward_scale = float(
+                env_cfg["handVelocityRewardScale"]
+            )
+
         self.early_termination = bool(env_cfg.get("imitationEarlyTermination", True))
         self.ee_position_termination_distance = float(
             env_cfg["eePositionTerminationDistance"]
@@ -183,6 +237,18 @@ class SimToolRealMotionImitation(SimToolReal):
                 self.rewards_episode[key] = torch.zeros(
                     self.num_envs, dtype=torch.float, device=self.device
                 )
+        if self.velocity_tracking_enabled:
+            for key in (
+                "pose_imitation_reward",
+                "palm_linear_velocity_reward",
+                "palm_angular_velocity_reward",
+                "hand_velocity_reward",
+                "velocity_imitation_reward",
+            ):
+                if key not in self.rewards_episode:
+                    self.rewards_episode[key] = torch.zeros(
+                        self.num_envs, dtype=torch.float, device=self.device
+                    )
         print(
             f"Motion imitation reference: {self.reference.path} "
             f"({self.reference.duration_s:.3f} s, phase delta {self.phase_delta:.8f})"
@@ -398,6 +464,21 @@ class SimToolRealMotionImitation(SimToolReal):
         dot = torch.abs(torch.sum(q * target, dim=-1)).clamp(max=1.0)
         return 2.0 * torch.acos(dot)
 
+    def _palm_center_velocity(self) -> Tuple[Tensor, Tensor]:
+        """Return palm-center linear and angular velocity in world coordinates."""
+        link_linear_velocity = self._palm_state[:, 7:10]
+        angular_velocity = self._palm_state[:, 10:13]
+        world_offset = quat_rotate(
+            self._palm_link_rot,
+            self.palm_center_offset,
+        )
+        center_linear_velocity = link_linear_velocity + torch.cross(
+            angular_velocity,
+            world_offset,
+            dim=-1,
+        )
+        return center_linear_velocity, angular_velocity
+
     def compute_imitation_reward(self) -> Tuple[Tensor, Tensor]:
         ref = self.current_reference
         position_error = torch.linalg.vector_norm(
@@ -417,11 +498,84 @@ class SimToolRealMotionImitation(SimToolReal):
         hand_reward = torch.exp(
             -self.hand_pose_reward_scale * hand_error.square()
         )
-        imitation_reward = (
+        pose_imitation_reward = (
             self.ee_position_reward_weight * position_reward
             + self.ee_rotation_reward_weight * rotation_reward
             + self.hand_pose_reward_weight * hand_reward
         )
+        imitation_reward = pose_imitation_reward
+
+        velocity_components = {}
+        velocity_errors = {}
+        if self.velocity_tracking_enabled:
+            palm_linear_velocity, palm_angular_velocity = (
+                self._palm_center_velocity()
+            )
+            palm_linear_velocity_error = torch.linalg.vector_norm(
+                palm_linear_velocity - ref.palm_lin_vel,
+                dim=-1,
+            )
+            palm_angular_velocity_error = torch.linalg.vector_norm(
+                palm_angular_velocity - ref.palm_ang_vel,
+                dim=-1,
+            )
+            hand_velocity_error = torch.linalg.vector_norm(
+                self.arm_hand_dof_vel[:, self.num_arm_dofs :]
+                - ref.hand_dq,
+                dim=-1,
+            )
+            palm_linear_velocity_reward = torch.exp(
+                -self.palm_linear_velocity_reward_scale
+                * palm_linear_velocity_error.square()
+            )
+            palm_angular_velocity_reward = torch.exp(
+                -self.palm_angular_velocity_reward_scale
+                * palm_angular_velocity_error.square()
+            )
+            hand_velocity_reward = torch.exp(
+                -self.hand_velocity_reward_scale
+                * hand_velocity_error.square()
+            )
+            velocity_imitation_reward = (
+                self.palm_linear_velocity_reward_weight
+                * palm_linear_velocity_reward
+                + self.palm_angular_velocity_reward_weight
+                * palm_angular_velocity_reward
+                + self.hand_velocity_reward_weight
+                * hand_velocity_reward
+            )
+            imitation_reward = (
+                self.pose_imitation_reward_weight * pose_imitation_reward
+                + self.velocity_imitation_reward_weight
+                * velocity_imitation_reward
+            )
+            velocity_components = {
+                "pose_imitation_reward": (
+                    self.pose_imitation_reward_weight
+                    * pose_imitation_reward
+                ),
+                "palm_linear_velocity_reward": (
+                    self.velocity_imitation_reward_weight
+                    * self.palm_linear_velocity_reward_weight
+                    * palm_linear_velocity_reward
+                ),
+                "palm_angular_velocity_reward": (
+                    self.velocity_imitation_reward_weight
+                    * self.palm_angular_velocity_reward_weight
+                    * palm_angular_velocity_reward
+                ),
+                "hand_velocity_reward": (
+                    self.velocity_imitation_reward_weight
+                    * self.hand_velocity_reward_weight
+                    * hand_velocity_reward
+                ),
+                "velocity_imitation_reward": velocity_imitation_reward,
+            }
+            velocity_errors = {
+                "linear_velocity_error_mps": palm_linear_velocity_error,
+                "angular_velocity_error_radps": palm_angular_velocity_error,
+                "hand_velocity_error_radps": hand_velocity_error,
+            }
         arm_actions = self.actions[:, : self.num_arm_dofs]
         hand_actions = self.actions[:, self.num_arm_dofs : self.num_hand_arm_dofs]
         arm_delta = self.action_deltas[:, : self.num_arm_dofs]
@@ -467,10 +621,23 @@ class SimToolRealMotionImitation(SimToolReal):
         self.reset_buf[:] = finished | diverged
         self.reset_goal_buf[:] = False
 
+        pose_component_scale = self.pose_imitation_reward_weight
         components = {
-            "ee_position_reward": self.ee_position_reward_weight * position_reward,
-            "ee_rotation_reward": self.ee_rotation_reward_weight * rotation_reward,
-            "hand_pose_reward": self.hand_pose_reward_weight * hand_reward,
+            "ee_position_reward": (
+                pose_component_scale
+                * self.ee_position_reward_weight
+                * position_reward
+            ),
+            "ee_rotation_reward": (
+                pose_component_scale
+                * self.ee_rotation_reward_weight
+                * rotation_reward
+            ),
+            "hand_pose_reward": (
+                pose_component_scale
+                * self.hand_pose_reward_weight
+                * hand_reward
+            ),
             "imitation_reward": imitation_reward,
             "kuka_actions_penalty": arm_action_penalty,
             "hand_actions_penalty": hand_action_penalty,
@@ -479,6 +646,7 @@ class SimToolRealMotionImitation(SimToolReal):
             "total_reward": reward,
             "episode_steps": torch.ones_like(reward),
         }
+        components.update(velocity_components)
         for name, value in components.items():
             self.rewards_episode[name] += value
         self.extras["rewards_episode"] = self.rewards_episode
@@ -488,6 +656,8 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["imitation/position_error_m"] = position_error.mean()
         self.extras["imitation/rotation_error_rad"] = rotation_error.mean()
         self.extras["imitation/hand_error_rad"] = hand_error.mean()
+        for name, value in velocity_errors.items():
+            self.extras[f"imitation/{name}"] = value.mean()
         self.extras["imitation/phase"] = self.phase.mean()
         self.extras["imitation/early_termination_fraction"] = diverged.float().mean()
         self.extras["imitation/completion_fraction"] = finished.float().mean()

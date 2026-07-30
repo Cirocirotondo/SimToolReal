@@ -39,6 +39,7 @@ _TRAINING_PRESETS = (
     "motion_imitation_mi00",
     "motion_imitation_mi01",
     "motion_imitation_mi02",
+    "motion_imitation_mi03",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -104,6 +105,7 @@ class LaunchTrainingArgs:
         "motion_imitation_mi00",
         "motion_imitation_mi01",
         "motion_imitation_mi02",
+        "motion_imitation_mi03",
     ] = "default"
     """Select the named training preset.
 
@@ -112,8 +114,9 @@ class LaunchTrainingArgs:
     operational-space arm actions, D3-D5 add curated reference-state
     initialization, and D6 adapts the task to the 20 x 9 x 9 cm dumbbell.
     MotionImitation is the legacy DeepMimic-style preset. MI00 is the original
-    adaptive-PPO baseline, MI01 keeps the same task with fixed-LR PPO, and MI02
-    adds triangular phase RSI, no action penalties, and linear LR decay.
+    adaptive-PPO baseline, MI01 keeps the same task with fixed-LR PPO, MI02
+    adds triangular phase RSI, no action penalties, and linear LR decay, and
+    MI03 augments MI02 with filtered reference-velocity tracking.
     The remaining names preserve the established cube and hand-only
     curricula.
     """
@@ -263,6 +266,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi00": "SimToolRealMotionImitationMI00",
         "motion_imitation_mi01": "SimToolRealMotionImitationMI00",
         "motion_imitation_mi02": "SimToolRealMotionImitationMI02",
+        "motion_imitation_mi03": "SimToolRealMotionImitationMI03",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -300,6 +304,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi00",
         "motion_imitation_mi01",
         "motion_imitation_mi02",
+        "motion_imitation_mi03",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
@@ -315,12 +320,14 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi00",
         "motion_imitation_mi01",
         "motion_imitation_mi02",
+        "motion_imitation_mi03",
     }
     auto_ppo_presets = {
         "train_b7",
         "motion_imitation_mi00",
         "motion_imitation_mi01",
         "motion_imitation_mi02",
+        "motion_imitation_mi03",
     }
     use_sapg = args.algorithm == "sapg" or (
         args.algorithm == "auto"
@@ -367,6 +374,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi00": "SimToolRealMotionImitationMI00PPO",
         "motion_imitation_mi01": "SimToolRealMotionImitationMI01PPO",
         "motion_imitation_mi02": "SimToolRealMotionImitationMI02PPO",
+        "motion_imitation_mi03": "SimToolRealMotionImitationMI03PPO",
     }
     train_profile = motion_imitation_train_profiles.get(args.training_preset)
     if train_profile is not None:

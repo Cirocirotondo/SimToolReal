@@ -1,0 +1,32 @@
+# MI03: MI02 pose tracking augmented with filtered velocity tracking.
+defaults:
+  - SimToolRealMotionImitationMI02
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  velocityTrackingEnabled: True
+
+  # Derive targets once at load time using monotonic timestamps, centered
+  # finite differences, quaternion unwrapping, and a zero-phase triangular
+  # smoothing window. The raw demonstration remains unchanged.
+  demonstrationVelocityFilterWindowS: 0.15
+
+  # Preserve the successful MI02 pose objective as the dominant component.
+  poseImitationRewardWeight: 0.8
+  velocityImitationRewardWeight: 0.2
+
+  # Relative weights within the velocity objective.
+  palmLinearVelocityRewardWeight: 0.4
+  palmAngularVelocityRewardWeight: 0.3
+  handVelocityRewardWeight: 0.3
+
+  # exp(-scale * ||velocity_error||^2). These correspond to exp(-1)
+  # errors of about 0.14 m/s, 0.45 rad/s, and 2.24 rad/s respectively.
+  palmLinearVelocityRewardScale: 50.0
+  palmAngularVelocityRewardScale: 5.0
+  handVelocityRewardScale: 0.2
+
+  # Reference velocities are reward targets only. The policy continues to
+  # infer the complete reference motion from the scalar phase observation.

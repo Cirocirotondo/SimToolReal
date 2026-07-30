@@ -1,0 +1,8 @@
+# MI03: velocity-tracking task with the successful MI02 PPO profile.
+defaults:
+  - SimToolRealMotionImitationMI02PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI03PPO,${....experiment}}

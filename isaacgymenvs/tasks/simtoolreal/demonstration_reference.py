@@ -86,6 +86,86 @@ def _normalize_quaternions(quaternions: np.ndarray) -> np.ndarray:
     return quaternions / norms
 
 
+def _smooth_signal(
+    values: np.ndarray,
+    timestamps: np.ndarray,
+    window_s: float,
+) -> np.ndarray:
+    """Apply a centered triangular filter without shifting the trajectory."""
+    if window_s <= 0.0 or len(values) < 3:
+        return values.astype(np.float32, copy=False)
+    median_dt = float(np.median(np.diff(timestamps)))
+    window_samples = max(3, int(round(window_s / median_dt)))
+    if window_samples % 2 == 0:
+        window_samples += 1
+    largest_odd_window = len(values) if len(values) % 2 else len(values) - 1
+    window_samples = min(window_samples, largest_odd_window)
+    if window_samples < 3:
+        return values.astype(np.float32, copy=False)
+
+    half = window_samples // 2
+    ramp = np.arange(1, half + 2, dtype=np.float64)
+    kernel = np.concatenate([ramp, ramp[-2::-1]])
+    kernel /= kernel.sum()
+    padded = np.pad(values, ((half, half), (0, 0)), mode="edge")
+    smoothed = np.stack(
+        [
+            np.convolve(padded[:, column], kernel, mode="valid")
+            for column in range(values.shape[1])
+        ],
+        axis=-1,
+    )
+    return smoothed.astype(np.float32)
+
+
+def _filtered_derivative(
+    values: np.ndarray,
+    timestamps: np.ndarray,
+    window_s: float,
+) -> np.ndarray:
+    derivative = np.gradient(values, timestamps, axis=0)
+    return _smooth_signal(derivative, timestamps, window_s)
+
+
+def _quaternion_angular_velocity_xyzw(
+    quaternions: np.ndarray,
+    timestamps: np.ndarray,
+    window_s: float,
+) -> np.ndarray:
+    """Differentiate orientations into world-frame angular velocities."""
+    continuous = _normalize_quaternions(quaternions).copy()
+    for index in range(1, len(continuous)):
+        if np.dot(continuous[index - 1], continuous[index]) < 0.0:
+            continuous[index] *= -1.0
+
+    angular_velocity = np.empty((len(continuous), 3), dtype=np.float64)
+    for index in range(len(continuous)):
+        lower = max(index - 1, 0)
+        upper = min(index + 1, len(continuous) - 1)
+        delta = _quat_multiply_xyzw(
+            continuous[upper : upper + 1],
+            np.concatenate(
+                [
+                    -continuous[lower : lower + 1, :3],
+                    continuous[lower : lower + 1, 3:4],
+                ],
+                axis=-1,
+            ),
+        )[0]
+        if delta[3] < 0.0:
+            delta *= -1.0
+        vector_norm = float(np.linalg.norm(delta[:3]))
+        if vector_norm < 1e-8:
+            rotation_vector = 2.0 * delta[:3]
+        else:
+            angle = 2.0 * np.arctan2(vector_norm, delta[3])
+            rotation_vector = delta[:3] * (angle / vector_norm)
+        angular_velocity[index] = rotation_vector / (
+            timestamps[upper] - timestamps[lower]
+        )
+    return _smooth_signal(angular_velocity, timestamps, window_s)
+
+
 @dataclass(frozen=True)
 class ReferenceSample:
     arm_q: torch.Tensor
@@ -94,6 +174,8 @@ class ReferenceSample:
     hand_dq: torch.Tensor
     palm_pos: torch.Tensor
     palm_quat_xyzw: torch.Tensor
+    palm_lin_vel: torch.Tensor
+    palm_ang_vel: torch.Tensor
 
 
 class DemonstrationReference:
@@ -109,7 +191,11 @@ class DemonstrationReference:
         world_position_offset_m: tuple[float, float, float] = (0.0, 0.6, 0.0),
         ee_to_palm_offset_m: tuple[float, float, float] = (0.0, 0.0, 0.16),
         ee_to_palm_quat_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
+        velocity_filter_window_s: float = 0.0,
     ) -> None:
+        self.velocity_filter_window_s = float(velocity_filter_window_s)
+        if self.velocity_filter_window_s < 0.0:
+            raise ValueError("velocity_filter_window_s must be non-negative")
         self.path = resolve_demonstration(path_or_name)
         with np.load(self.path, allow_pickle=False) as data:
             arm_q = np.asarray(data["arm_q"], dtype=np.float32)
@@ -119,6 +205,12 @@ class DemonstrationReference:
             valid_key = f"{hand_key}_valid"
             hand_q = np.asarray(data[hand_key], dtype=np.float32)
             timestamps = np.asarray(data["timestamp"], dtype=np.float64)
+            derivative_timestamps = np.asarray(
+                data["monotonic_timestamp"]
+                if "monotonic_timestamp" in data
+                else timestamps,
+                dtype=np.float64,
+            )
             if valid_key in data and not np.all(data[valid_key]):
                 invalid = np.flatnonzero(~np.asarray(data[valid_key], dtype=bool))
                 raise ValueError(
@@ -140,10 +232,21 @@ class DemonstrationReference:
         }.items():
             if array.shape != shape or not np.all(np.isfinite(array)):
                 raise ValueError(f"Invalid {name}: expected finite {shape}, got {array.shape}")
-        if count < 2 or not np.all(np.diff(timestamps) > 0):
+        if (
+            count < 2
+            or derivative_timestamps.shape != (count,)
+            or not np.all(np.isfinite(derivative_timestamps))
+            or not np.all(np.diff(derivative_timestamps) > 0)
+        ):
+            raise ValueError(
+                "Demonstration derivative timestamps must be finite and "
+                "strictly increasing"
+            )
+        if not np.all(np.isfinite(timestamps)) or not np.all(np.diff(timestamps) > 0):
             raise ValueError("Demonstration timestamps must be finite and strictly increasing")
 
         relative_time = timestamps - timestamps[0]
+        derivative_time = derivative_timestamps - derivative_timestamps[0]
         self.duration_s = float(relative_time[-1])
         if self.duration_s <= 0:
             raise ValueError("Demonstration duration must be positive")
@@ -174,7 +277,21 @@ class DemonstrationReference:
             sim_ee_quat, np.broadcast_to(palm_offset, sim_ee_pos.shape)
         )
 
-        hand_dq = np.gradient(hand_q, relative_time, axis=0).astype(np.float32)
+        hand_dq = _filtered_derivative(
+            hand_q,
+            derivative_time,
+            self.velocity_filter_window_s,
+        )
+        palm_lin_vel = _filtered_derivative(
+            palm_pos,
+            derivative_time,
+            self.velocity_filter_window_s,
+        )
+        palm_ang_vel = _quaternion_angular_velocity_xyzw(
+            palm_quat,
+            derivative_time,
+            self.velocity_filter_window_s,
+        )
         self.time = torch.as_tensor(relative_time, dtype=torch.float32, device=device)
         self.arm_q = torch.as_tensor(arm_q, device=device)
         self.arm_dq = torch.as_tensor(arm_dq, device=device)
@@ -182,6 +299,25 @@ class DemonstrationReference:
         self.hand_dq = torch.as_tensor(hand_dq, device=device)
         self.palm_pos = torch.as_tensor(palm_pos, dtype=torch.float32, device=device)
         self.palm_quat = torch.as_tensor(palm_quat, dtype=torch.float32, device=device)
+        self.palm_lin_vel = torch.as_tensor(
+            palm_lin_vel, dtype=torch.float32, device=device
+        )
+        self.palm_ang_vel = torch.as_tensor(
+            palm_ang_vel, dtype=torch.float32, device=device
+        )
+
+    def recompute_hand_velocity(self) -> None:
+        """Refresh filtered hand velocities after joint-limit clamping."""
+        hand_q = self.hand_q.detach().cpu().numpy()
+        timestamps = self.time.detach().cpu().numpy().astype(np.float64)
+        hand_dq = _filtered_derivative(
+            hand_q,
+            timestamps,
+            self.velocity_filter_window_s,
+        )
+        self.hand_dq.copy_(
+            torch.as_tensor(hand_dq, dtype=self.hand_dq.dtype, device=self.hand_dq.device)
+        )
 
     @staticmethod
     def _slerp(q0: torch.Tensor, q1: torch.Tensor, alpha: torch.Tensor) -> torch.Tensor:
@@ -221,4 +357,6 @@ class DemonstrationReference:
             palm_quat_xyzw=self._slerp(
                 self.palm_quat[lower], self.palm_quat[upper], alpha
             ),
+            palm_lin_vel=lerp(self.palm_lin_vel),
+            palm_ang_vel=lerp(self.palm_ang_vel),
         )

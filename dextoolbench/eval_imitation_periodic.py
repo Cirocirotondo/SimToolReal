@@ -222,7 +222,7 @@ def evaluate(
         for actual, target in zip(initial_robot_q, initial_reference_q)
     )
 
-    component_names = (
+    component_names = [
         "ee_position_reward",
         "ee_rotation_reward",
         "hand_pose_reward",
@@ -232,13 +232,56 @@ def evaluate(
         "arm_action_delta_penalty",
         "hand_action_delta_penalty",
         "total_reward",
-    )
+    ]
+    if env.velocity_tracking_enabled:
+        component_names.extend(
+            [
+                "pose_imitation_reward",
+                "palm_linear_velocity_reward",
+                "palm_angular_velocity_reward",
+                "hand_velocity_reward",
+                "velocity_imitation_reward",
+            ]
+        )
     component_sums = {name: 0.0 for name in component_names}
     errors: Dict[str, List[float]] = {
         "position_error_m": [],
         "rotation_error_rad": [],
         "hand_error_rad": [],
     }
+    initial_velocity_errors: Dict[str, float] = {}
+    if env.velocity_tracking_enabled:
+        palm_linear_velocity, palm_angular_velocity = (
+            env._palm_center_velocity()
+        )
+        initial_velocity_errors = {
+            "initial_linear_velocity_error_mps": float(
+                torch.linalg.vector_norm(
+                    palm_linear_velocity - initial_reference.palm_lin_vel,
+                    dim=-1,
+                )[0].item()
+            ),
+            "initial_angular_velocity_error_radps": float(
+                torch.linalg.vector_norm(
+                    palm_angular_velocity - initial_reference.palm_ang_vel,
+                    dim=-1,
+                )[0].item()
+            ),
+            "initial_hand_velocity_error_radps": float(
+                torch.linalg.vector_norm(
+                    env.arm_hand_dof_vel[:, env.num_arm_dofs :]
+                    - initial_reference.hand_dq,
+                    dim=-1,
+                )[0].item()
+            ),
+        }
+        errors.update(
+            {
+                "linear_velocity_error_mps": [],
+                "angular_velocity_error_radps": [],
+                "hand_velocity_error_radps": [],
+            }
+        )
     frames = [_capture_frame(env)]
     max_abs_action = 0.0
     first_threshold_violation_step: Optional[int] = None
@@ -263,6 +306,13 @@ def evaluate(
         errors["hand_error_rad"].append(
             _scalar(extras["imitation/hand_error_rad"])
         )
+        if env.velocity_tracking_enabled:
+            for name in (
+                "linear_velocity_error_mps",
+                "angular_velocity_error_radps",
+                "hand_velocity_error_radps",
+            ):
+                errors[name].append(_scalar(extras[f"imitation/{name}"]))
         if first_threshold_violation_step is None:
             threshold_reasons = []
             if (
@@ -331,6 +381,7 @@ def evaluate(
         "max_abs_action": max_abs_action,
         "video_path": str(video_path),
     }
+    metrics.update(initial_velocity_errors)
     for name, total in component_sums.items():
         metrics[f"{name}_sum"] = total
         metrics[f"{name}_mean"] = total / max(step, 1)
