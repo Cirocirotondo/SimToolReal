@@ -176,8 +176,29 @@ class A2CBase(BaseAlgorithm):
             self.scheduler = schedulers.AdaptiveScheduler(self.kl_threshold)
 
         elif self.linear_lr:
-            
-            if self.max_epochs == -1 and self.max_frames == -1:
+
+            # The LR schedule horizon does not have to be a training stop
+            # condition. This is useful for long-running jobs which should
+            # anneal to a floor and then continue until interrupted manually.
+            lr_schedule_max_epochs = config.get(
+                'lr_schedule_max_epochs', None
+            )
+            if lr_schedule_max_epochs is not None:
+                lr_schedule_max_epochs = int(lr_schedule_max_epochs)
+                if lr_schedule_max_epochs <= 0:
+                    raise ValueError(
+                        'lr_schedule_max_epochs must be positive'
+                    )
+                self.scheduler = schedulers.LinearScheduler(
+                    float(config['learning_rate']),
+                    max_steps=lr_schedule_max_epochs,
+                    use_epochs=True,
+                    apply_to_entropy=config.get(
+                        'schedule_entropy', False
+                    ),
+                    start_entropy_coef=config.get('entropy_coef'),
+                )
+            elif self.max_epochs == -1 and self.max_frames == -1:
                 print("Max epochs and max frames are not set. Linear learning rate schedule can't be used, switching to the contstant (identity) one.")
                 self.scheduler = schedulers.IdentityScheduler()
             else:

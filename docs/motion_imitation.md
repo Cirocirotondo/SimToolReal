@@ -23,13 +23,13 @@ and periodic video capture are enabled by default. The default W&B project is
 `simtoolreal`, the entity is `simonecirelli-eth`, and the group is
 `motion_imitation`. The `motion_imitation_mi02` PPO preset linearly anneals
 the learning rate from `5e-5` to the rl_games floor of `1e-6` over 6000
-epochs. It samples RSI phase from a triangular distribution on `[0, 1]` with
-its mode at zero, and sets the arm/hand action and action-delta penalty scales
-to zero. The expected initial phase is therefore `1/3`, instead of `1/2` for
-uniform RSI. The command uses 4800 parallel environments and a rollout horizon
-of 16 steps, yielding a 76800-sample rollout and minibatch. The launcher
-appends a timestamp to the experiment name and creates its output directory
-automatically.
+epochs, then continues at that floor until it is interrupted manually. It
+samples RSI phase from a triangular distribution on `[0, 1]` with its mode at
+zero, and sets the arm/hand action and action-delta penalty scales to zero. The
+expected initial phase is therefore `1/3`, instead of `1/2` for uniform RSI.
+The command uses 4800 parallel environments and a rollout horizon of 16 steps,
+yielding a 76800-sample rollout and minibatch. The launcher appends a timestamp
+to the experiment name and creates its output directory automatically.
 
 The legacy `motion_imitation` preset remains available so existing commands
 continue to work.
@@ -44,7 +44,7 @@ optimization. A preset selects one of each.
 | --- | --- | --- | --- |
 | `MI00` | Robot-only baseline, uniform RSI, original penalties | Original adaptive LR | `motion_imitation_mi00` |
 | `MI01` | Same `MI00` task | Fixed LR `5e-5` | `motion_imitation_mi01` |
-| `MI02` | Triangular RSI, action penalties disabled | Linear `5e-5` to `1e-6`, 6000 epochs | `motion_imitation_mi02` |
+| `MI02` | Triangular RSI, action penalties disabled | Linear `5e-5` to `1e-6` over 6000 epochs, then manual stop | `motion_imitation_mi02` |
 
 `MI0x` is reserved for robot-only imitation. `MI1x` will be used for the
 object-tracking generation, beginning with grounded-only RSI. The launcher

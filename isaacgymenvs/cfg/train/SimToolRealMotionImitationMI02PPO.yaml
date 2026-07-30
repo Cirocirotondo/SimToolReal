@@ -10,6 +10,8 @@ params:
     learning_rate: 5e-5
     lr_schedule: linear
     schedule_type: standard
-    max_epochs: 6000
-    # Use epochs, rather than the inherited frame limit, as the scheduler clock.
+    # Decay to the rl_games 1e-6 floor over 6000 epochs, then keep training at
+    # that floor until the user interrupts the process.
+    lr_schedule_max_epochs: 6000
+    max_epochs: -1
     max_frames: -1
