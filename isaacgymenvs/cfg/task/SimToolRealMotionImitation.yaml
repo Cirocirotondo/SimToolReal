@@ -107,8 +107,9 @@ env:
   disableObjectSimulation: False
   randomizeObjectRotation: False
 
-  # The table is 0.30 m thick: center z=-0.18 puts its surface at z=-0.03.
-  tableResetZ: -0.18
+  # The table is 0.30 m thick: center z=-0.20 puts its surface at z=-0.05.
+  tableSurfaceZ: -0.05
+  tableResetZ: -0.20
   tableResetZRange: 0.0
 
   # Domain Randomization is disabled for this imitation task

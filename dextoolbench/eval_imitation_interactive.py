@@ -362,10 +362,11 @@ class ImitationInteractiveDemo:
             float(env_cfg.get("robotBaseY", 0.6)),
             0.0,
         )
+        table_surface_z = float(env_cfg.get("tableSurfaceZ", -0.05))
         self.table_center = (
             0.0,
             self.robot_base[1] + float(env_cfg.get("tablePoseDy", -0.6)),
-            float(env_cfg.get("tableResetZ", -0.18)),
+            table_surface_z - TABLE_SIZE[2] / 2.0,
         )
 
         self.server = viser.ViserServer(host="0.0.0.0", port=port)
