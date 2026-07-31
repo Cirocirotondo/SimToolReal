@@ -1,0 +1,23 @@
+# MI04: MI03 velocity tracking with matched temporal estimates and smoother control.
+defaults:
+  - SimToolRealMotionImitationMI03
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Estimate both simulated and reference velocities from pose differences
+  # over the same five control steps (5 / 60 s). This suppresses instantaneous
+  # PhysX velocity noise without changing the stored demonstration.
+  velocityTrackingWindowSteps: 5
+
+  # After a reset, move 20% of the objective from pose to velocity over five
+  # control steps. The pose/velocity weights always sum to one.
+  velocityRewardWarmupSteps: 5
+
+  # Penalize command changes, but do not penalize the sustained nonzero
+  # commands required to follow a moving reference.
+  kukaActionsPenaltyScale: 0.0
+  handActionsPenaltyScale: 0.0
+  armActionDeltaPenaltyScale: 0.001
+  handActionDeltaPenaltyScale: 0.0001

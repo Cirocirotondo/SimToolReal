@@ -1,0 +1,12 @@
+# MI05: MI04 with stronger action-delta regularization.
+defaults:
+  - SimToolRealMotionImitationMI04
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Three times the MI04 coefficients. Absolute action penalties remain zero,
+  # so sustained commands are not discouraged.
+  armActionDeltaPenaltyScale: 0.003
+  handActionDeltaPenaltyScale: 0.0003

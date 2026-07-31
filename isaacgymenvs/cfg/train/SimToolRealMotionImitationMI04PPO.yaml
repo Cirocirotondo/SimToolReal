@@ -1,0 +1,8 @@
+# MI04: matched-window velocity task with the successful MI02 PPO profile.
+defaults:
+  - SimToolRealMotionImitationMI03PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI04PPO,${....experiment}}

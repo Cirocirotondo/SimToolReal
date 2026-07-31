@@ -86,6 +86,9 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         )
     )
     phase = float(env.phase[0].item())
+    velocity_tracking_enabled = bool(
+        getattr(env, "velocity_tracking_enabled", False)
+    )
     metrics = {
         "position_error_m": _scalar(
             extras.get("imitation/position_error_m", 0.0)
@@ -96,9 +99,29 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "hand_error_rad": _scalar(
             extras.get("imitation/hand_error_rad", 0.0)
         ),
+        "linear_velocity_error_mps": _scalar(
+            extras.get("imitation/linear_velocity_error_mps", 0.0)
+        ),
+        "angular_velocity_error_radps": _scalar(
+            extras.get("imitation/angular_velocity_error_radps", 0.0)
+        ),
+        "hand_velocity_error_radps": _scalar(
+            extras.get("imitation/hand_velocity_error_radps", 0.0)
+        ),
         "ee_position_reward": _component(extras, "ee_position_reward"),
         "ee_rotation_reward": _component(extras, "ee_rotation_reward"),
         "hand_pose_reward": _component(extras, "hand_pose_reward"),
+        "pose_imitation_reward": _component(extras, "pose_imitation_reward"),
+        "palm_linear_velocity_reward": _component(
+            extras, "palm_linear_velocity_reward"
+        ),
+        "palm_angular_velocity_reward": _component(
+            extras, "palm_angular_velocity_reward"
+        ),
+        "hand_velocity_reward": _component(extras, "hand_velocity_reward"),
+        "velocity_imitation_reward": _component(
+            extras, "velocity_imitation_reward"
+        ),
         "imitation_reward": _component(extras, "imitation_reward"),
         "action_penalty": sum(
             _component(extras, key)
@@ -117,6 +140,7 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "phase": phase,
         "time_s": phase * env.reference.duration_s,
         "duration_s": env.reference.duration_s,
+        "velocity_tracking_enabled": velocity_tracking_enabled,
         "metrics": metrics,
     }
 
@@ -519,6 +543,16 @@ class ImitationInteractiveDemo:
             f"**Orientation:** {np.degrees(metrics['rotation_error_rad']):.2f}°  \n"
             f"**Hand L2:** {metrics['hand_error_rad']:.3f} rad"
         )
+        if state["velocity_tracking_enabled"]:
+            self._errors.content += (
+                "  \n"
+                f"**Palm linear velocity L2:** "
+                f"{metrics['linear_velocity_error_mps']:.3f} m/s  \n"
+                f"**Palm angular velocity L2:** "
+                f"{metrics['angular_velocity_error_radps']:.3f} rad/s  \n"
+                f"**Hand velocity L2:** "
+                f"{metrics['hand_velocity_error_radps']:.3f} rad/s"
+            )
         self._rewards.content = (
             f"**Step reward:** {metrics['total_reward']:.4f} "
             f"(imitation {metrics['imitation_reward']:.4f}, "
@@ -526,8 +560,25 @@ class ImitationInteractiveDemo:
             f"Position {metrics['ee_position_reward']:.4f} &nbsp;|&nbsp; "
             f"Rotation {metrics['ee_rotation_reward']:.4f} &nbsp;|&nbsp; "
             f"Hand {metrics['hand_pose_reward']:.4f}  \n"
-            f"**Episode return:** {episode_return:.2f}"
         )
+        if state["velocity_tracking_enabled"]:
+            velocity_contribution = (
+                metrics["palm_linear_velocity_reward"]
+                + metrics["palm_angular_velocity_reward"]
+                + metrics["hand_velocity_reward"]
+            )
+            self._rewards.content += (
+                f"Palm linear velocity "
+                f"{metrics['palm_linear_velocity_reward']:.4f} "
+                f"&nbsp;|&nbsp; Palm angular velocity "
+                f"{metrics['palm_angular_velocity_reward']:.4f} "
+                f"&nbsp;|&nbsp; Hand velocity "
+                f"{metrics['hand_velocity_reward']:.4f}  \n"
+                f"Pose contribution {metrics['pose_imitation_reward']:.4f} "
+                f"&nbsp;|&nbsp; Velocity contribution "
+                f"{velocity_contribution:.4f}  \n"
+            )
+        self._rewards.content += f"**Episode return:** {episode_return:.2f}"
 
     def _handle(self, message) -> None:
         tag = message[0]

@@ -15,7 +15,13 @@ from isaacgymenvs.tasks.simtoolreal.demonstration_reference import (
     sample_reference_phases,
 )
 from isaacgymenvs.tasks.simtoolreal.env import SimToolReal
-from isaacgymenvs.utils.torch_jit_utils import quat_rotate, tensor_clamp, unscale
+from isaacgymenvs.utils.torch_jit_utils import (
+    quat_conjugate,
+    quat_mul,
+    quat_rotate,
+    tensor_clamp,
+    unscale,
+)
 
 
 class SimToolRealMotionImitation(SimToolReal):
@@ -212,6 +218,20 @@ class SimToolRealMotionImitation(SimToolReal):
             self.hand_velocity_reward_scale = float(
                 env_cfg["handVelocityRewardScale"]
             )
+            self.velocity_tracking_window_steps = int(
+                env_cfg.get("velocityTrackingWindowSteps", 0)
+            )
+            self.velocity_reward_warmup_steps = int(
+                env_cfg.get("velocityRewardWarmupSteps", 0)
+            )
+            if self.velocity_tracking_window_steps < 0:
+                raise ValueError(
+                    "velocityTrackingWindowSteps must be non-negative"
+                )
+            if self.velocity_reward_warmup_steps < 0:
+                raise ValueError(
+                    "velocityRewardWarmupSteps must be non-negative"
+                )
 
         self.early_termination = bool(env_cfg.get("imitationEarlyTermination", True))
         self.ee_position_termination_distance = float(
@@ -225,6 +245,37 @@ class SimToolRealMotionImitation(SimToolReal):
         # first pre-physics step; the base OSC does not require this state.
         self.populate_sim_buffers()
         self.current_reference: ReferenceSample = self.reference.sample(self.phase)
+        if self.velocity_tracking_enabled:
+            self.velocity_reward_age = torch.zeros(
+                self.num_envs, dtype=torch.long, device=self.device
+            )
+        if (
+            self.velocity_tracking_enabled
+            and self.velocity_tracking_window_steps > 0
+        ):
+            history_shape = (
+                self.num_envs,
+                self.velocity_tracking_window_steps,
+            )
+            self.velocity_history_palm_pos = torch.zeros(
+                *history_shape, 3, dtype=torch.float, device=self.device
+            )
+            self.velocity_history_palm_quat = torch.zeros(
+                *history_shape, 4, dtype=torch.float, device=self.device
+            )
+            self.velocity_history_hand_q = torch.zeros(
+                *history_shape,
+                self.num_hand_dofs,
+                dtype=torch.float,
+                device=self.device,
+            )
+            self.velocity_history_valid = torch.zeros(
+                self.num_envs, dtype=torch.bool, device=self.device
+            )
+            self.velocity_history_age = torch.zeros(
+                self.num_envs, dtype=torch.long, device=self.device
+            )
+            self.velocity_history_cursor = 0
 
         for key in (
             "ee_position_reward",
@@ -375,6 +426,11 @@ class SimToolRealMotionImitation(SimToolReal):
         self.cur_targets[env_ids, : self.num_hand_arm_dofs] = robot_pos
         self.prev_penalized_actions[env_ids] = 0.0
         self.action_deltas[env_ids] = 0.0
+        if hasattr(self, "velocity_history_valid"):
+            self.velocity_history_valid[env_ids] = False
+            self.velocity_history_age[env_ids] = 0
+        if hasattr(self, "velocity_reward_age"):
+            self.velocity_reward_age[env_ids] = 0
 
         robot_indices = self.robot_indices[env_ids].to(torch.int32)
         self.gym.set_dof_position_target_tensor_indexed(
@@ -479,6 +535,125 @@ class SimToolRealMotionImitation(SimToolReal):
         )
         return center_linear_velocity, angular_velocity
 
+    @staticmethod
+    def _quaternion_interval_angular_velocity(
+        current: Tensor,
+        previous: Tensor,
+        interval_s: Tensor,
+    ) -> Tensor:
+        """Return shortest-path world-frame angular velocity over an interval."""
+        delta = quat_mul(current, quat_conjugate(previous))
+        delta = torch.where(delta[:, 3:4] < 0.0, -delta, delta)
+        vector = delta[:, :3]
+        vector_norm = torch.linalg.vector_norm(vector, dim=-1, keepdim=True)
+        angle = 2.0 * torch.atan2(
+            vector_norm,
+            delta[:, 3:4].clamp(min=0.0),
+        )
+        rotation_vector = torch.where(
+            vector_norm > 1e-8,
+            vector * (angle / vector_norm.clamp(min=1e-8)),
+            2.0 * vector,
+        )
+        return rotation_vector / interval_s.unsqueeze(-1)
+
+    def _matched_window_velocities(
+        self,
+        ref: ReferenceSample,
+    ) -> Tuple[Tensor, Tensor, Tensor, Tensor, Tensor, Tensor]:
+        """Estimate simulated and reference velocities over the same interval."""
+        cursor = self.velocity_history_cursor
+        invalid = ~self.velocity_history_valid
+        self.velocity_history_palm_pos[invalid] = self.palm_center_pos[
+            invalid
+        ].unsqueeze(1)
+        self.velocity_history_palm_quat[invalid] = self._palm_rot[
+            invalid
+        ].unsqueeze(1)
+        self.velocity_history_hand_q[invalid] = self.arm_hand_dof_pos[
+            invalid, self.num_arm_dofs : self.num_hand_arm_dofs
+        ].unsqueeze(1)
+        self.velocity_history_valid[invalid] = True
+
+        previous_palm_pos = self.velocity_history_palm_pos[:, cursor]
+        previous_palm_quat = self.velocity_history_palm_quat[:, cursor]
+        previous_hand_q = self.velocity_history_hand_q[:, cursor]
+        interval_steps = self.velocity_history_age.clamp(
+            max=self.velocity_tracking_window_steps
+        )
+        safe_interval_s = (
+            interval_steps.clamp(min=1).to(dtype=torch.float) * self.dt
+        )
+
+        palm_linear_velocity = (
+            self.palm_center_pos - previous_palm_pos
+        ) / safe_interval_s.unsqueeze(-1)
+        palm_angular_velocity = self._quaternion_interval_angular_velocity(
+            self._palm_rot,
+            previous_palm_quat,
+            safe_interval_s,
+        )
+        hand_velocity = (
+            self.arm_hand_dof_pos[
+                :, self.num_arm_dofs : self.num_hand_arm_dofs
+            ]
+            - previous_hand_q
+        ) / safe_interval_s.unsqueeze(-1)
+
+        previous_phase = (
+            self.phase
+            - interval_steps.to(dtype=self.phase.dtype) * self.phase_delta
+        ).clamp(min=0.0)
+        previous_ref = self.reference.sample(previous_phase)
+        reference_linear_velocity = (
+            ref.palm_pos - previous_ref.palm_pos
+        ) / safe_interval_s.unsqueeze(-1)
+        reference_angular_velocity = (
+            self._quaternion_interval_angular_velocity(
+                ref.palm_quat_xyzw,
+                previous_ref.palm_quat_xyzw,
+                safe_interval_s,
+            )
+        )
+        reference_hand_velocity = (
+            ref.hand_q - previous_ref.hand_q
+        ) / safe_interval_s.unsqueeze(-1)
+
+        # The first post-reset sample has no elapsed interval on either side.
+        no_history = interval_steps == 0
+        for velocity in (
+            palm_linear_velocity,
+            palm_angular_velocity,
+            hand_velocity,
+            reference_linear_velocity,
+            reference_angular_velocity,
+            reference_hand_velocity,
+        ):
+            velocity[no_history] = 0.0
+
+        self.velocity_history_palm_pos[:, cursor].copy_(self.palm_center_pos)
+        self.velocity_history_palm_quat[:, cursor].copy_(self._palm_rot)
+        self.velocity_history_hand_q[:, cursor].copy_(
+            self.arm_hand_dof_pos[
+                :, self.num_arm_dofs : self.num_hand_arm_dofs
+            ]
+        )
+        self.velocity_history_age.add_(1).clamp_(
+            max=self.velocity_tracking_window_steps
+        )
+        self.velocity_history_cursor = (
+            cursor + 1
+        ) % self.velocity_tracking_window_steps
+
+        return (
+            palm_linear_velocity,
+            palm_angular_velocity,
+            hand_velocity,
+            reference_linear_velocity,
+            reference_angular_velocity,
+            reference_hand_velocity,
+        )
+
     def compute_imitation_reward(self) -> Tuple[Tensor, Tensor]:
         ref = self.current_reference
         position_error = torch.linalg.vector_norm(
@@ -507,21 +682,37 @@ class SimToolRealMotionImitation(SimToolReal):
 
         velocity_components = {}
         velocity_errors = {}
+        pose_component_scale = torch.ones_like(pose_imitation_reward)
         if self.velocity_tracking_enabled:
-            palm_linear_velocity, palm_angular_velocity = (
-                self._palm_center_velocity()
-            )
+            if self.velocity_tracking_window_steps > 0:
+                (
+                    palm_linear_velocity,
+                    palm_angular_velocity,
+                    hand_velocity,
+                    reference_linear_velocity,
+                    reference_angular_velocity,
+                    reference_hand_velocity,
+                ) = self._matched_window_velocities(ref)
+            else:
+                palm_linear_velocity, palm_angular_velocity = (
+                    self._palm_center_velocity()
+                )
+                hand_velocity = self.arm_hand_dof_vel[
+                    :, self.num_arm_dofs :
+                ]
+                reference_linear_velocity = ref.palm_lin_vel
+                reference_angular_velocity = ref.palm_ang_vel
+                reference_hand_velocity = ref.hand_dq
             palm_linear_velocity_error = torch.linalg.vector_norm(
-                palm_linear_velocity - ref.palm_lin_vel,
+                palm_linear_velocity - reference_linear_velocity,
                 dim=-1,
             )
             palm_angular_velocity_error = torch.linalg.vector_norm(
-                palm_angular_velocity - ref.palm_ang_vel,
+                palm_angular_velocity - reference_angular_velocity,
                 dim=-1,
             )
             hand_velocity_error = torch.linalg.vector_norm(
-                self.arm_hand_dof_vel[:, self.num_arm_dofs :]
-                - ref.hand_dq,
+                hand_velocity - reference_hand_velocity,
                 dim=-1,
             )
             palm_linear_velocity_reward = torch.exp(
@@ -544,28 +735,40 @@ class SimToolRealMotionImitation(SimToolReal):
                 + self.hand_velocity_reward_weight
                 * hand_velocity_reward
             )
+            if self.velocity_reward_warmup_steps > 0:
+                velocity_warmup_factor = (
+                    self.velocity_reward_age.to(dtype=torch.float)
+                    / float(self.velocity_reward_warmup_steps)
+                ).clamp(max=1.0)
+            else:
+                velocity_warmup_factor = torch.ones_like(
+                    pose_imitation_reward
+                )
+            effective_velocity_weight = (
+                self.velocity_imitation_reward_weight
+                * velocity_warmup_factor
+            )
+            pose_component_scale = 1.0 - effective_velocity_weight
             imitation_reward = (
-                self.pose_imitation_reward_weight * pose_imitation_reward
-                + self.velocity_imitation_reward_weight
-                * velocity_imitation_reward
+                pose_component_scale * pose_imitation_reward
+                + effective_velocity_weight * velocity_imitation_reward
             )
             velocity_components = {
                 "pose_imitation_reward": (
-                    self.pose_imitation_reward_weight
-                    * pose_imitation_reward
+                    pose_component_scale * pose_imitation_reward
                 ),
                 "palm_linear_velocity_reward": (
-                    self.velocity_imitation_reward_weight
+                    effective_velocity_weight
                     * self.palm_linear_velocity_reward_weight
                     * palm_linear_velocity_reward
                 ),
                 "palm_angular_velocity_reward": (
-                    self.velocity_imitation_reward_weight
+                    effective_velocity_weight
                     * self.palm_angular_velocity_reward_weight
                     * palm_angular_velocity_reward
                 ),
                 "hand_velocity_reward": (
-                    self.velocity_imitation_reward_weight
+                    effective_velocity_weight
                     * self.hand_velocity_reward_weight
                     * hand_velocity_reward
                 ),
@@ -576,6 +779,7 @@ class SimToolRealMotionImitation(SimToolReal):
                 "angular_velocity_error_radps": palm_angular_velocity_error,
                 "hand_velocity_error_radps": hand_velocity_error,
             }
+            self.velocity_reward_age.add_(1)
         arm_actions = self.actions[:, : self.num_arm_dofs]
         hand_actions = self.actions[:, self.num_arm_dofs : self.num_hand_arm_dofs]
         arm_delta = self.action_deltas[:, : self.num_arm_dofs]
@@ -621,7 +825,6 @@ class SimToolRealMotionImitation(SimToolReal):
         self.reset_buf[:] = finished | diverged
         self.reset_goal_buf[:] = False
 
-        pose_component_scale = self.pose_imitation_reward_weight
         components = {
             "ee_position_reward": (
                 pose_component_scale
@@ -658,6 +861,10 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["imitation/hand_error_rad"] = hand_error.mean()
         for name, value in velocity_errors.items():
             self.extras[f"imitation/{name}"] = value.mean()
+        if self.velocity_tracking_enabled:
+            self.extras["imitation/velocity_reward_warmup_factor"] = (
+                velocity_warmup_factor.mean()
+            )
         self.extras["imitation/phase"] = self.phase.mean()
         self.extras["imitation/early_termination_fraction"] = diverged.float().mean()
         self.extras["imitation/completion_fraction"] = finished.float().mean()

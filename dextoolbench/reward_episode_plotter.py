@@ -48,6 +48,11 @@ STEP_REWARD_KEYS: Tuple[str, ...] = (
     "ee_position_reward",
     "ee_rotation_reward",
     "hand_pose_reward",
+    "pose_imitation_reward",
+    "palm_linear_velocity_reward",
+    "palm_angular_velocity_reward",
+    "hand_velocity_reward",
+    "velocity_imitation_reward",
     "imitation_reward",
     "fingertip_delta_rew",
     "hand_delta_penalty",
@@ -66,6 +71,12 @@ STEP_REWARD_KEYS: Tuple[str, ...] = (
     "fingertip_thumb_bonus",
     "total_reward",
 )
+
+AGGREGATE_REWARD_KEYS = {
+    "pose_imitation_reward",
+    "velocity_imitation_reward",
+    "imitation_reward",
+}
 
 
 def _is_raw_reward_term(key: str) -> bool:
@@ -313,10 +324,12 @@ class RewardEpisodePlotter:
         plt.close(fig2)
         paths["cumulative_all_png"] = str(p2)
 
-        # Stacked overview: scaled per-step terms (top) + total only (bottom)
+        # Overview: additive leaf contributions (top) + total only (bottom).
+        # Aggregate objectives are available in per_step_all.png and their
+        # per-term plots, but including them here would double-count rewards.
         fig3, axes = plt.subplots(2, 1, figsize=(12, 9), sharex=True)
         for key in self._ordered_keys(self._per_step):
-            if key == "total_reward":
+            if key == "total_reward" or key in AGGREGATE_REWARD_KEYS:
                 continue
             y = np.asarray(self._per_step[key], dtype=np.float64)
             if y.size == steps.size:

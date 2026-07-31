@@ -262,8 +262,75 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
                    e anticipa la deadline di mancato sollevamento a 210 step (`3.5 s`).
 
 
+Motion imitation — lineage logica MIxx (tutte le run principali sotto sono da zero,
+non fine-tuning, salvo indicazione esplicita):
+
+00_motion_imitation_demo_20260727_152551_2026-07-28_16-36-33   (legacy / MI00)
+│   PPO robot-only sulla dimostrazione `demo_20260727_152551_335339.npz`, RSI uniforme
+│   e scheduler adattivo. Dopo circa 1.2G frame la reward collassa; il learning rate
+│   era cresciuto fino a oltre 25 volte il valore iniziale.
+│
+└── MI01 — PPO con learning rate fisso `5e-5`
+    │   Diversi tentativi di avvio a 12k/6k env il 2026-07-29 hanno evidenziato limiti
+    │   di creazione PhysX del task. Il setup stabile usa 4800 env.
+    │
+    └── 00_debug_ppo_fixed_lr_4800_2026-07-29_17-13-08
+        │   Prima run PPO fixed-LR completa/stabile a 4800 env. Il tracking migliora,
+        │   ma la reward successivamente tende a diminuire e la policy non segue ancora
+        │   la dimostrazione con sufficiente precisione.
+        │
+        └── 00_mi02_ppo_linear_triangular_rsi_no_action_penalties_2026-07-30_10-35-02
+            │   Da zero. RSI triangolare con maggiore probabilita' per le fasi iniziali;
+            │   rimosse tutte le action/action-delta penalties. LR lineare `5e-5 -> 1e-6`
+            │   nei primi 6000 epoch e poi mantenuto al floor, senza arresto automatico
+            │   (`max_epochs=-1`, stop manuale con Ctrl+C).
+            │   Risultato: prima policy PPO giudicata buona, ottenuta in circa 2 ore.
+            │
+            └── 00_mi03_ppo_filtered_velocity_tracking_2026-07-30_16-11-35
+                │   Da zero. MI02 + tracking di velocita' lineare palm, velocita' angolare
+                │   palm e velocita' dei 20 joint mano. Velocita' derivate nel loader dalla
+                │   demo originale, con filtro triangolare centrato da `0.15 s`; observation
+                │   invariata a 101D. Reward `0.8 pose + 0.2 velocity`.
+                │   Risultato: target filtrati ragionevoli, ma velocity reward istantaneo
+                │   ancora molto rumoroso.
+                │
+                ├── 00_mi04_ppo_matched_window_velocity_2026-07-31_10-27-33
+                │   Tentativo a 12.288 env: segfault durante la creazione degli actor PhysX,
+                │   prima del caricamento demo e dei buffer MI04; nessun checkpoint prodotto.
+                │
+                └── 00_mi04_ppo_matched_window_velocity_2026-07-31_10-44-47
+                    │   Da zero, 4800 env. Le velocita' simulate e reference sono calcolate
+                    │   con lo stesso intervallo di 5 step (~83 ms a 60 Hz). Warm-up di 5
+                    │   step dopo reset: peso velocity `0 -> 0.2`, peso pose `1 -> 0.8`.
+                    │   Reintrodotte solo le delta penalties: arm `0.001`, hand `0.0001`.
+                    │   Risultato osservato: tracking nettamente migliore di MI03; resta un
+                    │   leggero shaking. A epoch 3500, periodic eval completa la clip con
+                    │   reward medio/step ~0.892, errore posizione medio ~2.8 cm,
+                    │   orientamento ~0.070 rad e hand L2 ~0.62 rad.
+                    │
+                    └── 00_mi05_ppo_stronger_action_delta_2026-07-31_14-08-06
+                        Da zero, 4800 env, avviato. Identico a MI04 tranne delta-action
+                        penalties moltiplicate per 3: arm `0.003`, hand `0.0003`.
+                        Obiettivo: ridurre lo shaking residuo senza penalizzare i comandi
+                        sostenuti; le action-magnitude penalties restano a zero.
+
+
 
 ```
+
+### Tabella lineage motion imitation MI00–MI05
+
+Questa famiglia usa `SimToolRealMotionImitation.compute_imitation_reward`, separata dalla
+reward object-manipulation descritta nella tabella iniziale del documento.
+
+| ID | RSI | LR PPO | Reward velocity | Action penalty arm/hand | Delta penalty arm/hand | Stato / risultato |
+| --- | --- | --- | --- | --- | --- | --- |
+| `MI00` | uniforme | adattivo | no | `0.001 / 0.0001` | `0.001 / 0.0001` | Collasso dopo ~1.2G frame, LR >25x iniziale |
+| `MI01` | uniforme | fisso `5e-5` | no | `0.001 / 0.0001` | `0.001 / 0.0001` | Run stabile a 4800 env, tracking ancora insufficiente |
+| `MI02` | triangolare, mode 0 | lineare `5e-5 -> 1e-6`, poi floor | no | `0 / 0` | `0 / 0` | Buon PPO in circa 2 ore |
+| `MI03` | come MI02 | come MI02 | demo derivative filtrate `0.15 s`; peso `0.2` | `0 / 0` | `0 / 0` | Velocity reward troppo rumoroso |
+| `MI04` | come MI02 | come MI02 | matched window 5 step + warm-up 5 step; peso `0.2` | `0 / 0` | `0.001 / 0.0001` | Tracking migliore; leggero shaking residuo |
+| `MI05` | come MI02 | come MI02 | come MI04 | `0 / 0` | `0.003 / 0.0003` | Avviato; verifica riduzione shaking in corso |
 
 ### Tabella storico: **colonne = training** (+ colonna di riferimento), **righe = parametri**
 

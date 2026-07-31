@@ -44,6 +44,26 @@ python isaacgymenvs/launch_training.py \
   --num-envs 4800
 ```
 
+Launch the matched-window velocity successor with:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_mi04 \
+  --algorithm ppo \
+  --custom-experiment-name mi04_ppo_matched_window_velocity \
+  --num-envs 4800
+```
+
+Launch MI05 with stronger action-delta regularization using:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_mi05 \
+  --algorithm ppo \
+  --custom-experiment-name mi05_ppo_stronger_action_delta \
+  --num-envs 4800
+```
+
 ## Experiment lineage
 
 Motion-imitation experiments use zero-padded `MIxx` identifiers. Task YAMLs
@@ -56,6 +76,8 @@ optimization. A preset selects one of each.
 | `MI01` | Same `MI00` task | Fixed LR `5e-5` | `motion_imitation_mi01` |
 | `MI02` | Triangular RSI, action penalties disabled | Linear `5e-5` to `1e-6` over 6000 epochs, then manual stop | `motion_imitation_mi02` |
 | `MI03` | MI02 plus filtered palm linear, palm angular, and hand-joint velocity rewards | Same as MI02 | `motion_imitation_mi03` |
+| `MI04` | MI03 plus matched 5-step velocity estimates, 5-step reset warm-up, and action-delta penalties | Same as MI02 | `motion_imitation_mi04` |
+| `MI05` | MI04 with 3x stronger arm and hand action-delta penalties | Same as MI02 | `motion_imitation_mi05` |
 
 `MI0x` is reserved for robot-only imitation. `MI1x` will be used for the
 object-tracking generation, beginning with grounded-only RSI. The launcher
@@ -96,6 +118,13 @@ velocities use centered finite differences over monotonic timestamps. Angular
 velocity is obtained from shortest-path relative quaternions in the simulation
 world frame. All three signals use a centered triangular smoothing window
 configured by `demonstrationVelocityFilterWindowS` (0.15 s in MI03).
+
+MI04 retains those filtered loader signals for initialization and diagnostics,
+but computes reward velocities from pose differences over the same five-step
+window for the simulated robot and reference. After reset, the velocity
+objective weight ramps from zero to 0.2 over five steps while the pose weight
+ramps from 1.0 to 0.8, keeping their sum and the maximum imitation reward
+constant.
 
 At reset, Reference State Initialization samples a phase according to
 `referenceInitDistribution` and sets the arm and hand joint positions and
@@ -154,7 +183,11 @@ r = wp exp(-kp ||p - p*||²)
 
 Action-magnitude and consecutive-action-difference penalties can be added
 separately for arm and hand. The `motion_imitation_mi02` preset disables all
-four by setting their scales to zero. An episode ends at phase 1 or early when
+four by setting their scales to zero. MI04 restores only the squared
+consecutive-action-difference penalties, with scales `0.001` for the arm and
+`0.0001` for the hand. MI05 increases those scales to `0.003` and `0.0003`
+respectively, while keeping both absolute action penalties disabled. An
+episode ends at phase 1 or early when
 palm position, palm orientation, or hand pose exceeds its configured
 threshold.
 

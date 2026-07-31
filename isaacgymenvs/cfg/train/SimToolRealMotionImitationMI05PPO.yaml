@@ -1,0 +1,8 @@
+# MI05: stronger action-delta regularization with the MI04 PPO profile.
+defaults:
+  - SimToolRealMotionImitationMI04PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI05PPO,${....experiment}}
