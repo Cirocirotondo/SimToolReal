@@ -1,0 +1,20 @@
+# SAPG02-Precision: tighter pose tracking after the legacy SAPG01 baseline.
+defaults:
+  - SimToolRealMotionImitation
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  eePositionRewardScale: 400.0
+  eeRotationRewardScale: 15.0
+  handPoseRewardScale: 2.0
+
+  # Do not create an auxiliary articulation in every training environment.
+  # The isolated periodic evaluator enables it in its single environment.
+  visualizeReferenceRobotInVideo: True
+  referenceVisualizationActorEnabled: False
+
+  periodicEvaluation: True
+  evaluationFrequencyEpochs: 500
+  evaluationTimeoutSeconds: 600

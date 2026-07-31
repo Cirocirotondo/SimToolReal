@@ -449,6 +449,9 @@ class SimToolReal(VecTask):
             "joint_vel": self.num_hand_arm_dofs,
             "prev_action_targets": self.num_hand_arm_dofs,
             "palm_pos": 3,
+            # Desired palm-center position used by motion-imitation tasks.
+            # Other tasks do not include this key in their observation lists.
+            "reference_palm_pos": 3,
             "palm_rot": 4,
             "palm_vel": 6,
             "object_rot": 4,

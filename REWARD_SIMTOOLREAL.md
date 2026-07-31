@@ -262,7 +262,7 @@ Nome run W&B / cartella sotto `train_dir/.../runs/` (prefisso `00_` aggiunto da 
                    e anticipa la deadline di mancato sollevamento a 210 step (`3.5 s`).
 
 
-Motion imitation — lineage logica MIxx (tutte le run principali sotto sono da zero,
+Motion imitation — lineage logica PPO/MIxx (tutte le run principali sotto sono da zero,
 non fine-tuning, salvo indicazione esplicita):
 
 00_motion_imitation_demo_20260727_152551_2026-07-28_16-36-33   (legacy / MI00)
@@ -313,6 +313,26 @@ non fine-tuning, salvo indicazione esplicita):
                         penalties moltiplicate per 3: arm `0.003`, hand `0.0003`.
                         Obiettivo: ridurre lo shaking residuo senza penalizzare i comandi
                         sostenuti; le action-magnitude penalties restano a zero.
+
+
+Motion imitation — lineage logica SAPG:
+
+00_motion_imitation_sapg_2026-07-29_12-14-47   (SAPG01-Base)
+│   Da zero, 4800 env, SAPG con 6 blocchi da 800 env. RSI uniforme, observation
+│   101D e reward pose con scale position/orientation/hand `100 / 2 / 0.5`.
+│
+└── 00_motion_imitation_sapg_precision_2026-07-30_12-14-50   (SAPG02-Precision)
+    │   Fine-tuning dal checkpoint `last/model.pth` di SAPG01. Mantiene RSI uniforme
+    │   e observation 101D, ma aumenta le scale position/orientation/hand a
+    │   `400 / 15 / 2`. Robot reference verde escluso dal training e usato solo
+    │   nell'eval periodico isolato.
+    │
+    └── 00_sapg03_triangular_target_input_2026-07-31_15-42-06   (SAPG03-Triangular-TargetInput)
+        Successore logico/configurativo di SAPG02, ma avviato **da zero** senza
+        checkpoint. SAPG a 6 blocchi, RSI triangolare con mode 0 e scale reward
+        `400 / 15 / 2`. Aggiunge la target palm position (`reference_palm_pos`, 3D)
+        all'input della policy: observation 101D -> 104D. Velocity tracking
+        disabilitato per isolare triangular RSI e target conditioning.
 
 
 

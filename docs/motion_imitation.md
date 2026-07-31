@@ -64,13 +64,39 @@ python isaacgymenvs/launch_training.py \
   --num-envs 4800
 ```
 
+### SAPG03-Triangular-TargetInput
+
+Start the six-block SAPG successor from zero:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_sapg03_triangular_target_input \
+  --algorithm sapg \
+  --custom-experiment-name sapg03_triangular_target_input \
+  --num-envs 4800 \
+  --num-blocks 6
+```
+
+Do not pass `--checkpoint`: SAPG03 intentionally starts with newly initialized
+policy and value networks. It inherits SAPG02's position, orientation, and
+hand-pose reward scales of `400`, `15`, and `2`, samples RSI phase from a
+triangular distribution with its mode at zero, and adds the demonstration's
+desired palm-center position to the policy input. Its observation is therefore
+104-dimensional rather than 101-dimensional. Velocity tracking is disabled so
+this experiment isolates the effect of triangular RSI and explicit target
+conditioning.
+
+Training environments contain only the controlled robot. The isolated periodic
+evaluator creates the translucent green reference robot in its single
+environment and logs the deterministic video under `eval/video`.
+
 ## Experiment lineage
 
 Motion-imitation experiments use zero-padded `MIxx` identifiers. Task YAMLs
-describe the MDP and reset/reward semantics; train YAMLs describe PPO
-optimization. A preset selects one of each.
+describe the MDP and reset/reward semantics; train YAMLs describe optimization.
+A preset selects one of each.
 
-| ID | Task change | PPO profile | Preset |
+| ID | Task change | Optimization profile | Preset |
 | --- | --- | --- | --- |
 | `MI00` | Robot-only baseline, uniform RSI, original penalties | Original adaptive LR | `motion_imitation_mi00` |
 | `MI01` | Same `MI00` task | Fixed LR `5e-5` | `motion_imitation_mi01` |
@@ -83,6 +109,14 @@ optimization. A preset selects one of each.
 object-tracking generation, beginning with grounded-only RSI. The launcher
 timestamp identifies the chronological execution; the `MIxx` identifier
 captures logical lineage.
+
+SAPG experiments use a separate chronological and logical namespace:
+
+| ID | Task change | Observation | Preset |
+| --- | --- | --- | --- |
+| `SAPG01-Base` | Legacy six-block SAPG baseline | 101D | `motion_imitation` |
+| `SAPG02-Precision` | Position/orientation/hand scales `400`/`15`/`2`, uniform RSI | 101D | `motion_imitation_sapg02_precision` |
+| `SAPG03-Triangular-TargetInput` | SAPG02 rewards, triangular RSI, desired palm position as policy input, no velocity objective | 104D | `motion_imitation_sapg03_triangular_target_input` |
 
 The native W&B `video` stream contains only the simulated robot, avoiding an
 auxiliary articulation in every training environment. The isolated

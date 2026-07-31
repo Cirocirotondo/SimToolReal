@@ -1,0 +1,42 @@
+# SAPG03-Triangular-TargetInput: train from zero with explicit desired position.
+#
+# Logical lineage:
+#   SAPG01-Base -> SAPG02-Precision -> SAPG03-Triangular-TargetInput
+defaults:
+  - SimToolRealMotionImitationSAPG02Precision
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Triangular(0, referenceInitMaxPhase, mode=0) emphasizes early starts while
+  # preserving coverage of the complete demonstration.
+  referenceInitDistribution: triangular
+
+  # 26 q + 26 qd + 26 previous targets + 3 current palm position +
+  # 3 desired palm position + 4 palm quaternion + 15 fingertip-relative
+  # positions + 1 phase = 104 observations.
+  stateList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "fingertip_pos_rel_palm",
+    "phase",
+  ]
+  obsList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "fingertip_pos_rel_palm",
+    "phase",
+  ]
+
+  # This experiment isolates target-position conditioning: it intentionally
+  # does not enable the MI03/MI04 velocity objective.
+  velocityTrackingEnabled: False

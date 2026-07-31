@@ -904,6 +904,7 @@ class SimToolRealMotionImitation(SimToolReal):
             "joint_vel": self.arm_hand_dof_vel,
             "prev_action_targets": self.prev_targets[:, : self.num_hand_arm_dofs],
             "palm_pos": self.palm_center_pos,
+            "reference_palm_pos": self.current_reference.palm_pos,
             "palm_rot": self._palm_rot,
             "fingertip_pos_rel_palm": self.fingertip_pos_rel_palm.reshape(
                 self.num_envs, -1
