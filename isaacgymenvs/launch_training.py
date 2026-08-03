@@ -48,6 +48,7 @@ _TRAINING_PRESETS = (
     "motion_imitation_sapg03_triangular_target_input",
     "motion_imitation_sapg04_joint_regularized",
     "motion_imitation_sapg05_strong_regularization",
+    "motion_imitation_sapg_obj01_keypoint_tracking",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -122,6 +123,7 @@ class LaunchTrainingArgs:
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
+        "motion_imitation_sapg_obj01_keypoint_tracking",
     ] = "default"
     """Select the named training preset.
 
@@ -144,6 +146,8 @@ class LaunchTrainingArgs:
     velocity/acceleration regularization to SAPG03.
     SAPG05StrongRegularization increases those costs using SAPG04 measurements
     and temporarily disables measured hand-joint acceleration regularization.
+    SAPG-OBJ01 derives from SAPG05 and adds the recorded physical object,
+    four-keypoint object tracking reward, and object-aware observations.
     The remaining names preserve the established cube and hand-only
     curricula.
     """
@@ -302,6 +306,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationSAPG03TriangularTargetInput",
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04JointRegularized",
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05StrongRegularization",
+        "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01KeypointTracking",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -348,6 +353,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
+        "motion_imitation_sapg_obj01_keypoint_tracking",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
@@ -372,6 +378,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
+        "motion_imitation_sapg_obj01_keypoint_tracking",
     }
     auto_ppo_presets = {
         "train_b7",
@@ -440,6 +447,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationPPO",
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04PPO",
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05PPO",
+        "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01PPO",
     }
     train_profile = motion_imitation_train_profiles.get(args.training_preset)
     if train_profile is not None:

@@ -25,7 +25,7 @@ from isaacgymenvs.utils.torch_jit_utils import (
 
 
 class SimToolRealMotionImitation(SimToolReal):
-    """Track a teleoperation clip without using object state."""
+    """Track a teleoperation clip, optionally including its physical object."""
 
     RIGHT_HAND_60_DEG_ASSET = (
         "urdf/ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf"
@@ -42,6 +42,9 @@ class SimToolRealMotionImitation(SimToolReal):
         force_render,
     ):
         env_cfg = cfg["env"]
+        self.object_tracking_enabled = bool(
+            env_cfg.get("objectTrackingEnabled", False)
+        )
         hand_mount_yaw_deg = float(env_cfg.get("handMountYawOffsetDeg", 60.0))
         if str(env_cfg.get("handSide", "right")).lower() != "right":
             raise ValueError("Motion imitation currently supports the right DG5F only")
@@ -106,6 +109,16 @@ class SimToolRealMotionImitation(SimToolReal):
             velocity_filter_window_s=float(
                 env_cfg.get("demonstrationVelocityFilterWindowS", 0.0)
             ),
+            load_object_pose=self.object_tracking_enabled,
+            object_position_offset_m=tuple(
+                env_cfg.get("demonstrationObjectPositionOffset", [0.0, 0.0, 0.0])
+            ),
+            object_orientation_offset_xyzw=tuple(
+                env_cfg.get(
+                    "demonstrationObjectOrientationOffsetQuatXyzw",
+                    [0.0, 0.0, 0.0, 1.0],
+                )
+            ),
         )
         reference_q = torch.cat(
             [self.reference.arm_q, self.reference.hand_q], dim=-1
@@ -163,6 +176,36 @@ class SimToolRealMotionImitation(SimToolReal):
         self.ee_position_reward_scale = float(env_cfg["eePositionRewardScale"])
         self.ee_rotation_reward_scale = float(env_cfg["eeRotationRewardScale"])
         self.hand_pose_reward_scale = float(env_cfg["handPoseRewardScale"])
+        self.robot_imitation_reward_weight = float(
+            env_cfg.get("robotImitationRewardWeight", 1.0)
+        )
+        self.object_keypoint_reward_weight = float(
+            env_cfg.get("objectKeypointRewardWeight", 0.0)
+        )
+        self.object_keypoint_reward_scale = float(
+            env_cfg.get("objectKeypointRewardScale", 100.0)
+        )
+        for name, value in (
+            ("robotImitationRewardWeight", self.robot_imitation_reward_weight),
+            ("objectKeypointRewardWeight", self.object_keypoint_reward_weight),
+            ("objectKeypointRewardScale", self.object_keypoint_reward_scale),
+        ):
+            if value < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        if self.object_tracking_enabled:
+            if self.reference.object_pos is None:
+                raise ValueError(
+                    "objectTrackingEnabled requires object poses in the demonstration"
+                )
+            if self.object_keypoint_reward_weight <= 0.0:
+                raise ValueError(
+                    "objectTrackingEnabled requires objectKeypointRewardWeight > 0"
+                )
+            if self.num_keypoints != 4:
+                raise ValueError(
+                    "Object imitation expects the four corresponding keypoints "
+                    f"used by object-to-goal, got {self.num_keypoints}"
+                )
         weight_sum = (
             self.ee_position_reward_weight
             + self.ee_rotation_reward_weight
@@ -305,6 +348,7 @@ class SimToolRealMotionImitation(SimToolReal):
             "ee_rotation_reward",
             "hand_pose_reward",
             "imitation_reward",
+            "object_keypoint_reward",
             "arm_joint_velocity_penalty",
             "arm_joint_acceleration_penalty",
             "hand_joint_acceleration_penalty",
@@ -460,6 +504,26 @@ class SimToolRealMotionImitation(SimToolReal):
         if hasattr(self, "velocity_reward_age"):
             self.velocity_reward_age[env_ids] = 0
 
+        if self.object_tracking_enabled:
+            if any(
+                value is None
+                for value in (
+                    reference.object_pos,
+                    reference.object_quat_xyzw,
+                    reference.object_lin_vel,
+                    reference.object_ang_vel,
+                )
+            ):
+                raise RuntimeError("Object reference sample is incomplete")
+            object_indices = self.object_indices[env_ids]
+            self.root_state_tensor[object_indices, 0:3] = reference.object_pos
+            self.root_state_tensor[
+                object_indices, 3:7
+            ] = reference.object_quat_xyzw
+            self.root_state_tensor[object_indices, 7:10] = reference.object_lin_vel
+            self.root_state_tensor[object_indices, 10:13] = reference.object_ang_vel
+            self.deferred_set_actor_root_state_tensor_indexed([object_indices])
+
         robot_indices = self.robot_indices[env_ids].to(torch.int32)
         self.gym.set_dof_position_target_tensor_indexed(
             self.sim,
@@ -471,9 +535,24 @@ class SimToolRealMotionImitation(SimToolReal):
         self.current_reference = self.reference.sample(self.phase)
         if flush:
             self.set_dof_state_tensor_indexed()
+            self.set_actor_root_state_tensor_indexed()
             self.populate_sim_buffers()
             self.populate_obs_and_states_buffers()
             self.clamp_obs()
+
+    def _reference_object_keypoints(self, reference: ReferenceSample) -> Tensor:
+        """Transform the four object-to-goal keypoints by a reference pose."""
+        if reference.object_pos is None or reference.object_quat_xyzw is None:
+            raise RuntimeError("Object tracking requires a complete object pose")
+        offsets = self.object_keypoint_offsets_fixed_size
+        num_keypoints = offsets.shape[1]
+        reference_quat = reference.object_quat_xyzw.unsqueeze(1).expand(
+            -1, num_keypoints, -1
+        )
+        rotated_offsets = quat_rotate(
+            reference_quat.reshape(-1, 4), offsets.reshape(-1, 3)
+        ).reshape(self.num_envs, num_keypoints, 3)
+        return reference.object_pos.unsqueeze(1) + rotated_offsets
 
     @staticmethod
     def _skew(vector: Tensor) -> Tensor:
@@ -808,6 +887,37 @@ class SimToolRealMotionImitation(SimToolReal):
                 "hand_velocity_error_radps": hand_velocity_error,
             }
             self.velocity_reward_age.add_(1)
+        imitation_reward = (
+            self.robot_imitation_reward_weight * imitation_reward
+        )
+        velocity_components = {
+            name: self.robot_imitation_reward_weight * value
+            for name, value in velocity_components.items()
+        }
+
+        object_keypoint_distances = torch.zeros(
+            self.num_envs, self.num_keypoints, device=self.device
+        )
+        object_keypoint_max_error = torch.zeros_like(imitation_reward)
+        object_keypoint_mean_error = torch.zeros_like(imitation_reward)
+        object_keypoint_reward = torch.zeros_like(imitation_reward)
+        if self.object_tracking_enabled:
+            reference_object_keypoints = self._reference_object_keypoints(ref)
+            object_keypoint_delta = (
+                self.obj_keypoint_pos_fixed_size - reference_object_keypoints
+            )
+            object_keypoint_distances = torch.linalg.vector_norm(
+                object_keypoint_delta, dim=-1
+            )
+            object_keypoint_max_error = object_keypoint_distances.max(dim=-1).values
+            object_keypoint_mean_error = object_keypoint_distances.mean(dim=-1)
+            object_keypoint_reward = (
+                self.object_keypoint_reward_weight
+                * torch.exp(
+                    -self.object_keypoint_reward_scale
+                    * object_keypoint_max_error.square()
+                )
+            )
         arm_actions = self.actions[:, : self.num_arm_dofs]
         hand_actions = self.actions[:, self.num_arm_dofs : self.num_hand_arm_dofs]
         arm_delta = self.action_deltas[:, : self.num_arm_dofs]
@@ -853,6 +963,7 @@ class SimToolRealMotionImitation(SimToolReal):
         self.previous_imitation_joint_vel.copy_(joint_vel)
         reward = (
             imitation_reward
+            + object_keypoint_reward
             + arm_action_penalty
             + hand_action_penalty
             + arm_delta_penalty
@@ -879,21 +990,25 @@ class SimToolRealMotionImitation(SimToolReal):
 
         components = {
             "ee_position_reward": (
-                pose_component_scale
+                self.robot_imitation_reward_weight
+                * pose_component_scale
                 * self.ee_position_reward_weight
                 * position_reward
             ),
             "ee_rotation_reward": (
-                pose_component_scale
+                self.robot_imitation_reward_weight
+                * pose_component_scale
                 * self.ee_rotation_reward_weight
                 * rotation_reward
             ),
             "hand_pose_reward": (
-                pose_component_scale
+                self.robot_imitation_reward_weight
+                * pose_component_scale
                 * self.hand_pose_reward_weight
                 * hand_reward
             ),
             "imitation_reward": imitation_reward,
+            "object_keypoint_reward": object_keypoint_reward,
             "kuka_actions_penalty": arm_action_penalty,
             "hand_actions_penalty": hand_action_penalty,
             "arm_action_delta_penalty": arm_delta_penalty,
@@ -914,6 +1029,16 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["imitation/position_error_m"] = position_error.mean()
         self.extras["imitation/rotation_error_rad"] = rotation_error.mean()
         self.extras["imitation/hand_error_rad"] = hand_error.mean()
+        if self.object_tracking_enabled:
+            self.extras["object_tracking/keypoint_mean_error_m"] = (
+                object_keypoint_mean_error.mean()
+            )
+            self.extras["object_tracking/keypoint_max_error_m"] = (
+                object_keypoint_max_error.mean()
+            )
+            self.extras["object_tracking/keypoint_reward"] = (
+                object_keypoint_reward.mean()
+            )
         for name, value in velocity_errors.items():
             self.extras[f"imitation/{name}"] = value.mean()
         if self.velocity_tracking_enabled:
@@ -961,6 +1086,12 @@ class SimToolRealMotionImitation(SimToolReal):
         return reward, finished
 
     def populate_obs_and_states_buffers(self) -> None:
+        keypoints_rel_goal = self.keypoints_rel_goal_fixed_size
+        if self.object_tracking_enabled:
+            keypoints_rel_goal = (
+                self.obj_keypoint_pos_fixed_size
+                - self._reference_object_keypoints(self.current_reference)
+            )
         obs = {
             "joint_pos": unscale(
                 self.arm_hand_dof_pos,
@@ -981,6 +1112,14 @@ class SimToolRealMotionImitation(SimToolReal):
             "reference_palm_lin_vel": self.current_reference.palm_lin_vel,
             "reference_palm_ang_vel": self.current_reference.palm_ang_vel,
             "reference_hand_dq": self.current_reference.hand_dq,
+            "object_rot": self.object_rot,
+            "object_vel": self.object_state[:, 7:13],
+            "keypoints_rel_palm": self.keypoints_rel_palm.reshape(
+                self.num_envs, -1
+            ),
+            "keypoints_rel_goal": keypoints_rel_goal.reshape(
+                self.num_envs, -1
+            ),
             "fingertip_pos_rel_palm": self.fingertip_pos_rel_palm.reshape(
                 self.num_envs, -1
             ),
@@ -1033,6 +1172,29 @@ class SimToolRealMotionImitation(SimToolReal):
     def _update_reference_visualization_robot(self) -> None:
         """Compatibility helper for explicitly positioning the current reference."""
         self._set_reference_visualization_robot(self.current_reference)
+        self._set_reference_visualization_object(self.current_reference)
+
+    def _set_reference_visualization_object(
+        self,
+        reference: ReferenceSample,
+        *,
+        flush: bool = True,
+    ) -> None:
+        """Place the green goal object at the demonstration pose in eval only."""
+        if not self.object_tracking_enabled or not self.VISUALIZE_REFERENCE_ROBOT:
+            return
+        if reference.object_pos is None or reference.object_quat_xyzw is None:
+            raise RuntimeError("Object visualization requires a reference pose")
+
+        env_id = int(self.index_to_view)
+        goal_index = self.goal_object_indices[env_id : env_id + 1]
+        self.goal_states[env_id, 0:3].copy_(reference.object_pos[env_id])
+        self.goal_states[env_id, 3:7].copy_(reference.object_quat_xyzw[env_id])
+        self.goal_states[env_id, 7:13].zero_()
+        self.root_state_tensor[goal_index, :].copy_(self.goal_states[env_id])
+        self.deferred_set_actor_root_state_tensor_indexed([goal_index])
+        if flush:
+            self.set_actor_root_state_tensor_indexed()
 
     def pre_physics_step(
         self, actions, joint_pos_targets: Optional[Tensor] = None
@@ -1042,9 +1204,9 @@ class SimToolRealMotionImitation(SimToolReal):
             # post_physics_step advances phase before rendering, so place the
             # green actor at that same upcoming reference before PhysX runs.
             next_phase = (self.phase + self.phase_delta).clamp(max=1.0)
-            self._set_reference_visualization_robot(
-                self.reference.sample(next_phase)
-            )
+            next_reference = self.reference.sample(next_phase)
+            self._set_reference_visualization_robot(next_reference)
+            self._set_reference_visualization_object(next_reference)
 
     def post_physics_step(self) -> None:
         self.frame_since_restart += 1

@@ -166,6 +166,45 @@ SAPG05 uses EE action/rate `1e-3 / 1e-3`, hand action/rate
 `3e-4 / 1e-3`, measured arm-joint velocity `2e-3`, measured arm-joint
 acceleration `3e-6`, and measured hand-joint acceleration `0`.
 
+### SAPG-OBJ01-KeypointTracking
+
+SAPG-OBJ is the object-aware family derived from the robot-only SAPG lineage.
+OBJ01 retains SAPG05's robot imitation reward, triangular RSI, target palm
+input, and strong motion regularization. It activates the recorded physical
+5 x 5 x 15 cm cuboid and adds a dense tracking reward based on the four
+corresponding keypoints used by the classic object-to-goal task:
+
+```text
+r_object = 0.25 * exp(-400 * max_i(||k_object_i - k_reference_i||)^2)
+r_total = r_robot_imitation + r_object + regularization penalties
+```
+
+The keypoints encode translation and orientation together, and the furthest
+corresponding keypoint matches the classic `keypoints_max_dist` metric. Unlike
+the legacy object-to-goal progress reward, the exponential uses the current
+absolute tracking error because the demonstration goal moves at every step. The policy
+receives object orientation and velocity, object keypoints relative to the
+palm, and the four object-to-reference keypoint deltas. This changes the
+observation from 104D to 138D, so the first run must start from zero:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_sapg_obj01_keypoint_tracking \
+  --algorithm sapg \
+  --custom-experiment-name sapg_obj01_keypoint_tracking \
+  --num-envs 4800 \
+  --num-blocks 6
+```
+
+Do not pass `--checkpoint`. At RSI reset, both robot and physical object are
+placed at the same sampled demonstration phase, including recorded object
+linear and angular velocity. Training does not update an auxiliary target
+actor; the isolated evaluator additionally renders the moving reference object
+in green, together with the reference robot. As in `demo_viewer.py`, the
+simulator cuboid uses dimensions `[0.15, 0.05, 0.05]`, with local X as its long
+axis, and consumes the transformed demonstration quaternion without an extra
+local rotation. The table top is at `z=-0.03 m`, matching the replay scene.
+
 ## Experiment lineage
 
 Motion-imitation experiments use zero-padded `MIxx` identifiers. Task YAMLs
@@ -183,8 +222,8 @@ A preset selects one of each.
 | `MI06` | MI05 plus desired palm pose and finger configuration in the policy observation (128D) | Same as MI02 | `motion_imitation_mi06` |
 | `MI07` | MI06 without phase; adds desired palm linear/angular and finger-joint velocities (153D) | Same as MI02 | `motion_imitation_mi07` |
 
-`MI0x` is reserved for robot-only imitation. `MI1x` will be used for the
-object-tracking generation, beginning with grounded-only RSI. The launcher
+`MI0x` is reserved for the PPO robot-only lineage. Object-aware SAPG variants
+use the separate `SAPG-OBJxx` namespace. The launcher
 timestamp identifies the chronological execution; the `MIxx` identifier
 captures logical lineage.
 
@@ -197,6 +236,12 @@ SAPG experiments use a separate chronological and logical namespace:
 | `SAPG03-Triangular-TargetInput` | SAPG02 rewards, triangular RSI, desired palm position as policy input, no velocity objective | 104D | `motion_imitation_sapg03_triangular_target_input` |
 | `SAPG04-JointRegularized` | SAPG03 plus weak action/rate costs and measured arm-joint velocity/acceleration costs | 104D | `motion_imitation_sapg04_joint_regularized` |
 | `SAPG05-StrongRegularization` | SAPG04 with stronger action/rate and arm-joint costs; hand acceleration disabled | 104D | `motion_imitation_sapg05_strong_regularization` |
+
+Object-aware SAPG experiments use their own family:
+
+| ID | Task change | Observation | Preset |
+| --- | --- | --- | --- |
+| `SAPG-OBJ01-KeypointTracking` | SAPG05 plus physical demonstration object, four-keypoint tracking reward and object-aware policy input | 138D | `motion_imitation_sapg_obj01_keypoint_tracking` |
 
 The native W&B `video` stream contains only the simulated robot, avoiding an
 auxiliary articulation in every training environment. The isolated

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Optional
 
 import numpy as np
 import torch
@@ -176,6 +177,10 @@ class ReferenceSample:
     palm_quat_xyzw: torch.Tensor
     palm_lin_vel: torch.Tensor
     palm_ang_vel: torch.Tensor
+    object_pos: Optional[torch.Tensor] = None
+    object_quat_xyzw: Optional[torch.Tensor] = None
+    object_lin_vel: Optional[torch.Tensor] = None
+    object_ang_vel: Optional[torch.Tensor] = None
 
 
 class DemonstrationReference:
@@ -192,6 +197,14 @@ class DemonstrationReference:
         ee_to_palm_offset_m: tuple[float, float, float] = (0.0, 0.0, 0.16),
         ee_to_palm_quat_xyzw: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0),
         velocity_filter_window_s: float = 0.0,
+        load_object_pose: bool = False,
+        object_position_offset_m: tuple[float, float, float] = (0.0, 0.0, 0.0),
+        object_orientation_offset_xyzw: tuple[float, float, float, float] = (
+            0.0,
+            0.0,
+            0.0,
+            1.0,
+        ),
     ) -> None:
         self.velocity_filter_window_s = float(velocity_filter_window_s)
         if self.velocity_filter_window_s < 0.0:
@@ -211,6 +224,29 @@ class DemonstrationReference:
                 else timestamps,
                 dtype=np.float64,
             )
+            object_pose = None
+            if load_object_pose:
+                if "cube_pose" not in data:
+                    raise ValueError(
+                        f"{self.path.name} does not contain cube_pose required "
+                        "for object tracking"
+                    )
+                object_pose = np.asarray(data["cube_pose"], dtype=np.float32)
+                if "cube_pose_valid" in data:
+                    object_pose_valid = np.asarray(
+                        data["cube_pose_valid"], dtype=bool
+                    )
+                    if object_pose_valid.shape != (len(timestamps),):
+                        raise ValueError(
+                            "Invalid cube_pose_valid: expected "
+                            f"{(len(timestamps),)}, got {object_pose_valid.shape}"
+                        )
+                    invalid = np.flatnonzero(~object_pose_valid)
+                    if len(invalid):
+                        raise ValueError(
+                            f"{self.path.name} has {len(invalid)} invalid cube_pose "
+                            "samples required for object tracking"
+                        )
             if valid_key in data and not np.all(data[valid_key]):
                 invalid = np.flatnonzero(~np.asarray(data[valid_key], dtype=bool))
                 raise ValueError(
@@ -232,6 +268,14 @@ class DemonstrationReference:
         }.items():
             if array.shape != shape or not np.all(np.isfinite(array)):
                 raise ValueError(f"Invalid {name}: expected finite {shape}, got {array.shape}")
+        if object_pose is not None and (
+            object_pose.shape != (count, 7)
+            or not np.all(np.isfinite(object_pose))
+        ):
+            raise ValueError(
+                f"Invalid cube_pose: expected finite {(count, 7)}, "
+                f"got {object_pose.shape}"
+            )
         if (
             count < 2
             or derivative_timestamps.shape != (count,)
@@ -277,6 +321,57 @@ class DemonstrationReference:
             sim_ee_quat, np.broadcast_to(palm_offset, sim_ee_pos.shape)
         )
 
+        object_pos = None
+        object_quat = None
+        object_lin_vel = None
+        object_ang_vel = None
+        if object_pose is not None:
+            object_position_offset = np.asarray(
+                object_position_offset_m, dtype=np.float32
+            )
+            if object_position_offset.shape != (3,):
+                raise ValueError(
+                    "object_position_offset_m must contain exactly 3 values"
+                )
+            object_quat_base = _normalize_quaternions(object_pose[:, 3:7])
+            object_orientation_offset = np.asarray(
+                object_orientation_offset_xyzw, dtype=np.float32
+            )
+            if object_orientation_offset.shape != (4,):
+                raise ValueError(
+                    "object_orientation_offset_xyzw must contain exactly 4 values"
+                )
+            object_orientation_offset = _normalize_quaternions(
+                object_orientation_offset[None]
+            )[0]
+            object_quat_world = _quat_multiply_xyzw(
+                np.broadcast_to(world_quat, object_quat_base.shape),
+                object_quat_base,
+            )
+            object_quat = _normalize_quaternions(
+                _quat_multiply_xyzw(
+                    object_quat_world,
+                    np.broadcast_to(
+                        object_orientation_offset, object_quat_world.shape
+                    ),
+                )
+            )
+            object_pos = (
+                object_pose[:, :3] @ world_rotation.T
+                + np.asarray(world_position_offset_m, dtype=np.float32)
+                + object_position_offset
+            )
+            object_lin_vel = _filtered_derivative(
+                object_pos,
+                derivative_time,
+                self.velocity_filter_window_s,
+            )
+            object_ang_vel = _quaternion_angular_velocity_xyzw(
+                object_quat,
+                derivative_time,
+                self.velocity_filter_window_s,
+            )
+
         hand_dq = _filtered_derivative(
             hand_q,
             derivative_time,
@@ -304,6 +399,26 @@ class DemonstrationReference:
         )
         self.palm_ang_vel = torch.as_tensor(
             palm_ang_vel, dtype=torch.float32, device=device
+        )
+        self.object_pos = (
+            torch.as_tensor(object_pos, dtype=torch.float32, device=device)
+            if object_pos is not None
+            else None
+        )
+        self.object_quat = (
+            torch.as_tensor(object_quat, dtype=torch.float32, device=device)
+            if object_quat is not None
+            else None
+        )
+        self.object_lin_vel = (
+            torch.as_tensor(object_lin_vel, dtype=torch.float32, device=device)
+            if object_lin_vel is not None
+            else None
+        )
+        self.object_ang_vel = (
+            torch.as_tensor(object_ang_vel, dtype=torch.float32, device=device)
+            if object_ang_vel is not None
+            else None
         )
 
     def recompute_hand_velocity(self) -> None:
@@ -359,4 +474,24 @@ class DemonstrationReference:
             ),
             palm_lin_vel=lerp(self.palm_lin_vel),
             palm_ang_vel=lerp(self.palm_ang_vel),
+            object_pos=(
+                lerp(self.object_pos) if self.object_pos is not None else None
+            ),
+            object_quat_xyzw=(
+                self._slerp(
+                    self.object_quat[lower], self.object_quat[upper], alpha
+                )
+                if self.object_quat is not None
+                else None
+            ),
+            object_lin_vel=(
+                lerp(self.object_lin_vel)
+                if self.object_lin_vel is not None
+                else None
+            ),
+            object_ang_vel=(
+                lerp(self.object_ang_vel)
+                if self.object_ang_vel is not None
+                else None
+            ),
         )

@@ -227,6 +227,7 @@ def evaluate(
         "ee_rotation_reward",
         "hand_pose_reward",
         "imitation_reward",
+        "object_keypoint_reward",
         "kuka_actions_penalty",
         "hand_actions_penalty",
         "arm_action_delta_penalty",
@@ -252,6 +253,27 @@ def evaluate(
         "rotation_error_rad": [],
         "hand_error_rad": [],
     }
+    initial_object_errors: Dict[str, float] = {}
+    if env.object_tracking_enabled:
+        initial_object_distances = torch.linalg.vector_norm(
+            env.obj_keypoint_pos_fixed_size
+            - env._reference_object_keypoints(initial_reference),
+            dim=-1,
+        )
+        initial_object_errors = {
+            "initial_object_keypoint_mean_error_m": float(
+                initial_object_distances.mean(dim=-1)[0].item()
+            ),
+            "initial_object_keypoint_max_error_m": float(
+                initial_object_distances.max(dim=-1).values[0].item()
+            ),
+        }
+        errors.update(
+            {
+                "object_keypoint_mean_error_m": [],
+                "object_keypoint_max_error_m": [],
+            }
+        )
     initial_velocity_errors: Dict[str, float] = {}
     if env.velocity_tracking_enabled:
         palm_linear_velocity, palm_angular_velocity = (
@@ -309,6 +331,13 @@ def evaluate(
         errors["hand_error_rad"].append(
             _scalar(extras["imitation/hand_error_rad"])
         )
+        if env.object_tracking_enabled:
+            errors["object_keypoint_mean_error_m"].append(
+                _scalar(extras["object_tracking/keypoint_mean_error_m"])
+            )
+            errors["object_keypoint_max_error_m"].append(
+                _scalar(extras["object_tracking/keypoint_max_error_m"])
+            )
         if env.velocity_tracking_enabled:
             for name in (
                 "linear_velocity_error_mps",
@@ -385,6 +414,7 @@ def evaluate(
         "video_path": str(video_path),
     }
     metrics.update(initial_velocity_errors)
+    metrics.update(initial_object_errors)
     for name, total in component_sums.items():
         metrics[f"{name}_sum"] = total
         metrics[f"{name}_mean"] = total / max(step, 1)

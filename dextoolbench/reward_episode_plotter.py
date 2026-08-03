@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Sequence, Tuple
 
 import numpy as np
 
@@ -54,6 +54,7 @@ STEP_REWARD_KEYS: Tuple[str, ...] = (
     "hand_velocity_reward",
     "velocity_imitation_reward",
     "imitation_reward",
+    "object_keypoint_reward",
     "fingertip_delta_rew",
     "hand_delta_penalty",
     "lifting_rew",

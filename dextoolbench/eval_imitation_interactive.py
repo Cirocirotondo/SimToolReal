@@ -123,6 +123,15 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             extras, "velocity_imitation_reward"
         ),
         "imitation_reward": _component(extras, "imitation_reward"),
+        "object_keypoint_reward": _component(
+            extras, "object_keypoint_reward"
+        ),
+        "object_keypoint_mean_error_m": _scalar(
+            extras.get("object_tracking/keypoint_mean_error_m", 0.0)
+        ),
+        "object_keypoint_max_error_m": _scalar(
+            extras.get("object_tracking/keypoint_max_error_m", 0.0)
+        ),
         "action_penalty": sum(
             _component(extras, key)
             for key in (

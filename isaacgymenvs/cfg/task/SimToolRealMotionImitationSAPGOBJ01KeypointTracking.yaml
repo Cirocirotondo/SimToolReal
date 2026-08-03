@@ -1,0 +1,88 @@
+# SAPG-OBJ01-KeypointTracking: SAPG05 robot imitation plus demonstration
+# object tracking through the four corresponding object-to-goal keypoints.
+defaults:
+  - SimToolRealMotionImitationSAPG05StrongRegularization
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  objectTrackingEnabled: True
+
+  # Keep the established robot imitation reward and add a bounded dense object
+  # term: 0.25 * exp(-400 * max_i(||keypoint_i - target_i||)^2).
+  robotImitationRewardWeight: 1.0
+  objectKeypointRewardWeight: 0.25
+  objectKeypointRewardScale: 400.0
+
+  # cube_pose is expressed in the same UR-base frame as the recorded EE pose.
+  demonstrationObjectPositionOffset: [0.0, 0.0, 0.0]
+  # Match demo_viewer.py: the recording and model both use local X as the
+  # 15 cm axis, so no additional local orientation offset is required.
+  demonstrationObjectOrientationOffsetQuatXyzw: [0.0, 0.0, 0.0, 1.0]
+  # Smooth finite-difference reset velocities without altering stored poses.
+  demonstrationVelocityFilterWindowS: 0.15
+
+  # The recorded object is a 5 x 5 x 15 cm cuboid, not the legacy 5 cm cube.
+  handleHeadTypes: ["cube"]
+  cuboidSize: [0.15, 0.05, 0.05]
+  cubeSizeRange: null
+  useSingleHandleHeadTemplate: True
+  numObjectsPerType: 1
+  fixedSizeKeypointReward: True
+  fixedSize: [0.15, 0.05, 0.05]
+  keypointScale: 1.0
+  objectScaleNoiseMultiplierRange: [1.0, 1.0]
+
+  # Phase-zero cube_pose transformed from ur5_base to the simulation world.
+  useFixedInitObjectPose: True
+  objectStartPose: [-0.01761429, -0.02019576, 0.00148008, -0.99944222, 0.02514047, 0.01824300, 0.01226402]
+  randomizeObjectRotation: False
+  randomizeCuboidRestingPose: False
+  resetPositionNoiseX: 0.0
+  resetPositionNoiseY: 0.0
+  resetPositionNoiseZ: 0.0
+
+  # Physical object; the inherited motion-only task used a far-away inert actor.
+  disableObjectGravity: False
+  disableObjectCollisions: False
+  disableObjectSimulation: False
+  objectMassOverride: 0.2
+  objectInertiaOverride: [0.00008333, 0.00041667, 0.00041667]
+
+  # Match demo_viewer.py: the 30 cm table centered at -0.18 m has its top at
+  # z=-0.03 m, just below the phase-zero bottom face at about -0.0269 m.
+  tableResetZ: -0.18
+  tableResetZRange: 0.0
+
+  # SAPG05 observation (104D) + object quaternion (4D) + object velocity (6D)
+  # + current object keypoints relative to palm (12D) + corresponding
+  # object-to-reference keypoint deltas (12D) = 138D.
+  stateList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "fingertip_pos_rel_palm",
+    "phase",
+    "object_rot",
+    "object_vel",
+    "keypoints_rel_palm",
+    "keypoints_rel_goal",
+  ]
+  obsList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "fingertip_pos_rel_palm",
+    "phase",
+    "object_rot",
+    "object_vel",
+    "keypoints_rel_palm",
+    "keypoints_rel_goal",
+  ]

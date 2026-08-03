@@ -1,0 +1,9 @@
+# SAPG-OBJ01 starts from SAPG05's optimizer/network setup. The launcher enables
+# the six SAPG exploration blocks and leader/follower experience sharing.
+defaults:
+  - SimToolRealMotionImitationSAPG05PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPGOBJ01PPO,${....experiment}}
