@@ -7,6 +7,19 @@ defaults:
 name: SimToolRealMotionImitation
 
 env:
+  # Regularization coefficients:
+  # EE command magnitude and rate: target roughly 0.5% and 1%+ of reward.
+  kukaActionsPenaltyScale: 0.0005
+  armActionDeltaPenaltyScale: 0.0005
+  # Hand command magnitude and rate: target roughly 0.5% and 2-3%.
+  handActionsPenaltyScale: 0.0001
+  handActionDeltaPenaltyScale: 0.0005
+  # Make measured arm-joint motion substantially more expensive. Disable the
+  # measured hand-acceleration term for now because it obscured interpretation.
+  armJointVelocityPenaltyScale: 0.002
+  armJointAccelerationPenaltyScale: 0.000002
+  handJointAccelerationPenaltyScale: 0.0
+
   objectTrackingEnabled: True
 
   # Keep the established robot imitation reward and add a bounded dense object
