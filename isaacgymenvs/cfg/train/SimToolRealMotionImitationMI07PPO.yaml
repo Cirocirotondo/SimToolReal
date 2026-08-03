@@ -1,0 +1,8 @@
+# MI07: MI06 PPO with a 153-dimensional pose-and-velocity-conditioned input.
+defaults:
+  - SimToolRealMotionImitationMI06PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI07PPO,${....experiment}}

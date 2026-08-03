@@ -309,10 +309,24 @@ non fine-tuning, salvo indicazione esplicita):
                     │   orientamento ~0.070 rad e hand L2 ~0.62 rad.
                     │
                     └── 00_mi05_ppo_stronger_action_delta_2026-07-31_14-08-06
-                        Da zero, 4800 env, avviato. Identico a MI04 tranne delta-action
-                        penalties moltiplicate per 3: arm `0.003`, hand `0.0003`.
-                        Obiettivo: ridurre lo shaking residuo senza penalizzare i comandi
-                        sostenuti; le action-magnitude penalties restano a zero.
+                        │   Da zero, 4800 env, avviato. Identico a MI04 tranne delta-action
+                        │   penalties moltiplicate per 3: arm `0.003`, hand `0.0003`.
+                        │   Obiettivo: ridurre lo shaking residuo senza penalizzare i comandi
+                        │   sostenuti; le action-magnitude penalties restano a zero.
+                        │
+                        └── MI06 (preset preparato, non ancora lanciato)
+                            Da zero. MI05 + target pose istantanea dalla demonstration:
+                            posizione palm (3D), orientamento palm quaternion (4D) e pose
+                            normalizzate dei 20 joint delle dita. Observation 101D -> 128D.
+                            Mantiene velocity reward matched-window, warm-up, RSI triangolare,
+                            delta penalties e profilo PPO di MI05; target velocity non in input.
+                            │
+                            └── MI07 (preset preparato, non ancora lanciato)
+                                Da zero. Mantiene la target pose completa di MI06, rimuove la
+                                phase dall'osservazione e aggiunge target palm linear/angular
+                                velocity (3D + 3D) e target finger velocity (20D). Observation
+                                128D -> 153D. Obiettivo: evitare l'anticipo temporale osservato
+                                in MI06, fornendo direzione/velocita' istantanee senza un clock.
 
 
 Motion imitation — lineage logica SAPG:
@@ -333,12 +347,25 @@ Motion imitation — lineage logica SAPG:
         `400 / 15 / 2`. Aggiunge la target palm position (`reference_palm_pos`, 3D)
         all'input della policy: observation 101D -> 104D. Velocity tracking
         disabilitato per isolare triangular RSI e target conditioning.
+        │
+        └── 00_sapg04_joint_regularized_2026-08-02_18-03-08
+            │   Da zero. Mantiene observation, reward pose e RSI di SAPG03. Riduce
+            │   di 10x i costi sui comandi EE/mano e sui loro delta; aggiunge costi
+            │   sulle velocita' reali dei 6 giunti UR e sulle accelerazioni reali
+            │   dei giunti arm/hand. A epoch 19500: eval completa, reward medio
+            │   ~0.885, errore posizione medio ~1.13 cm, nessuna soglia violata.
+            │   Tracking soddisfacente, ma restano vibrazioni e penalita' troppo deboli.
+            │
+            └── SAPG05-StrongRegularization (preset preparato, non ancora lanciato)
+                Mantiene SAPG04 ma aumenta action/rate hand a `3e-4 / 1e-3`,
+                action/rate EE a `1e-3 / 1e-3`, arm joint velocity/acceleration
+                a `2e-3 / 3e-6`; disabilita hand joint acceleration (`0`).
 
 
 
 ```
 
-### Tabella lineage motion imitation MI00–MI05
+### Tabella lineage motion imitation MI00–MI07
 
 Questa famiglia usa `SimToolRealMotionImitation.compute_imitation_reward`, separata dalla
 reward object-manipulation descritta nella tabella iniziale del documento.
@@ -351,6 +378,8 @@ reward object-manipulation descritta nella tabella iniziale del documento.
 | `MI03` | come MI02 | come MI02 | demo derivative filtrate `0.15 s`; peso `0.2` | `0 / 0` | `0 / 0` | Velocity reward troppo rumoroso |
 | `MI04` | come MI02 | come MI02 | matched window 5 step + warm-up 5 step; peso `0.2` | `0 / 0` | `0.001 / 0.0001` | Tracking migliore; leggero shaking residuo |
 | `MI05` | come MI02 | come MI02 | come MI04 | `0 / 0` | `0.003 / 0.0003` | Avviato; verifica riduzione shaking in corso |
+| `MI06` | come MI02 | come MI02 | come MI04; target palm pose + finger pose in input (128D) | `0 / 0` | `0.003 / 0.0003` | Preset preparato; training da zero richiesto |
+| `MI07` | come MI02 | come MI02 | come MI04; target pose + target velocities, senza phase (153D) | `0 / 0` | `0.003 / 0.0003` | Preset preparato; training da zero richiesto |
 
 ### Tabella storico: **colonne = training** (+ colonna di riferimento), **righe = parametri**
 

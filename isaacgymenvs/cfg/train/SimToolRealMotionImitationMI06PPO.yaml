@@ -1,0 +1,8 @@
+# MI06: MI05 PPO with a 128-dimensional target-conditioned observation.
+defaults:
+  - SimToolRealMotionImitationMI05PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI06PPO,${....experiment}}

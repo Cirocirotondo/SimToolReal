@@ -241,9 +241,32 @@ class SimToolRealMotionImitation(SimToolReal):
             env_cfg["eeRotationTerminationAngleRad"]
         )
         self.hand_termination_error = float(env_cfg["handTerminationError"])
+        self.arm_joint_velocity_penalty_scale = float(
+            env_cfg.get("armJointVelocityPenaltyScale", 0.0)
+        )
+        self.arm_joint_acceleration_penalty_scale = float(
+            env_cfg.get("armJointAccelerationPenaltyScale", 0.0)
+        )
+        self.hand_joint_acceleration_penalty_scale = float(
+            env_cfg.get("handJointAccelerationPenaltyScale", 0.0)
+        )
+        for name, scale in (
+            ("armJointVelocityPenaltyScale", self.arm_joint_velocity_penalty_scale),
+            (
+                "armJointAccelerationPenaltyScale",
+                self.arm_joint_acceleration_penalty_scale,
+            ),
+            (
+                "handJointAccelerationPenaltyScale",
+                self.hand_joint_acceleration_penalty_scale,
+            ),
+        ):
+            if scale < 0.0:
+                raise ValueError(f"{name} must be non-negative")
         # The palm-center OSC needs the current wrist orientation on the very
         # first pre-physics step; the base OSC does not require this state.
         self.populate_sim_buffers()
+        self.previous_imitation_joint_vel = self.arm_hand_dof_vel.clone()
         self.current_reference: ReferenceSample = self.reference.sample(self.phase)
         if self.velocity_tracking_enabled:
             self.velocity_reward_age = torch.zeros(
@@ -282,6 +305,9 @@ class SimToolRealMotionImitation(SimToolReal):
             "ee_rotation_reward",
             "hand_pose_reward",
             "imitation_reward",
+            "arm_joint_velocity_penalty",
+            "arm_joint_acceleration_penalty",
+            "hand_joint_acceleration_penalty",
             "episode_steps",
         ):
             if key not in self.rewards_episode:
@@ -426,6 +452,8 @@ class SimToolRealMotionImitation(SimToolReal):
         self.cur_targets[env_ids, : self.num_hand_arm_dofs] = robot_pos
         self.prev_penalized_actions[env_ids] = 0.0
         self.action_deltas[env_ids] = 0.0
+        if hasattr(self, "previous_imitation_joint_vel"):
+            self.previous_imitation_joint_vel[env_ids] = robot_vel
         if hasattr(self, "velocity_history_valid"):
             self.velocity_history_valid[env_ids] = False
             self.velocity_history_age[env_ids] = 0
@@ -802,12 +830,36 @@ class SimToolRealMotionImitation(SimToolReal):
             -self.hand_action_delta_penalty_scale
             * torch.sum(hand_delta.square(), dim=-1)
         )
+        joint_vel = self.arm_hand_dof_vel[:, : self.num_hand_arm_dofs]
+        joint_acceleration = (
+            joint_vel - self.previous_imitation_joint_vel
+        ) / self.control_dt
+        arm_joint_velocity_penalty = (
+            -self.arm_joint_velocity_penalty_scale
+            * torch.sum(joint_vel[:, : self.num_arm_dofs].square(), dim=-1)
+        )
+        arm_joint_acceleration_penalty = (
+            -self.arm_joint_acceleration_penalty_scale
+            * torch.sum(
+                joint_acceleration[:, : self.num_arm_dofs].square(), dim=-1
+            )
+        )
+        hand_joint_acceleration_penalty = (
+            -self.hand_joint_acceleration_penalty_scale
+            * torch.sum(
+                joint_acceleration[:, self.num_arm_dofs :].square(), dim=-1
+            )
+        )
+        self.previous_imitation_joint_vel.copy_(joint_vel)
         reward = (
             imitation_reward
             + arm_action_penalty
             + hand_action_penalty
             + arm_delta_penalty
             + hand_delta_penalty
+            + arm_joint_velocity_penalty
+            + arm_joint_acceleration_penalty
+            + hand_joint_acceleration_penalty
         )
         self.rew_buf[:] = reward
 
@@ -846,6 +898,9 @@ class SimToolRealMotionImitation(SimToolReal):
             "hand_actions_penalty": hand_action_penalty,
             "arm_action_delta_penalty": arm_delta_penalty,
             "hand_action_delta_penalty": hand_delta_penalty,
+            "arm_joint_velocity_penalty": arm_joint_velocity_penalty,
+            "arm_joint_acceleration_penalty": arm_joint_acceleration_penalty,
+            "hand_joint_acceleration_penalty": hand_joint_acceleration_penalty,
             "total_reward": reward,
             "episode_steps": torch.ones_like(reward),
         }
@@ -889,6 +944,17 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["control/hand_action_delta_rms"] = torch.sqrt(
             torch.mean(hand_delta.square())
         )
+        self.extras["control/arm_joint_velocity_rms_radps"] = torch.sqrt(
+            torch.mean(joint_vel[:, : self.num_arm_dofs].square())
+        )
+        self.extras["control/arm_joint_acceleration_rms_radps2"] = torch.sqrt(
+            torch.mean(
+                joint_acceleration[:, : self.num_arm_dofs].square()
+            )
+        )
+        self.extras["control/hand_joint_acceleration_rms_radps2"] = torch.sqrt(
+            torch.mean(joint_acceleration[:, self.num_arm_dofs :].square())
+        )
         self.extras["control/osc_joint_delta_clipped_fraction"] = (
             self.operational_space_joint_delta_clipped.float().mean()
         )
@@ -906,6 +972,15 @@ class SimToolRealMotionImitation(SimToolReal):
             "palm_pos": self.palm_center_pos,
             "reference_palm_pos": self.current_reference.palm_pos,
             "palm_rot": self._palm_rot,
+            "reference_palm_rot": self.current_reference.palm_quat_xyzw,
+            "reference_hand_q": unscale(
+                self.current_reference.hand_q,
+                self.arm_hand_dof_lower_limits[self.num_arm_dofs :],
+                self.arm_hand_dof_upper_limits[self.num_arm_dofs :],
+            ),
+            "reference_palm_lin_vel": self.current_reference.palm_lin_vel,
+            "reference_palm_ang_vel": self.current_reference.palm_ang_vel,
+            "reference_hand_dq": self.current_reference.hand_dq,
             "fingertip_pos_rel_palm": self.fingertip_pos_rel_palm.reshape(
                 self.num_envs, -1
             ),

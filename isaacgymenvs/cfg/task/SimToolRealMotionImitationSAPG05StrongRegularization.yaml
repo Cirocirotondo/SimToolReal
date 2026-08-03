@@ -1,0 +1,22 @@
+# SAPG05-StrongRegularization: SAPG04 with coefficients calibrated from the
+# observed per-step penalty fractions of the completed SAPG04 run.
+defaults:
+  - SimToolRealMotionImitationSAPG04JointRegularized
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # EE command magnitude and rate: target roughly 0.5% and 1%+ of reward.
+  kukaActionsPenaltyScale: 0.001
+  armActionDeltaPenaltyScale: 0.001
+
+  # Hand command magnitude and rate: target roughly 0.5% and 2-3%.
+  handActionsPenaltyScale: 0.0003
+  handActionDeltaPenaltyScale: 0.001
+
+  # Make measured arm-joint motion substantially more expensive. Disable the
+  # measured hand-acceleration term for now because it obscured interpretation.
+  armJointVelocityPenaltyScale: 0.002
+  armJointAccelerationPenaltyScale: 0.000003
+  handJointAccelerationPenaltyScale: 0.0

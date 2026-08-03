@@ -130,6 +130,9 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
                 "hand_actions_penalty",
                 "arm_action_delta_penalty",
                 "hand_action_delta_penalty",
+                "arm_joint_velocity_penalty",
+                "arm_joint_acceleration_penalty",
+                "hand_joint_acceleration_penalty",
             )
         ),
         "total_reward": _component(extras, "total_reward"),

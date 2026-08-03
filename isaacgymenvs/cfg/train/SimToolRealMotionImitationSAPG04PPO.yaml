@@ -1,0 +1,9 @@
+# SAPG04 retains SAPG03's optimizer/network profile. The launcher activates
+# the six-block SAPG exploration and leader/follower experience sharing.
+defaults:
+  - SimToolRealMotionImitationPPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG04PPO,${....experiment}}

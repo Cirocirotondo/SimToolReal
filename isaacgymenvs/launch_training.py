@@ -42,8 +42,12 @@ _TRAINING_PRESETS = (
     "motion_imitation_mi03",
     "motion_imitation_mi04",
     "motion_imitation_mi05",
+    "motion_imitation_mi06",
+    "motion_imitation_mi07",
     "motion_imitation_sapg02_precision",
     "motion_imitation_sapg03_triangular_target_input",
+    "motion_imitation_sapg04_joint_regularized",
+    "motion_imitation_sapg05_strong_regularization",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -112,8 +116,12 @@ class LaunchTrainingArgs:
         "motion_imitation_mi03",
         "motion_imitation_mi04",
         "motion_imitation_mi05",
+        "motion_imitation_mi06",
+        "motion_imitation_mi07",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
+        "motion_imitation_sapg04_joint_regularized",
+        "motion_imitation_sapg05_strong_regularization",
     ] = "default"
     """Select the named training preset.
 
@@ -127,9 +135,15 @@ class LaunchTrainingArgs:
     MI03 augments MI02 with filtered reference-velocity tracking. MI04 uses
     matched-window velocities, reset warm-up, and action-delta regularization.
     MI05 strengthens that action-delta regularization.
+    MI06 adds the desired palm pose and finger configuration to the MI05 input.
+    MI07 removes phase from MI06 and adds target palm and finger velocities.
     SAPG02Precision applies tighter pose rewards to the SAPG01 baseline.
     SAPG03TriangularTargetInput trains from zero with those precision rewards,
     triangular RSI, and the desired palm position in the policy observation.
+    SAPG04JointRegularized adds weak command costs and measured arm-joint
+    velocity/acceleration regularization to SAPG03.
+    SAPG05StrongRegularization increases those costs using SAPG04 measurements
+    and temporarily disables measured hand-joint acceleration regularization.
     The remaining names preserve the established cube and hand-only
     curricula.
     """
@@ -282,8 +296,12 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi03": "SimToolRealMotionImitationMI03",
         "motion_imitation_mi04": "SimToolRealMotionImitationMI04",
         "motion_imitation_mi05": "SimToolRealMotionImitationMI05",
+        "motion_imitation_mi06": "SimToolRealMotionImitationMI06",
+        "motion_imitation_mi07": "SimToolRealMotionImitationMI07",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationSAPG02Precision",
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationSAPG03TriangularTargetInput",
+        "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04JointRegularized",
+        "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05StrongRegularization",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -324,8 +342,12 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi03",
         "motion_imitation_mi04",
         "motion_imitation_mi05",
+        "motion_imitation_mi06",
+        "motion_imitation_mi07",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
+        "motion_imitation_sapg04_joint_regularized",
+        "motion_imitation_sapg05_strong_regularization",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
@@ -344,8 +366,12 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi03",
         "motion_imitation_mi04",
         "motion_imitation_mi05",
+        "motion_imitation_mi06",
+        "motion_imitation_mi07",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
+        "motion_imitation_sapg04_joint_regularized",
+        "motion_imitation_sapg05_strong_regularization",
     }
     auto_ppo_presets = {
         "train_b7",
@@ -355,6 +381,8 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi03",
         "motion_imitation_mi04",
         "motion_imitation_mi05",
+        "motion_imitation_mi06",
+        "motion_imitation_mi07",
     }
     use_sapg = args.algorithm == "sapg" or (
         args.algorithm == "auto"
@@ -404,10 +432,14 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi03": "SimToolRealMotionImitationMI03PPO",
         "motion_imitation_mi04": "SimToolRealMotionImitationMI04PPO",
         "motion_imitation_mi05": "SimToolRealMotionImitationMI05PPO",
+        "motion_imitation_mi06": "SimToolRealMotionImitationMI06PPO",
+        "motion_imitation_mi07": "SimToolRealMotionImitationMI07PPO",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationPPO",
         # SAPG03 starts from zero but keeps the established six-block SAPG
         # optimizer/network profile, now with a 104-dimensional observation.
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationPPO",
+        "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04PPO",
+        "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05PPO",
     }
     train_profile = motion_imitation_train_profiles.get(args.training_preset)
     if train_profile is not None:

@@ -1,0 +1,24 @@
+# SAPG04-JointRegularized: SAPG03 with weak command costs and physical-joint
+# motion regularization, especially on the six UR5e arm joints.
+defaults:
+  - SimToolRealMotionImitationSAPG03TriangularTargetInput
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # The arm policy action is an OSC end-effector twist. Keep its magnitude and
+  # rate costs weak; these alone do not describe motion of the six UR joints.
+  kukaActionsPenaltyScale: 0.0001
+  armActionDeltaPenaltyScale: 0.0001
+
+  # Hand action costs use a smaller coefficient because there are 20 joints.
+  handActionsPenaltyScale: 0.00001
+  handActionDeltaPenaltyScale: 0.00001
+
+  # Penalize actual simulated joint motion. Acceleration is the finite
+  # difference of measured DOF velocity divided by the 60 Hz control period.
+  # The arm velocity term intentionally dominates the EE-command cost.
+  armJointVelocityPenaltyScale: 0.001
+  armJointAccelerationPenaltyScale: 0.000001
+  handJointAccelerationPenaltyScale: 0.000000001

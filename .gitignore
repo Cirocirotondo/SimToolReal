@@ -220,3 +220,4 @@ wandb/
 # FoundationPose (separate repo)
 FoundationPose/
 uv.lock
+eval_reward_plots/

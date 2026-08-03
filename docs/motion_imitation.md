@@ -64,6 +64,40 @@ python isaacgymenvs/launch_training.py \
   --num-envs 4800
 ```
 
+Launch MI06 from zero with the complete instantaneous target pose in the policy input:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_mi06 \
+  --algorithm ppo \
+  --custom-experiment-name mi06_ppo_target_palm_input \
+  --num-envs 4800
+```
+
+Do not pass `--checkpoint`: MI06 changes the policy observation from 101D to
+128D, so MI05's input layer is not shape-compatible. It adds the target palm
+position (3D), target palm quaternion (4D), and normalized target finger-joint
+configuration (20D). MI06 otherwise retains MI05's matched-window velocity
+objective, reset warm-up, triangular RSI, action-delta regularization, and PPO
+profile. Target velocities remain implicit and are not part of the observation.
+
+Launch MI07 from zero with the complete target pose and instantaneous target
+velocities, but without the scalar phase clock:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_mi07 \
+  --algorithm ppo \
+  --custom-experiment-name mi07_ppo_target_pose_velocity_no_phase \
+  --num-envs 4800
+```
+
+MI07 has a 153D observation. Relative to MI06, it removes phase (1D) and adds
+target palm linear velocity (3D), target palm angular velocity (3D), and target
+finger-joint velocities (20D). These velocities are derived and filtered by
+the existing demonstration loader; the original recording remains unchanged.
+The changed input layer requires training from zero.
+
 ### SAPG03-Triangular-TargetInput
 
 Start the six-block SAPG successor from zero:
@@ -90,6 +124,48 @@ Training environments contain only the controlled robot. The isolated periodic
 evaluator creates the translucent green reference robot in its single
 environment and logs the deterministic video under `eval/video`.
 
+### SAPG04-JointRegularized
+
+SAPG04 keeps SAPG03's 104D observation, triangular RSI, target palm position,
+precision pose reward, and six-block SAPG setup. It adds weak penalties on the
+OSC/hand commands and their changes, plus penalties computed from measured
+UR5e joint velocities and finite-difference joint accelerations. Launch it from
+zero with:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_sapg04_joint_regularized \
+  --algorithm sapg \
+  --custom-experiment-name sapg04_joint_regularized \
+  --num-envs 4800 \
+  --num-blocks 6
+```
+
+The coefficients are: EE action/rate `1e-4 / 1e-4`, hand action/rate
+`1e-5 / 1e-5`, measured arm-joint velocity `1e-3`, measured arm-joint
+acceleration `1e-6`, and measured hand-joint acceleration `1e-9`.
+Accelerations are expressed in `rad/s^2`; all penalties use sums of squares.
+
+### SAPG05-StrongRegularization
+
+SAPG05 preserves SAPG04's task and SAPG setup, but calibrates the penalty
+coefficients from the observed SAPG04 per-step fractions. It disables measured
+hand acceleration and strengthens command smoothing and physical arm-joint
+regularization:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_sapg05_strong_regularization \
+  --algorithm sapg \
+  --custom-experiment-name sapg05_strong_regularization \
+  --num-envs 4800 \
+  --num-blocks 6
+```
+
+SAPG05 uses EE action/rate `1e-3 / 1e-3`, hand action/rate
+`3e-4 / 1e-3`, measured arm-joint velocity `2e-3`, measured arm-joint
+acceleration `3e-6`, and measured hand-joint acceleration `0`.
+
 ## Experiment lineage
 
 Motion-imitation experiments use zero-padded `MIxx` identifiers. Task YAMLs
@@ -104,6 +180,8 @@ A preset selects one of each.
 | `MI03` | MI02 plus filtered palm linear, palm angular, and hand-joint velocity rewards | Same as MI02 | `motion_imitation_mi03` |
 | `MI04` | MI03 plus matched 5-step velocity estimates, 5-step reset warm-up, and action-delta penalties | Same as MI02 | `motion_imitation_mi04` |
 | `MI05` | MI04 with 3x stronger arm and hand action-delta penalties | Same as MI02 | `motion_imitation_mi05` |
+| `MI06` | MI05 plus desired palm pose and finger configuration in the policy observation (128D) | Same as MI02 | `motion_imitation_mi06` |
+| `MI07` | MI06 without phase; adds desired palm linear/angular and finger-joint velocities (153D) | Same as MI02 | `motion_imitation_mi07` |
 
 `MI0x` is reserved for robot-only imitation. `MI1x` will be used for the
 object-tracking generation, beginning with grounded-only RSI. The launcher
@@ -117,6 +195,8 @@ SAPG experiments use a separate chronological and logical namespace:
 | `SAPG01-Base` | Legacy six-block SAPG baseline | 101D | `motion_imitation` |
 | `SAPG02-Precision` | Position/orientation/hand scales `400`/`15`/`2`, uniform RSI | 101D | `motion_imitation_sapg02_precision` |
 | `SAPG03-Triangular-TargetInput` | SAPG02 rewards, triangular RSI, desired palm position as policy input, no velocity objective | 104D | `motion_imitation_sapg03_triangular_target_input` |
+| `SAPG04-JointRegularized` | SAPG03 plus weak action/rate costs and measured arm-joint velocity/acceleration costs | 104D | `motion_imitation_sapg04_joint_regularized` |
+| `SAPG05-StrongRegularization` | SAPG04 with stronger action/rate and arm-joint costs; hand acceleration disabled | 104D | `motion_imitation_sapg05_strong_regularization` |
 
 The native W&B `video` stream contains only the simulated robot, avoiding an
 auxiliary articulation in every training environment. The isolated

@@ -1,0 +1,42 @@
+# MI07: MI06 without the phase clock and with instantaneous target velocities.
+defaults:
+  - SimToolRealMotionImitationMI06
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # 26 q + 26 qd + 26 previous targets + 3 current palm position +
+  # 3 desired palm position + 4 current palm quaternion + 4 desired palm
+  # quaternion + 20 desired hand joints + 3 desired palm linear velocity +
+  # 3 desired palm angular velocity + 20 desired hand-joint velocities +
+  # 15 fingertip-relative positions = 153 observations. The scalar phase is
+  # deliberately omitted so the policy cannot use it as a perfect clock.
+  stateList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "reference_palm_rot",
+    "reference_hand_q",
+    "reference_palm_lin_vel",
+    "reference_palm_ang_vel",
+    "reference_hand_dq",
+    "fingertip_pos_rel_palm",
+  ]
+  obsList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "reference_palm_rot",
+    "reference_hand_q",
+    "reference_palm_lin_vel",
+    "reference_palm_ang_vel",
+    "reference_hand_dq",
+    "fingertip_pos_rel_palm",
+  ]

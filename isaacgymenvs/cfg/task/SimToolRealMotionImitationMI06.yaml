@@ -1,0 +1,36 @@
+# MI06: MI05 with the complete task-space/hand target in the observation.
+defaults:
+  - SimToolRealMotionImitationMI05
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # 26 q + 26 qd + 26 previous targets + 3 current palm position +
+  # 3 desired palm position + 4 current palm quaternion + 4 desired palm
+  # quaternion + 20 desired hand joints + 15 fingertip-relative positions +
+  # 1 phase = 128 observations.
+  stateList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "reference_palm_rot",
+    "reference_hand_q",
+    "fingertip_pos_rel_palm",
+    "phase",
+  ]
+  obsList: [
+    "joint_pos",
+    "joint_vel",
+    "prev_action_targets",
+    "palm_pos",
+    "reference_palm_pos",
+    "palm_rot",
+    "reference_palm_rot",
+    "reference_hand_q",
+    "fingertip_pos_rel_palm",
+    "phase",
+  ]

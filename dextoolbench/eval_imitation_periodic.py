@@ -231,6 +231,9 @@ def evaluate(
         "hand_actions_penalty",
         "arm_action_delta_penalty",
         "hand_action_delta_penalty",
+        "arm_joint_velocity_penalty",
+        "arm_joint_acceleration_penalty",
+        "hand_joint_acceleration_penalty",
         "total_reward",
     ]
     if env.velocity_tracking_enabled:
@@ -397,6 +400,15 @@ def evaluate(
     ]
     metrics["hand_delta_action_cost_sum"] = -component_sums[
         "hand_action_delta_penalty"
+    ]
+    metrics["arm_joint_velocity_cost_sum"] = -component_sums[
+        "arm_joint_velocity_penalty"
+    ]
+    metrics["arm_joint_acceleration_cost_sum"] = -component_sums[
+        "arm_joint_acceleration_penalty"
+    ]
+    metrics["hand_joint_acceleration_cost_sum"] = -component_sums[
+        "hand_joint_acceleration_penalty"
     ]
     return metrics
 
