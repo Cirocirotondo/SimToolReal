@@ -44,6 +44,7 @@ _TRAINING_PRESETS = (
     "motion_imitation_mi05",
     "motion_imitation_mi06",
     "motion_imitation_mi07",
+    "motion_imitation_mi08_positive_gaussian_regularization",
     "motion_imitation_sapg02_precision",
     "motion_imitation_sapg03_triangular_target_input",
     "motion_imitation_sapg04_joint_regularized",
@@ -121,6 +122,7 @@ class LaunchTrainingArgs:
         "motion_imitation_mi05",
         "motion_imitation_mi06",
         "motion_imitation_mi07",
+        "motion_imitation_mi08_positive_gaussian_regularization",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
@@ -143,6 +145,8 @@ class LaunchTrainingArgs:
     MI05 strengthens that action-delta regularization.
     MI06 adds the desired palm pose and finger configuration to the MI05 input.
     MI07 removes phase from MI06 and adds target palm and finger velocities.
+    MI08 branches from MI04 and replaces negative quadratic regularizers with
+    bounded positive Gaussian rewards using explicit scale/sigma pairs.
     SAPG02Precision applies tighter pose rewards to the SAPG01 baseline.
     SAPG03TriangularTargetInput trains from zero with those precision rewards,
     triangular RSI, and the desired palm position in the policy observation.
@@ -183,6 +187,9 @@ class LaunchTrainingArgs:
 
     show_viewer: bool = False
     """If True, headless=False (finestra Isaac Gym). Con pochi env, minibatch viene ridotto automaticamente."""
+
+    disable_video: bool = False
+    """Disable native/W&B videos, camera sensors, and periodic video evaluation for renderless servers."""
 
     # === Wandb ===
     wandb_entity: str = "simonecirelli-eth"
@@ -319,6 +326,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi05": "SimToolRealMotionImitationMI05",
         "motion_imitation_mi06": "SimToolRealMotionImitationMI06",
         "motion_imitation_mi07": "SimToolRealMotionImitationMI07",
+        "motion_imitation_mi08_positive_gaussian_regularization": "SimToolRealMotionImitationMI08PositiveGaussianRegularization",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationSAPG02Precision",
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationSAPG03TriangularTargetInput",
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04JointRegularized",
@@ -368,6 +376,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi05",
         "motion_imitation_mi06",
         "motion_imitation_mi07",
+        "motion_imitation_mi08_positive_gaussian_regularization",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
@@ -395,6 +404,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi05",
         "motion_imitation_mi06",
         "motion_imitation_mi07",
+        "motion_imitation_mi08_positive_gaussian_regularization",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
@@ -413,6 +423,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi05",
         "motion_imitation_mi06",
         "motion_imitation_mi07",
+        "motion_imitation_mi08_positive_gaussian_regularization",
     }
     use_sapg = args.algorithm == "sapg" or (
         args.algorithm == "auto"
@@ -464,6 +475,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi05": "SimToolRealMotionImitationMI05PPO",
         "motion_imitation_mi06": "SimToolRealMotionImitationMI06PPO",
         "motion_imitation_mi07": "SimToolRealMotionImitationMI07PPO",
+        "motion_imitation_mi08_positive_gaussian_regularization": "SimToolRealMotionImitationMI08PPO",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationPPO",
         # SAPG03 starts from zero but keeps the established six-block SAPG
         # optimizer/network profile, now with a 104-dimensional observation.
@@ -499,6 +511,22 @@ def launch_training(args: LaunchTrainingArgs) -> None:
             [
                 f"task.env.forceScale={force_scale}",
                 f"task.env.torqueScale={torque_scale}",
+            ]
+        )
+
+    if args.disable_video:
+        # Some remote compute nodes have no graphics device or video encoder.
+        # Disable both recording paths: the generic wrapper/native camera path
+        # and the isolated periodic evaluator, which always renders an MP4.
+        cmd_parts.extend(
+            [
+                "capture_video=False",
+                "force_render=False",
+                "task.env.capture_video=False",
+                "task.env.enableCameraSensors=False",
+                "task.env.visualizeReferenceRobotInVideo=False",
+                "task.env.referenceVisualizationActorEnabled=False",
+                "task.env.periodicEvaluation=False",
             ]
         )
 

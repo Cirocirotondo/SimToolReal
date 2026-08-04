@@ -308,25 +308,35 @@ non fine-tuning, salvo indicazione esplicita):
                     │   reward medio/step ~0.892, errore posizione medio ~2.8 cm,
                     │   orientamento ~0.070 rad e hand L2 ~0.62 rad.
                     │
-                    └── 00_mi05_ppo_stronger_action_delta_2026-07-31_14-08-06
-                        │   Da zero, 4800 env, avviato. Identico a MI04 tranne delta-action
-                        │   penalties moltiplicate per 3: arm `0.003`, hand `0.0003`.
-                        │   Obiettivo: ridurre lo shaking residuo senza penalizzare i comandi
-                        │   sostenuti; le action-magnitude penalties restano a zero.
-                        │
-                        └── MI06 (preset preparato, non ancora lanciato)
-                            Da zero. MI05 + target pose istantanea dalla demonstration:
-                            posizione palm (3D), orientamento palm quaternion (4D) e pose
-                            normalizzate dei 20 joint delle dita. Observation 101D -> 128D.
-                            Mantiene velocity reward matched-window, warm-up, RSI triangolare,
-                            delta penalties e profilo PPO di MI05; target velocity non in input.
-                            │
-                            └── MI07 (preset preparato, non ancora lanciato)
-                                Da zero. Mantiene la target pose completa di MI06, rimuove la
-                                phase dall'osservazione e aggiunge target palm linear/angular
-                                velocity (3D + 3D) e target finger velocity (20D). Observation
-                                128D -> 153D. Obiettivo: evitare l'anticipo temporale osservato
-                                in MI06, fornendo direzione/velocita' istantanee senza un clock.
+                    ├── 00_mi05_ppo_stronger_action_delta_2026-07-31_14-08-06
+                    │   │   Da zero, 4800 env, avviato. Identico a MI04 tranne delta-action
+                    │   │   penalties moltiplicate per 3: arm `0.003`, hand `0.0003`.
+                    │   │   Obiettivo: ridurre lo shaking residuo senza penalizzare i comandi
+                    │   │   sostenuti; le action-magnitude penalties restano a zero.
+                    │   │
+                    │   └── MI06 (preset preparato, non ancora lanciato)
+                    │       Da zero. MI05 + target pose istantanea dalla demonstration:
+                    │       posizione palm (3D), orientamento palm quaternion (4D) e pose
+                    │       normalizzate dei 20 joint delle dita. Observation 101D -> 128D.
+                    │       Mantiene velocity reward matched-window, warm-up, RSI triangolare,
+                    │       delta penalties e profilo PPO di MI05; target velocity non in input.
+                    │       │
+                    │       └── MI07 (preset preparato, non ancora lanciato)
+                    │           Da zero. Mantiene la target pose completa di MI06, rimuove la
+                    │           phase dall'osservazione e aggiunge target palm linear/angular
+                    │           velocity (3D + 3D) e target finger velocity (20D). Observation
+                    │           128D -> 153D. Obiettivo: evitare l'anticipo temporale osservato
+                    │           in MI06, fornendo direzione/velocita' istantanee senza un clock.
+                    │
+                    └── MI08-PositiveGaussianRegularization (preset preparato)
+                        Ramo diretto da MI04. Sostituisce le penalty quadratiche negative
+                        con reward gaussiane positive e limitate. Tutti i sei termini
+                        attivi hanno massimo `0.05`; le sigma sono `500 / 5000` per
+                        action arm/hand, `500 / 5000` per action-delta arm/hand,
+                        `50` per arm-joint velocity e `50000` per arm-joint acceleration.
+                        I rapporti `SCALE/SIGMA` riproducono localmente tutti i
+                        coefficienti SAPG04. Solo hand joint acceleration resta
+                        disattivato. Il launcher supporta `--disable-video` per TARS/CASE.
 
 
 Motion imitation — lineage logica SAPG:
@@ -415,6 +425,7 @@ reward object-manipulation descritta nella tabella iniziale del documento.
 | `MI05` | come MI02 | come MI02 | come MI04 | `0 / 0` | `0.003 / 0.0003` | Avviato; verifica riduzione shaking in corso |
 | `MI06` | come MI02 | come MI02 | come MI04; target palm pose + finger pose in input (128D) | `0 / 0` | `0.003 / 0.0003` | Preset preparato; training da zero richiesto |
 | `MI07` | come MI02 | come MI02 | come MI04; target pose + target velocities, senza phase (153D) | `0 / 0` | `0.003 / 0.0003` | Preset preparato; training da zero richiesto |
+| `MI08` | come MI04 | come MI04 | come MI04 | Gaussiani action arm/hand: `S=.05`, `sigma=500/5000` | Gaussiani delta arm/hand: `S=.05`, `sigma=500/5000`; anche arm qd/qdd gaussiani | Coefficienti locali SAPG04; hand qdd disattivato; video disattivabile |
 
 ### Tabella storico: **colonne = training** (+ colonna di riferimento), **righe = parametri**
 

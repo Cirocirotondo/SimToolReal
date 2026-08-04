@@ -1,0 +1,45 @@
+# MI08: MI04 tracking with bounded, strictly non-negative Gaussian
+# regularization rewards instead of unbounded negative quadratic penalties.
+defaults:
+  - SimToolRealMotionImitationMI04
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  positiveGaussianRegularizationEnabled: True
+
+  # Disable every legacy negative regularizer. In Gaussian mode each term is
+  # instead SCALE * exp(-||x||^2 / SIGMA) and is added to the reward.
+  kukaActionsPenaltyScale: 0.0
+  handActionsPenaltyScale: 0.0
+  armActionDeltaPenaltyScale: 0.0
+  handActionDeltaPenaltyScale: 0.0
+  armJointVelocityPenaltyScale: 0.0
+  armJointAccelerationPenaltyScale: 0.0
+  handJointAccelerationPenaltyScale: 0.0
+
+  # Use a common maximum bonus of 0.05. SIGMA=SCALE/lambda preserves the
+  # local quadratic coefficient lambda of SAPG04 for every enabled term.
+  # EE OSC action magnitude: lambda = 1e-4.
+  kukaActionsRegularizationScale: 0.05
+  kukaActionsRegularizationSigma: 500.0
+  # Hand action magnitude: lambda = 1e-5.
+  handActionsRegularizationScale: 0.05
+  handActionsRegularizationSigma: 5000.0
+  # Measured arm-joint velocity: lambda = 1e-3.
+  armJointVelocityRegularizationScale: 0.05
+  armJointVelocityRegularizationSigma: 50.0
+  # Measured arm-joint acceleration: lambda = 1e-6.
+  armJointAccelerationRegularizationScale: 0.05
+  armJointAccelerationRegularizationSigma: 50000.0
+  # Intentionally disabled as requested.
+  handJointAccelerationRegularizationScale: 0.0
+  handJointAccelerationRegularizationSigma: 1.0
+
+  # Action-rate terms reproduce SAPG04's coefficients (both lambda = 1e-5 for
+  # the hand and 1e-4 for the arm), rather than MI04's stronger delta costs.
+  armActionDeltaRegularizationScale: 0.05
+  armActionDeltaRegularizationSigma: 500.0
+  handActionDeltaRegularizationScale: 0.05
+  handActionDeltaRegularizationSigma: 5000.0

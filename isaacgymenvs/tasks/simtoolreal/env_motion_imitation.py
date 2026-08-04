@@ -45,6 +45,15 @@ class SimToolRealMotionImitation(SimToolReal):
             "HandJointAccelerationPenaltyScale",
         ),
     )
+    GAUSSIAN_REGULARIZATION_CONFIGS = (
+        ("kuka_actions", "kukaActions"),
+        ("hand_actions", "handActions"),
+        ("arm_action_delta", "armActionDelta"),
+        ("hand_action_delta", "handActionDelta"),
+        ("arm_joint_velocity", "armJointVelocity"),
+        ("arm_joint_acceleration", "armJointAcceleration"),
+        ("hand_joint_acceleration", "handJointAcceleration"),
+    )
 
     def __init__(
         self,
@@ -371,6 +380,7 @@ class SimToolRealMotionImitation(SimToolReal):
         ):
             if scale < 0.0:
                 raise ValueError(f"{name} must be non-negative")
+        self._init_positive_gaussian_regularization(env_cfg)
         self._init_regularization_curriculum(env_cfg)
         # The palm-center OSC needs the current wrist orientation on the very
         # first pre-physics step; the base OSC does not require this state.
@@ -424,6 +434,13 @@ class SimToolRealMotionImitation(SimToolReal):
                 self.rewards_episode[key] = torch.zeros(
                     self.num_envs, dtype=torch.float, device=self.device
                 )
+        if self.positive_gaussian_regularization_enabled:
+            for name, _ in self.GAUSSIAN_REGULARIZATION_CONFIGS:
+                key = f"{name}_regularization_reward"
+                if key not in self.rewards_episode:
+                    self.rewards_episode[key] = torch.zeros(
+                        self.num_envs, dtype=torch.float, device=self.device
+                    )
         if self.velocity_tracking_enabled:
             for key in (
                 "pose_imitation_reward",
@@ -1023,53 +1040,52 @@ class SimToolRealMotionImitation(SimToolReal):
         hand_delta = self.action_deltas[
             :, self.num_arm_dofs : self.num_hand_arm_dofs
         ]
-        arm_action_penalty = (
-            -self.kuka_actions_penalty_scale
-            * torch.sum(arm_actions.square(), dim=-1)
+        arm_action_regularization = self._regularization_contribution(
+            "kuka_actions", arm_actions, self.kuka_actions_penalty_scale
         )
-        hand_action_penalty = (
-            -self.hand_actions_penalty_scale
-            * torch.sum(hand_actions.square(), dim=-1)
+        hand_action_regularization = self._regularization_contribution(
+            "hand_actions", hand_actions, self.hand_actions_penalty_scale
         )
-        arm_delta_penalty = (
-            -self.arm_action_delta_penalty_scale
-            * torch.sum(arm_delta.square(), dim=-1)
+        arm_delta_regularization = self._regularization_contribution(
+            "arm_action_delta", arm_delta, self.arm_action_delta_penalty_scale
         )
-        hand_delta_penalty = (
-            -self.hand_action_delta_penalty_scale
-            * torch.sum(hand_delta.square(), dim=-1)
+        hand_delta_regularization = self._regularization_contribution(
+            "hand_action_delta", hand_delta, self.hand_action_delta_penalty_scale
         )
         joint_vel = self.arm_hand_dof_vel[:, : self.num_hand_arm_dofs]
         joint_acceleration = (
             joint_vel - self.previous_imitation_joint_vel
         ) / self.control_dt
-        arm_joint_velocity_penalty = (
-            -self.arm_joint_velocity_penalty_scale
-            * torch.sum(joint_vel[:, : self.num_arm_dofs].square(), dim=-1)
+        arm_joint_velocity_regularization = self._regularization_contribution(
+            "arm_joint_velocity",
+            joint_vel[:, : self.num_arm_dofs],
+            self.arm_joint_velocity_penalty_scale,
         )
-        arm_joint_acceleration_penalty = (
-            -self.arm_joint_acceleration_penalty_scale
-            * torch.sum(
-                joint_acceleration[:, : self.num_arm_dofs].square(), dim=-1
+        arm_joint_acceleration_regularization = (
+            self._regularization_contribution(
+                "arm_joint_acceleration",
+                joint_acceleration[:, : self.num_arm_dofs],
+                self.arm_joint_acceleration_penalty_scale,
             )
         )
-        hand_joint_acceleration_penalty = (
-            -self.hand_joint_acceleration_penalty_scale
-            * torch.sum(
-                joint_acceleration[:, self.num_arm_dofs :].square(), dim=-1
+        hand_joint_acceleration_regularization = (
+            self._regularization_contribution(
+                "hand_joint_acceleration",
+                joint_acceleration[:, self.num_arm_dofs :],
+                self.hand_joint_acceleration_penalty_scale,
             )
         )
         self.previous_imitation_joint_vel.copy_(joint_vel)
         reward = (
             imitation_reward
             + object_keypoint_reward
-            + arm_action_penalty
-            + hand_action_penalty
-            + arm_delta_penalty
-            + hand_delta_penalty
-            + arm_joint_velocity_penalty
-            + arm_joint_acceleration_penalty
-            + hand_joint_acceleration_penalty
+            + arm_action_regularization
+            + hand_action_regularization
+            + arm_delta_regularization
+            + hand_delta_regularization
+            + arm_joint_velocity_regularization
+            + arm_joint_acceleration_regularization
+            + hand_joint_acceleration_regularization
         )
         self.rew_buf[:] = reward
 
@@ -1121,16 +1137,32 @@ class SimToolRealMotionImitation(SimToolReal):
             ),
             "imitation_reward": imitation_reward,
             "object_keypoint_reward": object_keypoint_reward,
-            "kuka_actions_penalty": arm_action_penalty,
-            "hand_actions_penalty": hand_action_penalty,
-            "arm_action_delta_penalty": arm_delta_penalty,
-            "hand_action_delta_penalty": hand_delta_penalty,
-            "arm_joint_velocity_penalty": arm_joint_velocity_penalty,
-            "arm_joint_acceleration_penalty": arm_joint_acceleration_penalty,
-            "hand_joint_acceleration_penalty": hand_joint_acceleration_penalty,
             "total_reward": reward,
             "episode_steps": torch.ones_like(reward),
         }
+        regularization_values = {
+            "kuka_actions": arm_action_regularization,
+            "hand_actions": hand_action_regularization,
+            "arm_action_delta": arm_delta_regularization,
+            "hand_action_delta": hand_delta_regularization,
+            "arm_joint_velocity": arm_joint_velocity_regularization,
+            "arm_joint_acceleration": arm_joint_acceleration_regularization,
+            "hand_joint_acceleration": hand_joint_acceleration_regularization,
+        }
+        if self.positive_gaussian_regularization_enabled:
+            components.update(
+                {
+                    f"{name}_regularization_reward": value
+                    for name, value in regularization_values.items()
+                }
+            )
+        else:
+            components.update(
+                {
+                    f"{name}_penalty": value
+                    for name, value in regularization_values.items()
+                }
+            )
         components.update(velocity_components)
         for name, value in components.items():
             self.rewards_episode[name] += value
@@ -1199,11 +1231,60 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["control/hand_joint_acceleration_rms_radps2"] = torch.sqrt(
             torch.mean(joint_acceleration[:, self.num_arm_dofs :].square())
         )
+        self._log_positive_gaussian_regularization()
         self._log_regularization_curriculum()
         self.extras["control/osc_joint_delta_clipped_fraction"] = (
             self.operational_space_joint_delta_clipped.float().mean()
         )
         return reward, finished
+
+    def _init_positive_gaussian_regularization(self, env_cfg) -> None:
+        self.positive_gaussian_regularization_enabled = bool(
+            env_cfg.get("positiveGaussianRegularizationEnabled", False)
+        )
+        self.gaussian_regularization_scales = {}
+        self.gaussian_regularization_sigmas = {}
+        for name, config_prefix in self.GAUSSIAN_REGULARIZATION_CONFIGS:
+            scale = float(
+                env_cfg.get(f"{config_prefix}RegularizationScale", 0.0)
+            )
+            sigma = float(
+                env_cfg.get(f"{config_prefix}RegularizationSigma", 1.0)
+            )
+            if scale < 0.0:
+                raise ValueError(
+                    f"{config_prefix}RegularizationScale must be non-negative"
+                )
+            if sigma <= 0.0:
+                raise ValueError(
+                    f"{config_prefix}RegularizationSigma must be positive"
+                )
+            self.gaussian_regularization_scales[name] = scale
+            self.gaussian_regularization_sigmas[name] = sigma
+
+    def _regularization_contribution(
+        self,
+        name: str,
+        value: Tensor,
+        legacy_penalty_scale: float,
+    ) -> Tensor:
+        squared_norm = torch.sum(value.square(), dim=-1)
+        if not self.positive_gaussian_regularization_enabled:
+            return -legacy_penalty_scale * squared_norm
+        scale = self.gaussian_regularization_scales[name]
+        sigma = self.gaussian_regularization_sigmas[name]
+        return scale * torch.exp(-squared_norm / sigma)
+
+    def _log_positive_gaussian_regularization(self) -> None:
+        if not self.positive_gaussian_regularization_enabled:
+            return
+        for name, _ in self.GAUSSIAN_REGULARIZATION_CONFIGS:
+            self.extras[f"gaussian_regularization/{name}_scale"] = (
+                self.gaussian_regularization_scales[name]
+            )
+            self.extras[f"gaussian_regularization/{name}_sigma"] = (
+                self.gaussian_regularization_sigmas[name]
+            )
 
     def _init_regularization_curriculum(self, env_cfg) -> None:
         self.regularization_curriculum_enabled = bool(

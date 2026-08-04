@@ -1,0 +1,8 @@
+# MI08 changes only MI04's regularization objective and keeps its PPO profile.
+defaults:
+  - SimToolRealMotionImitationMI04PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI08PPO,${....experiment}}
