@@ -184,6 +184,30 @@ class SimToolRealMotionImitation(SimToolReal):
                 "referenceInitDistribution must be 'uniform' or "
                 f"'triangular', got {self.reference_init_distribution!r}"
             )
+        self.reference_init_anchor_probability = float(
+            env_cfg.get("referenceInitAnchorProbability", 0.0)
+        )
+        self.reference_init_anchor_phase = float(
+            env_cfg.get("referenceInitAnchorPhase", 0.0)
+        )
+        self.reference_init_anchor_jitter = float(
+            env_cfg.get("referenceInitAnchorJitter", 0.0)
+        )
+        if not 0.0 <= self.reference_init_anchor_probability <= 1.0:
+            raise ValueError("referenceInitAnchorProbability must be in [0, 1]")
+        if self.reference_init_anchor_jitter < 0.0:
+            raise ValueError("referenceInitAnchorJitter must be non-negative")
+        if self.reference_init_anchor_probability > 0.0:
+            if not self.use_reference_state_initialization:
+                raise ValueError(
+                    "referenceInitAnchorProbability requires "
+                    "useReferenceStateInitialization"
+                )
+            if not 0.0 <= self.reference_init_anchor_phase <= 1.0:
+                raise ValueError(
+                    "referenceInitAnchorPhase must be within [0, 1]"
+                )
+        self.reference_anchor_reset_count = 0
 
         self.ee_position_reward_weight = float(env_cfg["eePositionRewardWeight"])
         self.ee_rotation_reward_weight = float(env_cfg["eeRotationRewardWeight"])
@@ -476,12 +500,30 @@ class SimToolRealMotionImitation(SimToolReal):
             self.reference_init_distribution,
             self.device,
         )
+        use_anchor_phase = torch.zeros_like(use_random_phase)
+        if self.reference_init_anchor_probability > 0.0:
+            use_anchor_phase = use_random_phase & (
+                torch.rand(len(env_ids), device=self.device)
+                < self.reference_init_anchor_probability
+            )
+            anchor_phase = torch.full_like(
+                sampled_phase, self.reference_init_anchor_phase
+            )
+            if self.reference_init_anchor_jitter > 0.0:
+                anchor_phase += (
+                    2.0 * torch.rand_like(anchor_phase) - 1.0
+                ) * self.reference_init_anchor_jitter
+            anchor_phase.clamp_(0.0, 1.0)
+            sampled_phase = torch.where(
+                use_anchor_phase, anchor_phase, sampled_phase
+            )
         self.phase[env_ids] = torch.where(
             use_random_phase, sampled_phase, torch.zeros_like(sampled_phase)
         )
         self.reference_state_reset_mask[env_ids] = use_random_phase
         self.reference_state_reset_count += int(use_random_phase.sum().item())
         self.regular_state_reset_count += int((~use_random_phase).sum().item())
+        self.reference_anchor_reset_count += int(use_anchor_phase.sum().item())
 
         scalars = self.extras.setdefault("scalars", {})
         scalars["rsi/reference_reset_fraction"] = float(
@@ -496,6 +538,17 @@ class SimToolRealMotionImitation(SimToolReal):
         scalars["rsi/random_start_phase_mean"] = (
             float(sampled_phase[use_random_phase].mean().item())
             if bool(use_random_phase.any().item())
+            else 0.0
+        )
+        scalars["rsi/anchor_reset_fraction"] = float(
+            use_anchor_phase.float().mean().item()
+        )
+        scalars["rsi/anchor_reset_count_total"] = int(
+            self.reference_anchor_reset_count
+        )
+        scalars["rsi/anchor_start_phase_mean"] = (
+            float(sampled_phase[use_anchor_phase].mean().item())
+            if bool(use_anchor_phase.any().item())
             else 0.0
         )
 
@@ -1240,6 +1293,7 @@ class SimToolRealMotionImitation(SimToolReal):
         state["regularization_curriculum_step"] = (
             self.regularization_curriculum_step
         )
+        state["reference_anchor_reset_count"] = self.reference_anchor_reset_count
         return state
 
     def set_env_state(self, env_state) -> None:

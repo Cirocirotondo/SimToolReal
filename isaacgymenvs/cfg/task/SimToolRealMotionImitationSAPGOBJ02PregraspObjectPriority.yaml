@@ -1,0 +1,27 @@
+# SAPG-OBJ02-PregraspObjectPriority: make physical-object tracking dominant and
+# deliberately revisit the grounded pre-grasp state at normalized phase 0.6.
+defaults:
+  - SimToolRealMotionImitationSAPGOBJ01KeypointTracking
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Raise the bounded object term from 0.25 to 2.0. Robot imitation remains
+  # bounded by 1.0, so exact object tracking supplies two thirds of the maximum
+  # positive reward and cannot be economically ignored by the policy.
+  objectKeypointRewardWeight: 2.0
+  objectKeypointRewardScale: 400.0
+
+  # Stop once the physical object center is more than 6 cm from the target at
+  # the current demonstration phase. Retain a short post-RSI settling window.
+  objectEarlyTerminationEnabled: True
+  objectPositionTerminationDistance: 0.06
+  objectTerminationGraceSteps: 10
+
+  # Every reset already uses trajectory RSI. Replace half of the triangular
+  # samples with the exact grounded pre-grasp state at normalized phase 0.6
+  # (about 11.08 s for the current 18.459 s recording).
+  referenceInitAnchorProbability: 0.5
+  referenceInitAnchorPhase: 0.6
+  referenceInitAnchorJitter: 0.0

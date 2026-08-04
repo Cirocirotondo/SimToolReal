@@ -50,6 +50,7 @@ _TRAINING_PRESETS = (
     "motion_imitation_sapg05_strong_regularization",
     "motion_imitation_sapg06_regularization_curriculum",
     "motion_imitation_sapg_obj01_keypoint_tracking",
+    "motion_imitation_sapg_obj02_pregrasp_object_priority",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -126,6 +127,7 @@ class LaunchTrainingArgs:
         "motion_imitation_sapg05_strong_regularization",
         "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
+        "motion_imitation_sapg_obj02_pregrasp_object_priority",
     ] = "default"
     """Select the named training preset.
 
@@ -152,6 +154,8 @@ class LaunchTrainingArgs:
     smooth gradual increase of only the vibration-related regularizers.
     SAPG-OBJ01 derives from SAPG05 and adds the recorded physical object,
     four-keypoint object tracking reward, and object-aware observations.
+    SAPG-OBJ02 makes object tracking dominant, terminates beyond 6 cm, and
+    anchors half of the RSI resets at the grounded pre-grasp phase 0.6.
     The remaining names preserve the established cube and hand-only
     curricula.
     """
@@ -321,6 +325,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05StrongRegularization",
         "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06RegularizationCurriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01KeypointTracking",
+        "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PregraspObjectPriority",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -369,6 +374,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg05_strong_regularization",
         "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
+        "motion_imitation_sapg_obj02_pregrasp_object_priority",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
@@ -395,6 +401,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg05_strong_regularization",
         "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
+        "motion_imitation_sapg_obj02_pregrasp_object_priority",
     }
     auto_ppo_presets = {
         "train_b7",
@@ -465,6 +472,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05PPO",
         "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06PPO",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01PPO",
+        "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PPO",
     }
     train_profile = motion_imitation_train_profiles.get(args.training_preset)
     if train_profile is not None:

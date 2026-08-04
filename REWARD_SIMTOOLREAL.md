@@ -364,8 +364,8 @@ Motion imitation — lineage logica SAPG:
             │   │   da phase zero la hand pose degrada stabilmente dopo circa lo step
             │   │   650. Policy giudicata meno gradevole di SAPG04.
             │   │
-            │   └── SAPG-OBJ01-KeypointTracking (nuova famiglia; preset preparato)
-            │       Derivato logicamente da SAPG05, ma da avviare **da zero** per il
+            │   └── SAPG-OBJ01-KeypointTracking (nuova famiglia)
+            │       Derivato logicamente da SAPG05 e avviato **da zero** per il
             │       cambio observation 104D -> 138D. Attiva il cuboide fisico registrato
             │       5x5x15 cm e aggiunge il tracking denso di quattro keypoint
             │       corrispondenti object/reference. Reward object:
@@ -374,7 +374,18 @@ Motion imitation — lineage logica SAPG:
             │       delta dei keypoint rispetto alla posa object della demonstration.
             │       Come in `demo_viewer.py`, il modello usa dimensioni locali
             │       `[0.15, 0.05, 0.05]` (asse lungo X), senza offset locale sul
-            │       quaternion; il piano del tavolo e' a `z=-0.03 m`.
+            │       quaternion; il piano del tavolo e' a `z=-0.03 m`. Risultato:
+            │       il robot non ha imparato a sollevare l'oggetto; il termine object
+            │       massimo `0.25` era troppo debole rispetto al robot reward `1.0`.
+            │       │
+            │       └── SAPG-OBJ02-PregraspObjectPriority (preset preparato)
+            │           Stessa observation/rete 138D. Porta il massimo object reward
+            │           `0.25 -> 2.0` (8x), abbassa l'early termination object-position
+            │           da `15 cm` a `6 cm` dopo 10 step di grace period e usa RSI misto:
+            │           `50%` dei reset esattamente al pre-grasp grounded a phase `0.6`
+            │           (~`11.08 s` nella demo), `50%` dalla precedente
+            │           distribuzione triangolare. Puo' partire da zero o da un
+            │           checkpoint OBJ01 compatibile.
             │
             └── SAPG06-RegularizationCurriculum (preset preparato)
                 Fine-tuning obbligatorio dal checkpoint SAPG04, con LR fisso `1e-5`.

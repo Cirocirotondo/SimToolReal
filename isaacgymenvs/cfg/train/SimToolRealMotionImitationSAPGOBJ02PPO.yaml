@@ -1,0 +1,9 @@
+# OBJ02 keeps the OBJ01 observation/network layout and SAPG optimizer profile;
+# it may train from zero or fine-tune a compatible OBJ01 checkpoint.
+defaults:
+  - SimToolRealMotionImitationSAPGOBJ01PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPGOBJ02PPO,${....experiment}}
