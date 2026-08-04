@@ -1,0 +1,12 @@
+# MI11: combined MI09 + MI10 regularization-strength experiment.
+defaults:
+  - SimToolRealMotionImitationMI09DeltaGaussian2x
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # MI09 already strengthens action-rate regularization. Add MI10's measured
+  # arm-joint velocity and acceleration settings for the factorial combination.
+  armJointVelocityRegularizationSigma: 25.0
+  armJointAccelerationRegularizationSigma: 25000.0

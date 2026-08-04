@@ -45,6 +45,9 @@ _TRAINING_PRESETS = (
     "motion_imitation_mi06",
     "motion_imitation_mi07",
     "motion_imitation_mi08_positive_gaussian_regularization",
+    "motion_imitation_mi09_delta_gaussian_2x",
+    "motion_imitation_mi10_arm_dynamics_gaussian_2x",
+    "motion_imitation_mi11_combined_gaussian_2x",
     "motion_imitation_sapg02_precision",
     "motion_imitation_sapg03_triangular_target_input",
     "motion_imitation_sapg04_joint_regularized",
@@ -123,6 +126,9 @@ class LaunchTrainingArgs:
         "motion_imitation_mi06",
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
+        "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_arm_dynamics_gaussian_2x",
+        "motion_imitation_mi11_combined_gaussian_2x",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
@@ -147,6 +153,9 @@ class LaunchTrainingArgs:
     MI07 removes phase from MI06 and adds target palm and finger velocities.
     MI08 branches from MI04 and replaces negative quadratic regularizers with
     bounded positive Gaussian rewards using explicit scale/sigma pairs.
+    MI09 doubles only action-delta Gaussian strength, MI10 doubles only
+    measured arm velocity/acceleration Gaussian strength, and MI11 combines
+    both changes while retaining MI08's maximum per-term bonuses.
     SAPG02Precision applies tighter pose rewards to the SAPG01 baseline.
     SAPG03TriangularTargetInput trains from zero with those precision rewards,
     triangular RSI, and the desired palm position in the policy observation.
@@ -190,6 +199,9 @@ class LaunchTrainingArgs:
 
     disable_video: bool = False
     """Disable native/W&B videos, camera sensors, and periodic video evaluation for renderless servers."""
+
+    max_frames: Optional[int] = None
+    """Maximum aggregate environment transitions. None keeps the train profile default."""
 
     # === Wandb ===
     wandb_entity: str = "simonecirelli-eth"
@@ -253,6 +265,10 @@ class LaunchTrainingArgs:
             raise ValueError(
                 f"training_preset must be one of {_TRAINING_PRESETS}, "
                 f"got {self.training_preset!r}"
+            )
+        if self.max_frames is not None and self.max_frames <= 0:
+            raise ValueError(
+                f"max_frames must be positive when set, got {self.max_frames}"
             )
 
 
@@ -327,6 +343,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi06": "SimToolRealMotionImitationMI06",
         "motion_imitation_mi07": "SimToolRealMotionImitationMI07",
         "motion_imitation_mi08_positive_gaussian_regularization": "SimToolRealMotionImitationMI08PositiveGaussianRegularization",
+        "motion_imitation_mi09_delta_gaussian_2x": "SimToolRealMotionImitationMI09DeltaGaussian2x",
+        "motion_imitation_mi10_arm_dynamics_gaussian_2x": "SimToolRealMotionImitationMI10ArmDynamicsGaussian2x",
+        "motion_imitation_mi11_combined_gaussian_2x": "SimToolRealMotionImitationMI11CombinedGaussian2x",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationSAPG02Precision",
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationSAPG03TriangularTargetInput",
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04JointRegularized",
@@ -377,6 +396,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi06",
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
+        "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_arm_dynamics_gaussian_2x",
+        "motion_imitation_mi11_combined_gaussian_2x",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
@@ -405,6 +427,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi06",
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
+        "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_arm_dynamics_gaussian_2x",
+        "motion_imitation_mi11_combined_gaussian_2x",
         "motion_imitation_sapg02_precision",
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
@@ -424,6 +449,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi06",
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
+        "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_arm_dynamics_gaussian_2x",
+        "motion_imitation_mi11_combined_gaussian_2x",
     }
     use_sapg = args.algorithm == "sapg" or (
         args.algorithm == "auto"
@@ -476,6 +504,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi06": "SimToolRealMotionImitationMI06PPO",
         "motion_imitation_mi07": "SimToolRealMotionImitationMI07PPO",
         "motion_imitation_mi08_positive_gaussian_regularization": "SimToolRealMotionImitationMI08PPO",
+        "motion_imitation_mi09_delta_gaussian_2x": "SimToolRealMotionImitationMI09PPO",
+        "motion_imitation_mi10_arm_dynamics_gaussian_2x": "SimToolRealMotionImitationMI10PPO",
+        "motion_imitation_mi11_combined_gaussian_2x": "SimToolRealMotionImitationMI11PPO",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationPPO",
         # SAPG03 starts from zero but keeps the established six-block SAPG
         # optimizer/network profile, now with a 104-dimensional observation.
@@ -544,6 +575,11 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         cmd_parts.append(
             f"task.env.handleHeadTypes=['{args.handle_head_type}']"
         )
+
+    if args.max_frames is not None:
+        # rl_games checks this after each rollout/update epoch. One frame is
+        # one aggregate environment transition (not one optimizer update).
+        cmd_parts.append(f"train.params.config.max_frames={args.max_frames}")
 
     if args.checkpoint is not None:
         cmd_parts.append(f"checkpoint={args.checkpoint}")

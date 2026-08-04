@@ -337,6 +337,21 @@ non fine-tuning, salvo indicazione esplicita):
                         I rapporti `SCALE/SIGMA` riproducono localmente tutti i
                         coefficienti SAPG04. Solo hand joint acceleration resta
                         disattivato. Il launcher supporta `--disable-video` per TARS/CASE.
+                        │
+                        ├── MI09-DeltaGaussian2x (preset 600M preparato)
+                        │   Mantiene tutte le SCALE di MI08 e dimezza solo le SIGMA dei
+                        │   delta action arm/hand: `500 -> 250`, `5000 -> 2500`.
+                        │   Raddoppia quindi la regolarizzazione locale sui cambi di comando.
+                        │
+                        ├── MI10-ArmDynamicsGaussian2x (preset 600M preparato)
+                        │   Mantiene tutte le SCALE di MI08 e dimezza solo le SIGMA di
+                        │   arm joint velocity/acceleration: `50 -> 25`,
+                        │   `50000 -> 25000`. Isola la regolarizzazione del moto fisico UR.
+                        │
+                        └── MI11-CombinedGaussian2x (preset 600M preparato)
+                            Combina MI09 e MI10: delta action e dinamica misurata del
+                            braccio hanno coefficiente locale 2x, mentre action magnitude,
+                            reward di tracking, RSI e profilo PPO restano uguali a MI08.
 
 
 Motion imitation — lineage logica SAPG:
@@ -410,7 +425,7 @@ Motion imitation — lineage logica SAPG:
 
 ```
 
-### Tabella lineage motion imitation MI00–MI07
+### Tabella lineage motion imitation MI00–MI11
 
 Questa famiglia usa `SimToolRealMotionImitation.compute_imitation_reward`, separata dalla
 reward object-manipulation descritta nella tabella iniziale del documento.
@@ -426,6 +441,9 @@ reward object-manipulation descritta nella tabella iniziale del documento.
 | `MI06` | come MI02 | come MI02 | come MI04; target palm pose + finger pose in input (128D) | `0 / 0` | `0.003 / 0.0003` | Preset preparato; training da zero richiesto |
 | `MI07` | come MI02 | come MI02 | come MI04; target pose + target velocities, senza phase (153D) | `0 / 0` | `0.003 / 0.0003` | Preset preparato; training da zero richiesto |
 | `MI08` | come MI04 | come MI04 | come MI04 | Gaussiani action arm/hand: `S=.05`, `sigma=500/5000` | Gaussiani delta arm/hand: `S=.05`, `sigma=500/5000`; anche arm qd/qdd gaussiani | Coefficienti locali SAPG04; hand qdd disattivato; video disattivabile |
+| `MI09` | come MI08 | come MI08 | come MI08 | come MI08 | Delta gaussiani arm/hand: `sigma=250/2500`; arm qd/qdd come MI08 | Isola delta-action 2x; run da zero, limite 600M |
+| `MI10` | come MI08 | come MI08 | come MI08 | come MI08 | Delta come MI08; arm qd/qdd: `sigma=25/25000` | Isola dinamica fisica UR 2x; run da zero, limite 600M |
+| `MI11` | come MI08 | come MI08 | come MI08 | come MI08 | Delta `sigma=250/2500`; arm qd/qdd `sigma=25/25000` | Combinazione fattoriale MI09+MI10; run da zero, limite 600M |
 
 ### Tabella storico: **colonne = training** (+ colonna di riferimento), **righe = parametri**
 

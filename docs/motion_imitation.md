@@ -221,11 +221,51 @@ A preset selects one of each.
 | `MI05` | MI04 with 3x stronger arm and hand action-delta penalties | Same as MI02 | `motion_imitation_mi05` |
 | `MI06` | MI05 plus desired palm pose and finger configuration in the policy observation (128D) | Same as MI02 | `motion_imitation_mi06` |
 | `MI07` | MI06 without phase; adds desired palm linear/angular and finger-joint velocities (153D) | Same as MI02 | `motion_imitation_mi07` |
+| `MI08` | MI04 with bounded positive Gaussian regularization replacing negative quadratic costs | Same as MI04 | `motion_imitation_mi08_positive_gaussian_regularization` |
+| `MI09` | MI08 with 2x local arm/hand action-delta regularization | Same as MI08 | `motion_imitation_mi09_delta_gaussian_2x` |
+| `MI10` | MI08 with 2x local measured arm velocity/acceleration regularization | Same as MI08 | `motion_imitation_mi10_arm_dynamics_gaussian_2x` |
+| `MI11` | MI08 with both MI09 and MI10 changes | Same as MI08 | `motion_imitation_mi11_combined_gaussian_2x` |
 
 `MI0x` is reserved for the PPO robot-only lineage. Object-aware SAPG variants
 use the separate `SAPG-OBJxx` namespace. The launcher
 timestamp identifies the chronological execution; the `MIxx` identifier
 captures logical lineage.
+
+## Sequential 600M-frame comparisons
+
+Use the chain launcher to run independent experiments one after another with
+the same aggregate environment-transition budget. The included manifest runs
+the new MI09, MI10, and MI11 Gaussian-regularization variants with 4800
+environments, disables video for renderless servers, and limits every run to
+600 million frames:
+
+```bash
+python isaacgymenvs/launch_training_chain.py \
+  --config training_chains/motion_imitation_regularization_600m.json
+```
+
+Validate the manifest without starting Isaac Gym with `--dry-run`. Each child
+process exits through rl_games' native `max_frames` condition and writes its
+final frame-labelled checkpoint before the next process starts. A JSON summary
+under `train_dir/training_chains/` records the status and duration of every
+run. `Ctrl+C` stops the current process and the whole chain; it does not start
+the next experiment. If a run crashes, `continue_on_error` controls whether
+the remaining experiments are attempted.
+
+The included runs are independent and start from zero: no checkpoint is
+inherited implicitly. Relative checkpoint paths are resolved from the manifest
+directory when one is specified. Note that rl_games restores its cumulative
+frame counter from a checkpoint, so `max_frames` is an absolute limit rather
+than an additional fine-tuning budget. The top-level value applies to every run
+and cannot be overridden by an individual entry.
+
+MI08 is the common baseline. MI09 halves only the arm/hand action-delta
+sigmas, MI10 halves only the measured arm joint velocity/acceleration sigmas,
+and MI11 applies both changes. Since every affected `SCALE` stays at `0.05`,
+each term keeps the same bounded maximum while its local regularization
+coefficient `SCALE / SIGMA` doubles. This forms a 2-by-2 comparison with MI08
+without changing tracking rewards, action-magnitude regularization, RSI, or
+the PPO profile.
 
 SAPG experiments use a separate chronological and logical namespace:
 

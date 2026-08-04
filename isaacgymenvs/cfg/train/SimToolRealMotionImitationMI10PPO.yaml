@@ -1,0 +1,8 @@
+# MI10 changes only MI08's measured-arm-motion Gaussian sigmas.
+defaults:
+  - SimToolRealMotionImitationMI08PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI10PPO,${....experiment}}

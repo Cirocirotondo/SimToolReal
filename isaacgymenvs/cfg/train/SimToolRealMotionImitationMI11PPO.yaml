@@ -1,0 +1,8 @@
+# MI11 combines the MI09 and MI10 task changes with MI08's PPO profile.
+defaults:
+  - SimToolRealMotionImitationMI08PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI11PPO,${....experiment}}

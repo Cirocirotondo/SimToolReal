@@ -1,0 +1,8 @@
+# MI09 changes only MI08's action-rate Gaussian sigmas.
+defaults:
+  - SimToolRealMotionImitationMI08PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationMI09PPO,${....experiment}}

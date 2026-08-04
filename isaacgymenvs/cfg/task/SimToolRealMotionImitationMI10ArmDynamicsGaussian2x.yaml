@@ -1,0 +1,12 @@
+# MI10: MI08 with twice the local measured-arm-motion regularization strength.
+defaults:
+  - SimToolRealMotionImitationMI08PositiveGaussianRegularization
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Strengthen physical UR-joint velocity and acceleration regularization
+  # without changing command magnitude/rate rewards or their maxima.
+  armJointVelocityRegularizationSigma: 25.0
+  armJointAccelerationRegularizationSigma: 25000.0

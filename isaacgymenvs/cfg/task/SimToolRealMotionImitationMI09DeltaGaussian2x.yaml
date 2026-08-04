@@ -1,0 +1,12 @@
+# MI09: MI08 with twice the local action-rate regularization strength.
+defaults:
+  - SimToolRealMotionImitationMI08PositiveGaussianRegularization
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # SCALE is unchanged, so the maximum positive bonus remains 0.05 per term.
+  # Halving SIGMA doubles the local quadratic coefficient SCALE / SIGMA.
+  armActionDeltaRegularizationSigma: 250.0
+  handActionDeltaRegularizationSigma: 2500.0
