@@ -1,0 +1,25 @@
+# SAPG06-RegularizationCurriculum: gently fine-tune the successful SAPG04
+# policy toward smoother actions and measured arm-joint motion.
+defaults:
+  - SimToolRealMotionImitationSAPG04JointRegularized
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  regularizationCurriculumEnabled: True
+
+  # With horizon_length=16 these correspond to 500 warm-up epochs followed by
+  # a 6000-epoch smoothstep ramp. Training remains unlimited after the ramp.
+  regularizationCurriculumWarmupSteps: 8000
+  regularizationCurriculumRampSteps: 96000
+
+  # Start scales are inherited unchanged from SAPG04. Only the terms directly
+  # related to vibration increase; command-magnitude costs remain unchanged.
+  regularizationCurriculumTargetKukaActionsPenaltyScale: 0.0001
+  regularizationCurriculumTargetHandActionsPenaltyScale: 0.00001
+  regularizationCurriculumTargetArmActionDeltaPenaltyScale: 0.0002
+  regularizationCurriculumTargetHandActionDeltaPenaltyScale: 0.00005
+  regularizationCurriculumTargetArmJointVelocityPenaltyScale: 0.00125
+  regularizationCurriculumTargetArmJointAccelerationPenaltyScale: 0.0000015
+  regularizationCurriculumTargetHandJointAccelerationPenaltyScale: 0.0

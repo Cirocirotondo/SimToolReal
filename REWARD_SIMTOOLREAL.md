@@ -356,22 +356,34 @@ Motion imitation — lineage logica SAPG:
             │   ~0.885, errore posizione medio ~1.13 cm, nessuna soglia violata.
             │   Tracking soddisfacente, ma restano vibrazioni e penalita' troppo deboli.
             │
-            └── SAPG05-StrongRegularization (preset preparato, non ancora lanciato)
-                │   Mantiene SAPG04 ma aumenta action/rate hand a `3e-4 / 1e-3`,
-                │   action/rate EE a `1e-3 / 1e-3`, arm joint velocity/acceleration
-                │   a `2e-3 / 3e-6`; disabilita hand joint acceleration (`0`).
-                │
-                └── SAPG-OBJ01-KeypointTracking (nuova famiglia; preset preparato)
-                    Derivato logicamente da SAPG05, ma da avviare **da zero** per il
-                    cambio observation 104D -> 138D. Attiva il cuboide fisico registrato
-                    5x5x15 cm e aggiunge il tracking denso di quattro keypoint
-                    corrispondenti object/reference. Reward object:
-                    `0.25 * exp(-400 * max_i(||k_obj_i-k_ref_i||)^2)`.
-                    La policy osserva object rot/vel, keypoint rispetto alla palm e
-                    delta dei keypoint rispetto alla posa object della demonstration.
-                    Come in `demo_viewer.py`, il modello usa dimensioni locali
-                    `[0.15, 0.05, 0.05]` (asse lungo X), senza offset locale sul
-                    quaternion; il piano del tavolo e' a `z=-0.03 m`.
+            ├── SAPG05-StrongRegularization
+            │   │   Da zero. Aumenta rispetto a SAPG04 i costi action/rate EE a
+            │   │   `5e-4 / 5e-4`, hand a `1e-4 / 5e-4` e arm joint
+            │   │   velocity/acceleration a `2e-3 / 2e-6`; disabilita hand joint
+            │   │   acceleration (`0`). Il tracking iniziale e' buono, ma nella eval
+            │   │   da phase zero la hand pose degrada stabilmente dopo circa lo step
+            │   │   650. Policy giudicata meno gradevole di SAPG04.
+            │   │
+            │   └── SAPG-OBJ01-KeypointTracking (nuova famiglia; preset preparato)
+            │       Derivato logicamente da SAPG05, ma da avviare **da zero** per il
+            │       cambio observation 104D -> 138D. Attiva il cuboide fisico registrato
+            │       5x5x15 cm e aggiunge il tracking denso di quattro keypoint
+            │       corrispondenti object/reference. Reward object:
+            │       `0.25 * exp(-400 * max_i(||k_obj_i-k_ref_i||)^2)`.
+            │       La policy osserva object rot/vel, keypoint rispetto alla palm e
+            │       delta dei keypoint rispetto alla posa object della demonstration.
+            │       Come in `demo_viewer.py`, il modello usa dimensioni locali
+            │       `[0.15, 0.05, 0.05]` (asse lungo X), senza offset locale sul
+            │       quaternion; il piano del tavolo e' a `z=-0.03 m`.
+            │
+            └── SAPG06-RegularizationCurriculum (preset preparato)
+                Fine-tuning obbligatorio dal checkpoint SAPG04, con LR fisso `1e-5`.
+                Mantiene esattamente le scale SAPG04 per 8000 control step (500 epoch),
+                poi usa una rampa smoothstep di 96000 step (6000 epoch) e continua
+                indefinitamente ai valori finali. Aumenta solo arm/hand action delta a
+                `2e-4 / 5e-5`, arm joint velocity a `1.25e-3` e arm joint acceleration
+                a `1.5e-6`; action magnitude invariata e hand joint acceleration a zero.
+                Obiettivo: ridurre le vibrazioni preservando il comportamento SAPG04.
 
 
 

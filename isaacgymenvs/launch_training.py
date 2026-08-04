@@ -48,6 +48,7 @@ _TRAINING_PRESETS = (
     "motion_imitation_sapg03_triangular_target_input",
     "motion_imitation_sapg04_joint_regularized",
     "motion_imitation_sapg05_strong_regularization",
+    "motion_imitation_sapg06_regularization_curriculum",
     "motion_imitation_sapg_obj01_keypoint_tracking",
 )
 
@@ -123,6 +124,7 @@ class LaunchTrainingArgs:
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
+        "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
     ] = "default"
     """Select the named training preset.
@@ -146,6 +148,8 @@ class LaunchTrainingArgs:
     velocity/acceleration regularization to SAPG03.
     SAPG05StrongRegularization increases those costs using SAPG04 measurements
     and temporarily disables measured hand-joint acceleration regularization.
+    SAPG06RegularizationCurriculum fine-tunes SAPG04 with a warm-up and a
+    smooth gradual increase of only the vibration-related regularizers.
     SAPG-OBJ01 derives from SAPG05 and adds the recorded physical object,
     four-keypoint object tracking reward, and object-aware observations.
     The remaining names preserve the established cube and hand-only
@@ -244,6 +248,15 @@ class LaunchTrainingArgs:
 def launch_training(args: LaunchTrainingArgs) -> None:
     if args.checkpoint is not None:
         assert args.checkpoint.exists(), f"Checkpoint not found: {args.checkpoint}"
+    if (
+        args.training_preset
+        == "motion_imitation_sapg06_regularization_curriculum"
+        and args.checkpoint is None
+    ):
+        raise ValueError(
+            "SAPG06 is a fine-tuning curriculum and requires --checkpoint "
+            "pointing to the SAPG04 model"
+        )
 
     now = datetime.now().strftime(
         "%Y-%m-%d_%H-%M-%S"
@@ -306,6 +319,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationSAPG03TriangularTargetInput",
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04JointRegularized",
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05StrongRegularization",
+        "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06RegularizationCurriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01KeypointTracking",
     }[args.training_preset]
     force_scale = args.force_scale
@@ -353,6 +367,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
+        "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
@@ -378,6 +393,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input",
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
+        "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
     }
     auto_ppo_presets = {
@@ -447,6 +463,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationPPO",
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04PPO",
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05PPO",
+        "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06PPO",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01PPO",
     }
     train_profile = motion_imitation_train_profiles.get(args.training_preset)

@@ -1,0 +1,17 @@
+# SAPG06 fine-tunes an existing SAPG04 checkpoint conservatively. Loading a
+# checkpoint normally restores its optimizer LR, so explicitly apply this
+# lower value after restore while retaining the optimizer moments.
+defaults:
+  - SimToolRealMotionImitationSAPG04PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG06PPO,${....experiment}}
+    learning_rate: 1e-5
+    lr_schedule: constant
+    override_checkpoint_learning_rate: True
+    reset_checkpoint_best_reward: True
+    # Hold the final curriculum indefinitely; the user stops with Ctrl+C.
+    max_epochs: -1
+    max_frames: -1

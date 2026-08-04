@@ -28,6 +28,13 @@ env:
   objectKeypointRewardWeight: 0.25
   objectKeypointRewardScale: 400.0
 
+  # End an episode once the simulated object center is more than 15 cm from
+  # the demonstration target at the current phase. Ignore the first 10 control
+  # steps so that an RSI reset can settle before the condition becomes active.
+  objectEarlyTerminationEnabled: True
+  objectPositionTerminationDistance: 0.15
+  objectTerminationGraceSteps: 10
+
   # cube_pose is expressed in the same UR-base frame as the recorded EE pose.
   demonstrationObjectPositionOffset: [0.0, 0.0, 0.0]
   # Match demo_viewer.py: the recording and model both use local X as the

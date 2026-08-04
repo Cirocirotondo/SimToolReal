@@ -743,8 +743,22 @@ class A2CBase(BaseAlgorithm):
 
         self.optimizer.load_state_dict(weights['optimizer'])
         self.last_lr = weights['optimizer']['param_groups'][0]['lr']
+        if self.config.get('override_checkpoint_learning_rate', False):
+            self.last_lr = float(self.config['learning_rate'])
+            for param_group in self.optimizer.param_groups:
+                param_group['lr'] = self.last_lr
+            print(
+                'Overriding checkpoint optimizer learning rate with '
+                f'configured value: {self.last_lr:g}'
+            )
 
-        self.last_mean_rewards = weights.get('last_mean_rewards', -1000000000)
+        if self.config.get('reset_checkpoint_best_reward', False):
+            self.last_mean_rewards = -1000000000
+            print('Resetting checkpoint best reward for fine-tuning')
+        else:
+            self.last_mean_rewards = weights.get(
+                'last_mean_rewards', -1000000000
+            )
 
         # restore trackers
         if 'trackers' in weights:

@@ -30,6 +30,21 @@ class SimToolRealMotionImitation(SimToolReal):
     RIGHT_HAND_60_DEG_ASSET = (
         "urdf/ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf"
     )
+    REGULARIZATION_SCALE_CONFIGS = (
+        ("kuka_actions_penalty_scale", "KukaActionsPenaltyScale"),
+        ("hand_actions_penalty_scale", "HandActionsPenaltyScale"),
+        ("arm_action_delta_penalty_scale", "ArmActionDeltaPenaltyScale"),
+        ("hand_action_delta_penalty_scale", "HandActionDeltaPenaltyScale"),
+        ("arm_joint_velocity_penalty_scale", "ArmJointVelocityPenaltyScale"),
+        (
+            "arm_joint_acceleration_penalty_scale",
+            "ArmJointAccelerationPenaltyScale",
+        ),
+        (
+            "hand_joint_acceleration_penalty_scale",
+            "HandJointAccelerationPenaltyScale",
+        ),
+    )
 
     def __init__(
         self,
@@ -284,6 +299,32 @@ class SimToolRealMotionImitation(SimToolReal):
             env_cfg["eeRotationTerminationAngleRad"]
         )
         self.hand_termination_error = float(env_cfg["handTerminationError"])
+        self.object_early_termination_enabled = bool(
+            env_cfg.get("objectEarlyTerminationEnabled", False)
+        )
+        self.object_position_termination_distance = float(
+            env_cfg.get("objectPositionTerminationDistance", 0.0)
+        )
+        self.object_termination_grace_steps = int(
+            env_cfg.get("objectTerminationGraceSteps", 0)
+        )
+        if (
+            self.object_early_termination_enabled
+            and not self.object_tracking_enabled
+        ):
+            raise ValueError(
+                "objectEarlyTerminationEnabled requires objectTrackingEnabled"
+            )
+        if (
+            self.object_early_termination_enabled
+            and self.object_position_termination_distance <= 0.0
+        ):
+            raise ValueError(
+                "objectPositionTerminationDistance must be positive when object "
+                "early termination is enabled"
+            )
+        if self.object_termination_grace_steps < 0:
+            raise ValueError("objectTerminationGraceSteps must be non-negative")
         self.arm_joint_velocity_penalty_scale = float(
             env_cfg.get("armJointVelocityPenaltyScale", 0.0)
         )
@@ -306,6 +347,7 @@ class SimToolRealMotionImitation(SimToolReal):
         ):
             if scale < 0.0:
                 raise ValueError(f"{name} must be non-negative")
+        self._init_regularization_curriculum(env_cfg)
         # The palm-center OSC needs the current wrist orientation on the very
         # first pre-physics step; the base OSC does not require this state.
         self.populate_sim_buffers()
@@ -901,8 +943,12 @@ class SimToolRealMotionImitation(SimToolReal):
         object_keypoint_max_error = torch.zeros_like(imitation_reward)
         object_keypoint_mean_error = torch.zeros_like(imitation_reward)
         object_keypoint_reward = torch.zeros_like(imitation_reward)
+        object_position_error = torch.zeros_like(imitation_reward)
         if self.object_tracking_enabled:
             reference_object_keypoints = self._reference_object_keypoints(ref)
+            object_position_error = torch.linalg.vector_norm(
+                self.object_pos - ref.object_pos, dim=-1
+            )
             object_keypoint_delta = (
                 self.obj_keypoint_pos_fixed_size - reference_object_keypoints
             )
@@ -982,9 +1028,22 @@ class SimToolRealMotionImitation(SimToolReal):
             rotation_error > self.ee_rotation_termination_angle
         )
         hand_diverged = hand_error > self.hand_termination_error
+        object_position_diverged = torch.zeros_like(finished)
+        if self.object_early_termination_enabled:
+            object_grace_period_finished = (
+                self.progress_buf > self.object_termination_grace_steps
+            )
+            object_position_diverged = (
+                object_position_error > self.object_position_termination_distance
+            ) & object_grace_period_finished
         diverged = torch.zeros_like(finished)
         if self.early_termination:
-            diverged = position_diverged | rotation_diverged | hand_diverged
+            diverged = (
+                position_diverged
+                | rotation_diverged
+                | hand_diverged
+                | object_position_diverged
+            )
         self.reset_buf[:] = finished | diverged
         self.reset_goal_buf[:] = False
 
@@ -1039,6 +1098,9 @@ class SimToolRealMotionImitation(SimToolReal):
             self.extras["object_tracking/keypoint_reward"] = (
                 object_keypoint_reward.mean()
             )
+            self.extras["object_tracking/position_error_m"] = (
+                object_position_error.mean()
+            )
         for name, value in velocity_errors.items():
             self.extras[f"imitation/{name}"] = value.mean()
         if self.velocity_tracking_enabled:
@@ -1057,6 +1119,10 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["imitation/termination_hand_fraction"] = (
             hand_diverged.float().mean()
         )
+        if self.object_tracking_enabled:
+            self.extras["object_tracking/termination_position_fraction"] = (
+                object_position_diverged.float().mean()
+            )
         self.extras["control/arm_action_rms"] = torch.sqrt(
             torch.mean(arm_actions.square())
         )
@@ -1080,10 +1146,105 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["control/hand_joint_acceleration_rms_radps2"] = torch.sqrt(
             torch.mean(joint_acceleration[:, self.num_arm_dofs :].square())
         )
+        self._log_regularization_curriculum()
         self.extras["control/osc_joint_delta_clipped_fraction"] = (
             self.operational_space_joint_delta_clipped.float().mean()
         )
         return reward, finished
+
+    def _init_regularization_curriculum(self, env_cfg) -> None:
+        self.regularization_curriculum_enabled = bool(
+            env_cfg.get("regularizationCurriculumEnabled", False)
+        )
+        self.regularization_curriculum_warmup_steps = int(
+            env_cfg.get("regularizationCurriculumWarmupSteps", 0)
+        )
+        self.regularization_curriculum_ramp_steps = int(
+            env_cfg.get("regularizationCurriculumRampSteps", 0)
+        )
+        self.regularization_curriculum_step = 0
+        if self.regularization_curriculum_warmup_steps < 0:
+            raise ValueError(
+                "regularizationCurriculumWarmupSteps must be non-negative"
+            )
+        if (
+            self.regularization_curriculum_enabled
+            and self.regularization_curriculum_ramp_steps <= 0
+        ):
+            raise ValueError(
+                "regularizationCurriculumRampSteps must be positive when the "
+                "regularization curriculum is enabled"
+            )
+
+        self.regularization_curriculum_initial_scales = {}
+        self.regularization_curriculum_target_scales = {}
+        for attribute, config_suffix in self.REGULARIZATION_SCALE_CONFIGS:
+            initial_scale = float(getattr(self, attribute))
+            target_scale = float(
+                env_cfg.get(
+                    f"regularizationCurriculumTarget{config_suffix}",
+                    initial_scale,
+                )
+            )
+            if target_scale < 0.0:
+                raise ValueError(
+                    f"regularizationCurriculumTarget{config_suffix} must be "
+                    "non-negative"
+                )
+            self.regularization_curriculum_initial_scales[attribute] = (
+                initial_scale
+            )
+            self.regularization_curriculum_target_scales[attribute] = target_scale
+        self._update_regularization_curriculum_scales()
+
+    def _regularization_curriculum_alpha(self) -> float:
+        if not self.regularization_curriculum_enabled:
+            return 0.0
+        ramp_progress = (
+            self.regularization_curriculum_step
+            - self.regularization_curriculum_warmup_steps
+        ) / self.regularization_curriculum_ramp_steps
+        ramp_progress = min(max(ramp_progress, 0.0), 1.0)
+        # Smoothstep has zero slope at both ends, avoiding sudden changes in
+        # the reward gradient when the ramp starts or reaches its target.
+        return ramp_progress * ramp_progress * (3.0 - 2.0 * ramp_progress)
+
+    def _update_regularization_curriculum_scales(self) -> None:
+        alpha = self._regularization_curriculum_alpha()
+        for attribute, _ in self.REGULARIZATION_SCALE_CONFIGS:
+            initial_scale = self.regularization_curriculum_initial_scales[attribute]
+            target_scale = self.regularization_curriculum_target_scales[attribute]
+            setattr(
+                self,
+                attribute,
+                initial_scale + alpha * (target_scale - initial_scale),
+            )
+
+    def _log_regularization_curriculum(self) -> None:
+        if not self.regularization_curriculum_enabled:
+            return
+        self.extras["regularization_curriculum/alpha"] = (
+            self._regularization_curriculum_alpha()
+        )
+        self.extras["regularization_curriculum/step"] = (
+            self.regularization_curriculum_step
+        )
+        for attribute, _ in self.REGULARIZATION_SCALE_CONFIGS:
+            metric_name = attribute[: -len("_penalty_scale")]
+            self.extras[f"regularization_curriculum/{metric_name}_scale"] = getattr(
+                self, attribute
+            )
+
+    def get_env_state(self):
+        state = super().get_env_state()
+        state["regularization_curriculum_step"] = (
+            self.regularization_curriculum_step
+        )
+        return state
+
+    def set_env_state(self, env_state) -> None:
+        super().set_env_state(env_state)
+        self._update_regularization_curriculum_scales()
 
     def populate_obs_and_states_buffers(self) -> None:
         keypoints_rel_goal = self.keypoints_rel_goal_fixed_size
@@ -1210,6 +1371,9 @@ class SimToolRealMotionImitation(SimToolReal):
 
     def post_physics_step(self) -> None:
         self.frame_since_restart += 1
+        if self.regularization_curriculum_enabled:
+            self.regularization_curriculum_step += 1
+            self._update_regularization_curriculum_scales()
         self.progress_buf += 1
         self.randomize_buf += 1
         self.phase.add_(self.phase_delta).clamp_(max=1.0)
