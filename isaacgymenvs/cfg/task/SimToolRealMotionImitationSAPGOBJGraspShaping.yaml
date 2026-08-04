@@ -1,0 +1,35 @@
+# Shared grasp-shaping backbone for the SAPG-OBJ03/04/05 ratio sweep.
+defaults:
+  - SimToolRealMotionImitationSAPGOBJ02PregraspObjectPriority
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  objectGraspShapingEnabled: True
+
+  # Restore SAPG01's broader imitation kernels. SAPG02's 400 / 15 / 2
+  # "precision" settings were inherited by SAPG04/OBJ02, but make the reward
+  # landscape too narrow for grasp learning and encourage abrupt corrections.
+  eePositionRewardScale: 100.0
+  eeRotationRewardScale: 2.0
+  handPoseRewardScale: 0.5
+
+  # Valid neutral defaults for the shared config; OBJ03/04/05 override these.
+  objectKeypointRewardWeight: 0.5
+  robotImitationRewardWeight: 0.5
+
+  # Bounded dense lift reward. It grows linearly with height above the
+  # grounded object pose and saturates at 0.10 after a 10 cm lift.
+  objectLiftingRewardWeight: 0.10
+  objectLiftingRewardTargetHeightM: 0.10
+
+  # Reuse SimToolReal's positive progress toward each fingertip's closest-ever
+  # object distance. At 20 reward units/m, 1 mm of simultaneous progress by
+  # all five fingertips gives 0.10; cap spikes at the same value.
+  objectFingertipDeltaRewardScale: 20.0
+  objectFingertipDeltaRewardMax: 0.10
+
+  # The old one-shot bonus (300) is intentionally not part of the imitation
+  # reward. It overwhelms a normalized 1.0 primary objective and can be
+  # triggered immediately by RSI states that already contain an airborne object.

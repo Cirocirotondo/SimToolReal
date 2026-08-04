@@ -254,6 +254,55 @@ class SimToolRealMotionImitation(SimToolReal):
                     "Object imitation expects the four corresponding keypoints "
                     f"used by object-to-goal, got {self.num_keypoints}"
                 )
+        self.object_grasp_shaping_enabled = bool(
+            env_cfg.get("objectGraspShapingEnabled", False)
+        )
+        self.object_lifting_reward_weight = float(
+            env_cfg.get("objectLiftingRewardWeight", 0.0)
+        )
+        self.object_lifting_reward_target_height = float(
+            env_cfg.get("objectLiftingRewardTargetHeightM", 0.10)
+        )
+        self.object_fingertip_delta_reward_scale = float(
+            env_cfg.get("objectFingertipDeltaRewardScale", 0.0)
+        )
+        self.object_fingertip_delta_reward_max = float(
+            env_cfg.get("objectFingertipDeltaRewardMax", 0.0)
+        )
+        if self.object_grasp_shaping_enabled and not self.object_tracking_enabled:
+            raise ValueError(
+                "objectGraspShapingEnabled requires objectTrackingEnabled"
+            )
+        if self.object_grasp_shaping_enabled and abs(
+            self.robot_imitation_reward_weight
+            + self.object_keypoint_reward_weight
+            - 1.0
+        ) > 1e-6:
+            raise ValueError(
+                "Grasp-shaping experiments require robotImitationRewardWeight "
+                "and objectKeypointRewardWeight to sum to 1"
+            )
+        for name, value in (
+            ("objectLiftingRewardWeight", self.object_lifting_reward_weight),
+            (
+                "objectFingertipDeltaRewardScale",
+                self.object_fingertip_delta_reward_scale,
+            ),
+            (
+                "objectFingertipDeltaRewardMax",
+                self.object_fingertip_delta_reward_max,
+            ),
+        ):
+            if value < 0.0:
+                raise ValueError(f"{name} must be non-negative")
+        if (
+            self.object_grasp_shaping_enabled
+            and self.object_lifting_reward_target_height <= 0.0
+        ):
+            raise ValueError(
+                "objectLiftingRewardTargetHeightM must be positive when object "
+                "grasp shaping is enabled"
+            )
         weight_sum = (
             self.ee_position_reward_weight
             + self.ee_rotation_reward_weight
@@ -425,6 +474,8 @@ class SimToolRealMotionImitation(SimToolReal):
             "hand_pose_reward",
             "imitation_reward",
             "object_keypoint_reward",
+            "object_lifting_reward",
+            "object_fingertip_delta_reward",
             "arm_joint_velocity_penalty",
             "arm_joint_acceleration_penalty",
             "hand_joint_acceleration_penalty",
@@ -1034,6 +1085,34 @@ class SimToolRealMotionImitation(SimToolReal):
                     * object_keypoint_max_error.square()
                 )
             )
+        object_lifting_reward = torch.zeros_like(imitation_reward)
+        object_fingertip_delta_reward = torch.zeros_like(imitation_reward)
+        object_lift_height = torch.zeros_like(imitation_reward)
+        if self.object_grasp_shaping_enabled:
+            # The legacy SimToolReal lifting term is based on height relative
+            # to the episode's grounded object pose. Normalize and bound that
+            # signal here instead of using its 300-point one-shot lift bonus,
+            # which is incompatible with the normalized imitation objective
+            # and can be triggered immediately by an in-air RSI reset.
+            object_lift_height = (
+                self.object_pos[:, 2] - self.object_init_state[:, 2]
+            ).clamp(min=0.0)
+            lift_fraction = (
+                object_lift_height / self.object_lifting_reward_target_height
+            ).clamp(max=1.0)
+            object_lifting_reward = (
+                self.object_lifting_reward_weight * lift_fraction
+            )
+
+            lifted_object = (
+                object_lift_height
+                >= self.object_lifting_reward_target_height
+            ) | self.lifted_object
+            self.lifted_object = lifted_object
+            fingertip_delta, _ = self._distance_delta_rewards(lifted_object)
+            object_fingertip_delta_reward = (
+                self.object_fingertip_delta_reward_scale * fingertip_delta
+            ).clamp(max=self.object_fingertip_delta_reward_max)
         arm_actions = self.actions[:, : self.num_arm_dofs]
         hand_actions = self.actions[:, self.num_arm_dofs : self.num_hand_arm_dofs]
         arm_delta = self.action_deltas[:, : self.num_arm_dofs]
@@ -1079,6 +1158,8 @@ class SimToolRealMotionImitation(SimToolReal):
         reward = (
             imitation_reward
             + object_keypoint_reward
+            + object_lifting_reward
+            + object_fingertip_delta_reward
             + arm_action_regularization
             + hand_action_regularization
             + arm_delta_regularization
@@ -1137,6 +1218,8 @@ class SimToolRealMotionImitation(SimToolReal):
             ),
             "imitation_reward": imitation_reward,
             "object_keypoint_reward": object_keypoint_reward,
+            "object_lifting_reward": object_lifting_reward,
+            "object_fingertip_delta_reward": object_fingertip_delta_reward,
             "total_reward": reward,
             "episode_steps": torch.ones_like(reward),
         }
@@ -1185,6 +1268,13 @@ class SimToolRealMotionImitation(SimToolReal):
             )
             self.extras["object_tracking/position_error_m"] = (
                 object_position_error.mean()
+            )
+        if self.object_grasp_shaping_enabled:
+            self.extras["object_grasp/lift_height_m"] = (
+                object_lift_height.mean()
+            )
+            self.extras["object_grasp/lifted_fraction"] = (
+                self.lifted_object.float().mean()
             )
         for name, value in velocity_errors.items():
             self.extras[f"imitation/{name}"] = value.mean()

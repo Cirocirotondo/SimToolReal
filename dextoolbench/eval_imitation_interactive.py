@@ -10,8 +10,9 @@ import argparse
 import multiprocessing
 import time
 import traceback
+from collections import deque
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Deque, Dict, Optional
 
 import numpy as np
 import yaml
@@ -34,6 +35,27 @@ from viser.extras import ViserUrdf  # noqa: E402
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TABLE_SIZE = (0.475, 0.4, 0.3)
+
+
+class MovingAverageActionFilter:
+    """Causal finite-window mean for batched policy actions."""
+
+    def __init__(self, window_size: int) -> None:
+        if window_size < 2:
+            raise ValueError(
+                f"Action moving-average window must be at least 2, got {window_size}"
+            )
+        self.window_size = int(window_size)
+        self._history: Deque[Any] = deque(maxlen=self.window_size)
+
+    def reset(self) -> None:
+        self._history.clear()
+
+    def __call__(self, action):
+        import torch
+
+        self._history.append(action.detach().clone())
+        return torch.stack(tuple(self._history), dim=0).mean(dim=0)
 
 
 def _read_env_config(config_path: str) -> Dict[str, Any]:
@@ -190,12 +212,19 @@ def _run_episode(
     realtime: bool,
     plot_rewards: bool,
     reward_plot_dir: Optional[Path],
+    action_moving_average: bool,
+    action_moving_average_window: int,
 ) -> bool:
     """Run one rollout; return True when the worker should exit."""
     control_dt = float(env.control_dt)
     policy.reset()
     obs = _reset_at_phase(env, initial_phase)
     conn.send(("state", _sim_state(env), 0, 0.0))
+    action_filter = (
+        MovingAverageActionFilter(action_moving_average_window)
+        if action_moving_average
+        else None
+    )
 
     plotter = None
     if plot_rewards and reward_plot_dir is not None:
@@ -227,6 +256,8 @@ def _run_episode(
 
         started = time.time()
         action = policy.get_normalized_action(obs, deterministic_actions=True)
+        if action_filter is not None:
+            action = action_filter(action)
         obs_dict, reward, done, extras = env.step(action)
         obs = obs_dict["obs"]
         step += 1
@@ -255,6 +286,8 @@ def sim_worker(
     use_cpu: bool,
     plot_rewards: bool,
     reward_plot_dir: Optional[str],
+    action_moving_average: bool,
+    action_moving_average_window: int,
 ) -> None:
     """Create one imitation environment and serve evaluation commands."""
     try:
@@ -330,6 +363,8 @@ def sim_worker(
                     reward_plot_dir=(
                         Path(reward_plot_dir) if reward_plot_dir else None
                     ),
+                    action_moving_average=action_moving_average,
+                    action_moving_average_window=action_moving_average_window,
                 )
                 if should_quit:
                     return
@@ -351,11 +386,15 @@ class ImitationInteractiveDemo:
         use_cpu: bool,
         plot_rewards: bool,
         reward_plot_dir: Optional[str],
+        action_moving_average: bool,
+        action_moving_average_window: int,
     ) -> None:
         self.config_path = str(Path(config_path).resolve())
         self.checkpoint_path = str(Path(checkpoint_path).resolve())
         self.use_cpu = use_cpu
         self.plot_rewards = plot_rewards
+        self.action_moving_average = action_moving_average
+        self.action_moving_average_window = action_moving_average_window
         self.reward_plot_dir = str(
             Path(reward_plot_dir).resolve()
             if reward_plot_dir
@@ -432,11 +471,17 @@ class ImitationInteractiveDemo:
         self.reference_robot.update_cfg(zeros)
 
     def _build_gui(self) -> None:
+        action_filter_description = (
+            f"enabled, window {self.action_moving_average_window}"
+            if self.action_moving_average
+            else "disabled"
+        )
         self.server.gui.add_markdown(
             "# Motion Imitation\n"
             "Interactive policy evaluation\n\n"
             "**Solid:** policy robot &nbsp; **Green:** reference motion\n\n"
-            f"**Demonstration:** `{Path(self.demonstration).name}`"
+            f"**Demonstration:** `{Path(self.demonstration).name}`\n\n"
+            f"**Policy action moving average:** {action_filter_description}"
         )
         with self.server.gui.add_folder("Environment", expand_by_default=True):
             self._btn_load = self.server.gui.add_button("Load Policy")
@@ -485,6 +530,8 @@ class ImitationInteractiveDemo:
                 self.use_cpu,
                 self.plot_rewards,
                 self.reward_plot_dir,
+                self.action_moving_average,
+                self.action_moving_average_window,
             ),
             daemon=True,
         )
@@ -642,6 +689,11 @@ class ImitationInteractiveDemo:
     def run(self) -> None:
         print()
         print(f"Motion imitation evaluator: http://localhost:{self.port}")
+        if self.action_moving_average:
+            print(
+                "Policy action moving average: enabled "
+                f"(window={self.action_moving_average_window})"
+            )
         print()
         try:
             while True:
@@ -663,7 +715,20 @@ def main() -> None:
     parser.add_argument("--use-cpu", action="store_true")
     parser.add_argument("--plot-rewards", action="store_true")
     parser.add_argument("--reward-plot-dir", default=None)
+    parser.add_argument(
+        "--action-moving-average",
+        action="store_true",
+        help="Apply a causal moving average to policy actions before env.step().",
+    )
+    parser.add_argument(
+        "--action-moving-average-window",
+        type=int,
+        default=5,
+        help="Number of policy actions in the moving-average window (default: 5).",
+    )
     args = parser.parse_args()
+    if args.action_moving_average_window < 2:
+        parser.error("--action-moving-average-window must be at least 2")
     ImitationInteractiveDemo(
         args.config_path,
         args.checkpoint_path,
@@ -671,6 +736,8 @@ def main() -> None:
         use_cpu=args.use_cpu,
         plot_rewards=args.plot_rewards,
         reward_plot_dir=args.reward_plot_dir,
+        action_moving_average=args.action_moving_average,
+        action_moving_average_window=args.action_moving_average_window,
     ).run()
 
 

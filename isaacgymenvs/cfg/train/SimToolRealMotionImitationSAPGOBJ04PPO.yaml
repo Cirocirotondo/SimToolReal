@@ -1,0 +1,8 @@
+# OBJ04 changes the reward composition while retaining OBJ02's SAPG profile.
+defaults:
+  - SimToolRealMotionImitationSAPGOBJ02PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPGOBJ04PPO,${....experiment}}

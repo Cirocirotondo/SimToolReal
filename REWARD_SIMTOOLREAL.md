@@ -411,6 +411,19 @@ Motion imitation — lineage logica SAPG:
             │           (~`11.08 s` nella demo), `50%` dalla precedente
             │           distribuzione triangolare. Puo' partire da zero o da un
             │           checkpoint OBJ01 compatibile.
+            │           │
+            │           ├── SAPG-OBJ03-Object66Imitation33 (600M, da zero)
+            │           ├── SAPG-OBJ04-Object50Imitation50 (600M, da zero)
+            │           └── SAPG-OBJ05-Object33Imitation66 (600M, da zero)
+            │               Sweep controllato dei rapporti object/imitation `2:1`,
+            │               `1:1`, `1:2`; in tutti i casi i massimi primari sommano
+            │               a `1.0`. Aggiunge shaping comune: lifting lineare e
+            │               saturato a `0.10` dopo 10 cm; fingertip-delta SimToolReal
+            │               con scala `20` e cap `0.10` per step. Mantiene RSI
+            │               pre-grasp 50% ed early termination object a 6 cm. Ripristina
+            │               inoltre le kernel imitation piu' larghe di SAPG01:
+            │               position/orientation/hand `100 / 2 / 0.5`, evitando i
+            │               valori precision `400 / 15 / 2` ereditati da SAPG02.
             │
             └── SAPG06-RegularizationCurriculum (preset preparato)
                 Fine-tuning obbligatorio dal checkpoint SAPG04, con LR fisso `1e-5`.

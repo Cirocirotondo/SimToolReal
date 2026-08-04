@@ -1,0 +1,10 @@
+# SAPG-OBJ05: one third object tracking, two thirds robot imitation.
+defaults:
+  - SimToolRealMotionImitationSAPGOBJGraspShaping
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  objectKeypointRewardWeight: 0.3333333333
+  robotImitationRewardWeight: 0.6666666667

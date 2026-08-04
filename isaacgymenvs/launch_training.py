@@ -55,6 +55,9 @@ _TRAINING_PRESETS = (
     "motion_imitation_sapg06_regularization_curriculum",
     "motion_imitation_sapg_obj01_keypoint_tracking",
     "motion_imitation_sapg_obj02_pregrasp_object_priority",
+    "motion_imitation_sapg_obj03_object66_imitation33",
+    "motion_imitation_sapg_obj04_object50_imitation50",
+    "motion_imitation_sapg_obj05_object33_imitation66",
 )
 
 _VALID_HANDLE_HEAD_TYPES = frozenset(
@@ -136,6 +139,9 @@ class LaunchTrainingArgs:
         "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
+        "motion_imitation_sapg_obj03_object66_imitation33",
+        "motion_imitation_sapg_obj04_object50_imitation50",
+        "motion_imitation_sapg_obj05_object33_imitation66",
     ] = "default"
     """Select the named training preset.
 
@@ -169,6 +175,8 @@ class LaunchTrainingArgs:
     four-keypoint object tracking reward, and object-aware observations.
     SAPG-OBJ02 makes object tracking dominant, terminates beyond 6 cm, and
     anchors half of the RSI resets at the grounded pre-grasp phase 0.6.
+    SAPG-OBJ03/04/05 add bounded lift/fingertip grasp shaping and compare
+    object/imitation primary-reward ratios of 2:1, 1:1, and 1:2.
     The remaining names preserve the established cube and hand-only
     curricula.
     """
@@ -353,6 +361,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06RegularizationCurriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01KeypointTracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PregraspObjectPriority",
+        "motion_imitation_sapg_obj03_object66_imitation33": "SimToolRealMotionImitationSAPGOBJ03Object66Imitation33",
+        "motion_imitation_sapg_obj04_object50_imitation50": "SimToolRealMotionImitationSAPGOBJ04Object50Imitation50",
+        "motion_imitation_sapg_obj05_object33_imitation66": "SimToolRealMotionImitationSAPGOBJ05Object33Imitation66",
     }[args.training_preset]
     force_scale = args.force_scale
     torque_scale = args.torque_scale
@@ -406,6 +417,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
+        "motion_imitation_sapg_obj03_object66_imitation33",
+        "motion_imitation_sapg_obj04_object50_imitation50",
+        "motion_imitation_sapg_obj05_object33_imitation66",
     }:
         force_scale = 0.0 if force_scale is None else force_scale
         torque_scale = 0.0 if torque_scale is None else torque_scale
@@ -437,6 +451,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg06_regularization_curriculum",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
+        "motion_imitation_sapg_obj03_object66_imitation33",
+        "motion_imitation_sapg_obj04_object50_imitation50",
+        "motion_imitation_sapg_obj05_object33_imitation66",
     }
     auto_ppo_presets = {
         "train_b7",
@@ -516,6 +533,9 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06PPO",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01PPO",
         "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PPO",
+        "motion_imitation_sapg_obj03_object66_imitation33": "SimToolRealMotionImitationSAPGOBJ03PPO",
+        "motion_imitation_sapg_obj04_object50_imitation50": "SimToolRealMotionImitationSAPGOBJ04PPO",
+        "motion_imitation_sapg_obj05_object33_imitation66": "SimToolRealMotionImitationSAPGOBJ05PPO",
     }
     train_profile = motion_imitation_train_profiles.get(args.training_preset)
     if train_profile is not None:

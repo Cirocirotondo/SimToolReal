@@ -205,6 +205,47 @@ simulator cuboid uses dimensions `[0.15, 0.05, 0.05]`, with local X as its long
 axis, and consumes the transformed demonstration quaternion without an extra
 local rotation. The table top is at `z=-0.03 m`, matching the replay scene.
 
+### SAPG-OBJ03/04/05 grasp-reward ratio sweep
+
+OBJ03, OBJ04, and OBJ05 inherit OBJ02's physical object, 6 cm object early
+termination, and mixed RSI with 50% of reference resets anchored at the
+grounded pre-grasp phase 0.6. Their primary positive reward is normalized to a
+maximum of 1.0 and varies only the object/imitation split:
+
+| Task | Object tracking | Robot imitation |
+| --- | ---: | ---: |
+| `SAPG-OBJ03` | 2/3 | 1/3 |
+| `SAPG-OBJ04` | 1/2 | 1/2 |
+| `SAPG-OBJ05` | 1/3 | 2/3 |
+
+Unlike SAPG02–OBJ02, these experiments restore SAPG01's broader position,
+orientation, and hand-pose exponential scales of `100 / 2 / 0.5` instead of
+`400 / 15 / 2`. This avoids turning the imitation objective into a narrow
+precision basin that encourages abrupt corrective motion during grasping.
+
+All three add the same bounded grasp shaping. The lifting reward increases
+linearly from 0 to 0.10 over the first 10 cm above the grounded object pose and
+then remains saturated. The fingertip-delta reward reuses SimToolReal's
+closest-distance progress signal, uses a scale of `20`, is active before the
+10 cm lift threshold, and is capped at 0.10 per step. Therefore the two shaping
+terms together contribute at most 0.20, while preserving the requested ratio
+between the two primary objectives. The legacy one-shot lift bonus of 300 is
+not used because it would dominate the normalized reward and could be obtained
+immediately from an airborne RSI state.
+
+Run the three independent 600M-frame SAPG experiments sequentially with:
+
+```bash
+python isaacgymenvs/launch_training_chain.py \
+  --config training_chains/sapg_object_grasp_reward_ratio_600m.json
+```
+
+Use `--dry-run` to validate the chain without starting Isaac Gym. W&B exposes
+the shaping under `reward_step/object_lifting_reward` and
+`reward_step/object_fingertip_delta_reward`, with physical lift diagnostics
+under `object_grasp/lift_height_m/time` and
+`object_grasp/lifted_fraction/time`.
+
 ## Experiment lineage
 
 Motion-imitation experiments use zero-padded `MIxx` identifiers. Task YAMLs
@@ -282,6 +323,10 @@ Object-aware SAPG experiments use their own family:
 | ID | Task change | Observation | Preset |
 | --- | --- | --- | --- |
 | `SAPG-OBJ01-KeypointTracking` | SAPG05 plus physical demonstration object, four-keypoint tracking reward and object-aware policy input | 138D | `motion_imitation_sapg_obj01_keypoint_tracking` |
+| `SAPG-OBJ02-PregraspObjectPriority` | OBJ01 with dominant object reward, 6 cm early termination, and 50% pre-grasp RSI anchor | 138D | `motion_imitation_sapg_obj02_pregrasp_object_priority` |
+| `SAPG-OBJ03-Object66Imitation33` | OBJ02 plus bounded lift/fingertip shaping; primary ratio 2:1 | 138D | `motion_imitation_sapg_obj03_object66_imitation33` |
+| `SAPG-OBJ04-Object50Imitation50` | Same shaping; primary ratio 1:1 | 138D | `motion_imitation_sapg_obj04_object50_imitation50` |
+| `SAPG-OBJ05-Object33Imitation66` | Same shaping; primary ratio 1:2 | 138D | `motion_imitation_sapg_obj05_object33_imitation66` |
 
 The native W&B `video` stream contains only the simulated robot, avoiding an
 auxiliary articulation in every training environment. The isolated
@@ -447,3 +492,15 @@ with:
 ```bash
   --plot-rewards --reward-plot-dir eval_reward_plots/motion_imitation
 ```
+
+Optionally apply a causal finite-window moving average to the normalized policy
+action immediately before `env.step()`:
+
+```bash
+  --action-moving-average --action-moving-average-window 5
+```
+
+The filter is disabled by default and its history is cleared at the beginning
+of every episode. During the first steps it averages only the samples already
+available rather than padding the history with zeros. This output filter is in
+addition to any arm/hand target smoothing configured inside the environment.

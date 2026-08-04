@@ -1,0 +1,10 @@
+# SAPG-OBJ04: equal object-tracking and robot-imitation objectives.
+defaults:
+  - SimToolRealMotionImitationSAPGOBJGraspShaping
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  objectKeypointRewardWeight: 0.5
+  robotImitationRewardWeight: 0.5
