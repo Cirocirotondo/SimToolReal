@@ -412,9 +412,9 @@ Motion imitation — lineage logica SAPG:
             │           distribuzione triangolare. Puo' partire da zero o da un
             │           checkpoint OBJ01 compatibile.
             │           │
-            │           ├── SAPG-OBJ03-Object66Imitation33 (600M, da zero)
-            │           ├── SAPG-OBJ04-Object50Imitation50 (600M, da zero)
-            │           └── SAPG-OBJ05-Object33Imitation66 (600M, da zero)
+            │           ├── SAPG-OBJ03-Object66Imitation33 (900M, da zero)
+            │           ├── SAPG-OBJ04-Object50Imitation50 (900M, da zero)
+            │           └── SAPG-OBJ05-Object33Imitation66 (900M, da zero)
             │               Sweep controllato dei rapporti object/imitation `2:1`,
             │               `1:1`, `1:2`; in tutti i casi i massimi primari sommano
             │               a `1.0`. Aggiunge shaping comune: lifting lineare e

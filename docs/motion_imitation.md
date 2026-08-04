@@ -233,11 +233,11 @@ between the two primary objectives. The legacy one-shot lift bonus of 300 is
 not used because it would dominate the normalized reward and could be obtained
 immediately from an airborne RSI state.
 
-Run the three independent 600M-frame SAPG experiments sequentially with:
+Run the three independent 900M-frame SAPG experiments sequentially with:
 
 ```bash
 python isaacgymenvs/launch_training_chain.py \
-  --config training_chains/sapg_object_grasp_reward_ratio_600m.json
+  --config training_chains/sapg_object_grasp_reward_ratio_900m.json
 ```
 
 Use `--dry-run` to validate the chain without starting Isaac Gym. W&B exposes

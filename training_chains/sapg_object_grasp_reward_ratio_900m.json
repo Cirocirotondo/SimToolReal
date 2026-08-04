@@ -1,5 +1,5 @@
 {
-  "max_frames": 600000000,
+  "max_frames": 900000000,
   "continue_on_error": true,
   "summary_directory": "train_dir/training_chains",
   "common": {
@@ -8,22 +8,22 @@
     "num_blocks": 6,
     "disable_video": true,
     "wandb_tags": [
-      "600m-frame-budget",
+      "900m-frame-budget",
       "sapg-object-grasp-ratio-sweep"
     ]
   },
   "runs": [
     {
       "training_preset": "motion_imitation_sapg_obj03_object66_imitation33",
-      "custom_experiment_name": "sapg_obj03_object66_imitation33_grasp_shaping_600m"
+      "custom_experiment_name": "sapg_obj03_object66_imitation33_grasp_shaping_900m"
     },
     {
       "training_preset": "motion_imitation_sapg_obj04_object50_imitation50",
-      "custom_experiment_name": "sapg_obj04_object50_imitation50_grasp_shaping_600m"
+      "custom_experiment_name": "sapg_obj04_object50_imitation50_grasp_shaping_900m"
     },
     {
       "training_preset": "motion_imitation_sapg_obj05_object33_imitation66",
-      "custom_experiment_name": "sapg_obj05_object33_imitation66_grasp_shaping_600m"
+      "custom_experiment_name": "sapg_obj05_object33_imitation66_grasp_shaping_900m"
     }
   ]
 }
