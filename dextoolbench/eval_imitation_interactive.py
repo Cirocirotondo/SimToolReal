@@ -116,6 +116,9 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     object_tracking_enabled = bool(
         getattr(env, "object_tracking_enabled", False)
     )
+    fingertip_tracking_enabled = bool(
+        getattr(env, "fingertip_tracking_enabled", False)
+    )
     actual_object_pose = None
     reference_object_pose = None
     if object_tracking_enabled:
@@ -143,6 +146,9 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "hand_error_rad": _scalar(
             extras.get("imitation/hand_error_rad", 0.0)
         ),
+        "fingertip_rms_error_m": _scalar(
+            extras.get("imitation/fingertip_rms_error_m", 0.0)
+        ),
         "linear_velocity_error_mps": _scalar(
             extras.get("imitation/linear_velocity_error_mps", 0.0)
         ),
@@ -155,6 +161,9 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "ee_position_reward": _component(extras, "ee_position_reward"),
         "ee_rotation_reward": _component(extras, "ee_rotation_reward"),
         "hand_pose_reward": _component(extras, "hand_pose_reward"),
+        "fingertip_pose_reward": _component(
+            extras, "fingertip_pose_reward"
+        ),
         "pose_imitation_reward": _component(extras, "pose_imitation_reward"),
         "palm_linear_velocity_reward": _component(
             extras, "palm_linear_velocity_reward"
@@ -201,6 +210,7 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "duration_s": env.reference.duration_s,
         "velocity_tracking_enabled": velocity_tracking_enabled,
         "object_tracking_enabled": object_tracking_enabled,
+        "fingertip_tracking_enabled": fingertip_tracking_enabled,
         "actual_object_pose": actual_object_pose,
         "reference_object_pose": reference_object_pose,
         "metrics": metrics,
@@ -773,6 +783,12 @@ class ImitationInteractiveDemo:
                 f"{100.0 * metrics['object_keypoint_mean_error_m']:.2f} / "
                 f"{100.0 * metrics['object_keypoint_max_error_m']:.2f} cm"
             )
+        if state["fingertip_tracking_enabled"]:
+            self._errors.content += (
+                "  \n"
+                f"**Fingertip RMS:** "
+                f"{100.0 * metrics['fingertip_rms_error_m']:.2f} cm"
+            )
         self._rewards.content = (
             f"**Step reward:** {metrics['total_reward']:.4f} "
             f"(imitation {metrics['imitation_reward']:.4f}, "
@@ -781,6 +797,10 @@ class ImitationInteractiveDemo:
             f"Rotation {metrics['ee_rotation_reward']:.4f} &nbsp;|&nbsp; "
             f"Hand {metrics['hand_pose_reward']:.4f}  \n"
         )
+        if state["fingertip_tracking_enabled"]:
+            self._rewards.content += (
+                f"Fingertips {metrics['fingertip_pose_reward']:.4f}  \n"
+            )
         if state["velocity_tracking_enabled"]:
             velocity_contribution = (
                 metrics["palm_linear_velocity_reward"]

@@ -177,6 +177,7 @@ class ReferenceSample:
     palm_quat_xyzw: torch.Tensor
     palm_lin_vel: torch.Tensor
     palm_ang_vel: torch.Tensor
+    fingertip_pos_rel_palm: Optional[torch.Tensor] = None
     object_pos: Optional[torch.Tensor] = None
     object_quat_xyzw: Optional[torch.Tensor] = None
     object_lin_vel: Optional[torch.Tensor] = None
@@ -420,6 +421,111 @@ class DemonstrationReference:
             if object_ang_vel is not None
             else None
         )
+        self.fingertip_pos_rel_palm: Optional[torch.Tensor] = None
+
+    def compute_fingertip_positions(
+        self,
+        *,
+        urdf_path: str | Path,
+        joint_names: list[str],
+        fingertip_link_names: list[str],
+        fingertip_offsets_m: np.ndarray,
+        palm_link_name: str,
+        palm_center_offset_m: np.ndarray,
+        palm_orientation_offset_xyzw: np.ndarray,
+    ) -> None:
+        """Precompute FK fingertip targets in the virtual palm frame.
+
+        Isaac Gym tracks points offset from the terminal rigid-body origins,
+        while the imitation palm is a virtual frame attached to the wrist.
+        Reproducing both definitions here makes the FK targets geometrically
+        identical to the points measured from simulation. FK is evaluated once
+        per demonstration frame; runtime sampling only interpolates the result.
+        """
+        try:
+            import pytorch_kinematics as pk
+        except ImportError as error:
+            raise ImportError(
+                "Fingertip imitation requires the pytorch-kinematics package"
+            ) from error
+
+        urdf_path = Path(urdf_path).expanduser().resolve()
+        if not urdf_path.is_file():
+            raise FileNotFoundError(f"Robot URDF not found: {urdf_path}")
+        chain = pk.build_chain_from_urdf(urdf_path.read_bytes())
+        chain_joint_names = list(chain.get_joint_parameter_names())
+        if chain_joint_names != list(joint_names):
+            raise ValueError(
+                "Demonstration FK joint order does not match the simulation "
+                f"asset: FK={chain_joint_names}, simulation={list(joint_names)}"
+            )
+
+        fingertip_offsets = np.asarray(fingertip_offsets_m, dtype=np.float32)
+        expected_offset_shape = (len(fingertip_link_names), 3)
+        if fingertip_offsets.shape != expected_offset_shape:
+            raise ValueError(
+                "Invalid fingertip offsets: expected "
+                f"{expected_offset_shape}, got {fingertip_offsets.shape}"
+            )
+        palm_center_offset = np.asarray(
+            palm_center_offset_m, dtype=np.float32
+        )
+        if palm_center_offset.shape != (3,):
+            raise ValueError("palm_center_offset_m must contain 3 values")
+        palm_orientation_offset = _normalize_quaternions(
+            np.asarray(palm_orientation_offset_xyzw, dtype=np.float32)[None]
+        )[0]
+
+        reference_q = torch.cat([self.arm_q, self.hand_q], dim=-1)
+        fk_q = reference_q.detach().to(device="cpu", dtype=torch.float32)
+        transforms = chain.forward_kinematics(fk_q)
+        missing_links = [
+            name
+            for name in [palm_link_name, *fingertip_link_names]
+            if name not in transforms
+        ]
+        if missing_links:
+            raise ValueError(
+                f"FK links missing from {urdf_path.name}: {missing_links}"
+            )
+
+        palm_matrix = transforms[palm_link_name].get_matrix()
+        palm_link_rotation = palm_matrix[:, :3, :3]
+        palm_center = palm_matrix[:, :3, 3] + torch.matmul(
+            palm_link_rotation,
+            torch.as_tensor(palm_center_offset).view(1, 3, 1),
+        ).squeeze(-1)
+
+        # Matrix whose columns are the palm-offset quaternion's rotated basis.
+        basis = np.eye(3, dtype=np.float32)
+        offset_rotation = _rotate_xyzw(
+            np.broadcast_to(palm_orientation_offset, (3, 4)), basis
+        ).T
+        palm_rotation = torch.matmul(
+            palm_link_rotation,
+            torch.as_tensor(offset_rotation).view(1, 3, 3),
+        )
+
+        fingertip_world = []
+        for link_name, link_offset in zip(
+            fingertip_link_names, fingertip_offsets
+        ):
+            link_matrix = transforms[link_name].get_matrix()
+            point = link_matrix[:, :3, 3] + torch.matmul(
+                link_matrix[:, :3, :3],
+                torch.as_tensor(link_offset).view(1, 3, 1),
+            ).squeeze(-1)
+            fingertip_world.append(point)
+        fingertip_world_tensor = torch.stack(fingertip_world, dim=1)
+        relative_world = fingertip_world_tensor - palm_center.unsqueeze(1)
+        fingertip_local = torch.matmul(
+            palm_rotation.transpose(1, 2).unsqueeze(1),
+            relative_world.unsqueeze(-1),
+        ).squeeze(-1)
+        self.fingertip_pos_rel_palm = fingertip_local.to(
+            device=self.hand_q.device,
+            dtype=self.hand_q.dtype,
+        )
 
     def recompute_hand_velocity(self) -> None:
         """Refresh filtered hand velocities after joint-limit clamping."""
@@ -461,7 +567,10 @@ class DemonstrationReference:
         ).unsqueeze(-1)
 
         def lerp(values: torch.Tensor) -> torch.Tensor:
-            return torch.lerp(values[lower], values[upper], alpha)
+            value_alpha = alpha
+            while value_alpha.ndim < values[lower].ndim:
+                value_alpha = value_alpha.unsqueeze(-1)
+            return torch.lerp(values[lower], values[upper], value_alpha)
 
         return ReferenceSample(
             arm_q=lerp(self.arm_q),
@@ -474,6 +583,11 @@ class DemonstrationReference:
             ),
             palm_lin_vel=lerp(self.palm_lin_vel),
             palm_ang_vel=lerp(self.palm_ang_vel),
+            fingertip_pos_rel_palm=(
+                lerp(self.fingertip_pos_rel_palm)
+                if self.fingertip_pos_rel_palm is not None
+                else None
+            ),
             object_pos=(
                 lerp(self.object_pos) if self.object_pos is not None else None
             ),

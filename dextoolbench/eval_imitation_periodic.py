@@ -226,6 +226,7 @@ def evaluate(
         "ee_position_reward",
         "ee_rotation_reward",
         "hand_pose_reward",
+        "fingertip_pose_reward",
         "imitation_reward",
         "object_keypoint_reward",
         "kuka_actions_penalty",
@@ -253,6 +254,8 @@ def evaluate(
         "rotation_error_rad": [],
         "hand_error_rad": [],
     }
+    if env.fingertip_tracking_enabled:
+        errors["fingertip_rms_error_m"] = []
     initial_object_errors: Dict[str, float] = {}
     if env.object_tracking_enabled:
         initial_object_distances = torch.linalg.vector_norm(
@@ -331,6 +334,10 @@ def evaluate(
         errors["hand_error_rad"].append(
             _scalar(extras["imitation/hand_error_rad"])
         )
+        if env.fingertip_tracking_enabled:
+            errors["fingertip_rms_error_m"].append(
+                _scalar(extras["imitation/fingertip_rms_error_m"])
+            )
         if env.object_tracking_enabled:
             errors["object_keypoint_mean_error_m"].append(
                 _scalar(extras["object_tracking/keypoint_mean_error_m"])

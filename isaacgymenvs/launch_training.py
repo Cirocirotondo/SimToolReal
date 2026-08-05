@@ -57,6 +57,7 @@ _TRAINING_PRESETS = (
     "motion_imitation_sapg07_intermediate_precision",
     "motion_imitation_sapg08_positive_gaussian_regularization",
     "motion_imitation_sapg09_broad_pose_reward",
+    "motion_imitation_sapg10_fingertip_tracking",
     "motion_imitation_sapg_obj01_keypoint_tracking",
     "motion_imitation_sapg_obj02_pregrasp_object_priority",
     "motion_imitation_sapg_obj03_object66_imitation33",
@@ -145,6 +146,7 @@ class LaunchTrainingArgs:
         "motion_imitation_sapg07_intermediate_precision",
         "motion_imitation_sapg08_positive_gaussian_regularization",
         "motion_imitation_sapg09_broad_pose_reward",
+        "motion_imitation_sapg10_fingertip_tracking",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
         "motion_imitation_sapg_obj03_object66_imitation33",
@@ -188,6 +190,8 @@ class LaunchTrainingArgs:
     lightly smooths controller targets to suppress bang-bang vibration.
     SAPG09 isolates reward sharpness by changing only SAPG07's pose kernels
     from 200/5.477/1 to the broader 100/2/0.5 values.
+    SAPG10 derives Cartesian fingertip targets by FK and adds them to SAPG08's
+    pose reward with weights 0.35/0.25/0.25/0.15.
     SAPG-OBJ01 derives from SAPG05 and adds the recorded physical object,
     four-keypoint object tracking reward, and object-aware observations.
     SAPG-OBJ02 makes object tracking dominant, terminates beyond 6 cm, and
@@ -380,6 +384,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg07_intermediate_precision": "SimToolRealMotionImitationSAPG07IntermediatePrecision",
         "motion_imitation_sapg08_positive_gaussian_regularization": "SimToolRealMotionImitationSAPG08PositiveGaussianRegularization",
         "motion_imitation_sapg09_broad_pose_reward": "SimToolRealMotionImitationSAPG09BroadPoseReward",
+        "motion_imitation_sapg10_fingertip_tracking": "SimToolRealMotionImitationSAPG10FingertipTracking",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01KeypointTracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PregraspObjectPriority",
         "motion_imitation_sapg_obj03_object66_imitation33": "SimToolRealMotionImitationSAPGOBJ03Object66Imitation33",
@@ -440,6 +445,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg07_intermediate_precision",
         "motion_imitation_sapg08_positive_gaussian_regularization",
         "motion_imitation_sapg09_broad_pose_reward",
+        "motion_imitation_sapg10_fingertip_tracking",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
         "motion_imitation_sapg_obj03_object66_imitation33",
@@ -478,6 +484,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg07_intermediate_precision",
         "motion_imitation_sapg08_positive_gaussian_regularization",
         "motion_imitation_sapg09_broad_pose_reward",
+        "motion_imitation_sapg10_fingertip_tracking",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
         "motion_imitation_sapg_obj03_object66_imitation33",
@@ -565,6 +572,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg07_intermediate_precision": "SimToolRealMotionImitationSAPG07PPO",
         "motion_imitation_sapg08_positive_gaussian_regularization": "SimToolRealMotionImitationSAPG08PPO",
         "motion_imitation_sapg09_broad_pose_reward": "SimToolRealMotionImitationSAPG09PPO",
+        "motion_imitation_sapg10_fingertip_tracking": "SimToolRealMotionImitationSAPG10PPO",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01PPO",
         "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PPO",
         "motion_imitation_sapg_obj03_object66_imitation33": "SimToolRealMotionImitationSAPGOBJ03PPO",

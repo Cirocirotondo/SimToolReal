@@ -48,6 +48,7 @@ STEP_REWARD_KEYS: Tuple[str, ...] = (
     "ee_position_reward",
     "ee_rotation_reward",
     "hand_pose_reward",
+    "fingertip_pose_reward",
     "pose_imitation_reward",
     "palm_linear_velocity_reward",
     "palm_angular_velocity_reward",

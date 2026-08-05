@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from typing import Optional, Tuple
 
 from isaacgym import gymtorch
@@ -68,6 +69,9 @@ class SimToolRealMotionImitation(SimToolReal):
         env_cfg = cfg["env"]
         self.object_tracking_enabled = bool(
             env_cfg.get("objectTrackingEnabled", False)
+        )
+        self.fingertip_tracking_enabled = bool(
+            env_cfg.get("fingertipTrackingEnabled", False)
         )
         hand_mount_yaw_deg = float(env_cfg.get("handMountYawOffsetDeg", 60.0))
         if str(env_cfg.get("handSide", "right")).lower() != "right":
@@ -175,6 +179,30 @@ class SimToolRealMotionImitation(SimToolReal):
                 f"Clamped {clamped_count} demonstration joint samples "
                 "to the simulation URDF limits"
             )
+        if self.fingertip_tracking_enabled:
+            fingertip_offsets = self.fingertip_offsets
+            if isinstance(fingertip_offsets, torch.Tensor):
+                fingertip_offsets = (
+                    fingertip_offsets[0].detach().cpu().numpy()
+                )
+            palm_link_name = env_cfg.get(
+                "palmLinkName", self.arm_ee_link_name
+            )
+            self.reference.compute_fingertip_positions(
+                urdf_path=(
+                    Path(__file__).resolve().parents[3]
+                    / "assets"
+                    / self.robot_asset_file
+                ),
+                joint_names=self.robot_dof_names,
+                fingertip_link_names=self.fingertips,
+                fingertip_offsets_m=fingertip_offsets,
+                palm_link_name=palm_link_name,
+                palm_center_offset_m=self.palm_offset,
+                palm_orientation_offset_xyzw=(
+                    self.palm_orientation_offset_xyzw
+                ),
+            )
         self.phase = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
         self.phase_delta = self.dt / self.reference.duration_s
         self.reference_init_max_phase = float(
@@ -221,9 +249,25 @@ class SimToolRealMotionImitation(SimToolReal):
         self.ee_position_reward_weight = float(env_cfg["eePositionRewardWeight"])
         self.ee_rotation_reward_weight = float(env_cfg["eeRotationRewardWeight"])
         self.hand_pose_reward_weight = float(env_cfg["handPoseRewardWeight"])
+        self.fingertip_pose_reward_weight = float(
+            env_cfg.get("fingertipPoseRewardWeight", 0.0)
+        )
         self.ee_position_reward_scale = float(env_cfg["eePositionRewardScale"])
         self.ee_rotation_reward_scale = float(env_cfg["eeRotationRewardScale"])
         self.hand_pose_reward_scale = float(env_cfg["handPoseRewardScale"])
+        self.fingertip_pose_reward_scale = float(
+            env_cfg.get("fingertipPoseRewardScale", 500.0)
+        )
+        if self.fingertip_tracking_enabled:
+            if self.fingertip_pose_reward_weight <= 0.0:
+                raise ValueError(
+                    "fingertipTrackingEnabled requires "
+                    "fingertipPoseRewardWeight > 0"
+                )
+            if self.fingertip_pose_reward_scale <= 0.0:
+                raise ValueError("fingertipPoseRewardScale must be positive")
+            if self.reference.fingertip_pos_rel_palm is None:
+                raise RuntimeError("Reference fingertip FK was not computed")
         self.robot_imitation_reward_weight = float(
             env_cfg.get("robotImitationRewardWeight", 1.0)
         )
@@ -307,6 +351,7 @@ class SimToolRealMotionImitation(SimToolReal):
             self.ee_position_reward_weight
             + self.ee_rotation_reward_weight
             + self.hand_pose_reward_weight
+            + self.fingertip_pose_reward_weight
         )
         if abs(weight_sum - 1.0) > 1e-6:
             raise ValueError("Imitation reward weights must sum to 1")
@@ -472,6 +517,7 @@ class SimToolRealMotionImitation(SimToolReal):
             "ee_position_reward",
             "ee_rotation_reward",
             "hand_pose_reward",
+            "fingertip_pose_reward",
             "imitation_reward",
             "object_keypoint_reward",
             "object_lifting_reward",
@@ -933,6 +979,31 @@ class SimToolRealMotionImitation(SimToolReal):
         hand_error = torch.linalg.vector_norm(
             self.arm_hand_dof_pos[:, self.num_arm_dofs :] - ref.hand_q, dim=-1
         )
+        fingertip_mean_squared_error = torch.zeros_like(position_error)
+        fingertip_error = torch.zeros_like(position_error)
+        fingertip_reward = torch.zeros_like(position_error)
+        if self.fingertip_tracking_enabled:
+            palm_inverse_rotation = quat_conjugate(self._palm_rot)
+            palm_inverse_rotation = palm_inverse_rotation.unsqueeze(1).expand(
+                -1, self.num_fingertips, -1
+            )
+            fingertip_pos_local = quat_rotate(
+                palm_inverse_rotation.reshape(-1, 4),
+                self.fingertip_pos_rel_palm.reshape(-1, 3),
+            ).view(self.num_envs, self.num_fingertips, 3)
+            fingertip_delta = (
+                fingertip_pos_local - ref.fingertip_pos_rel_palm
+            )
+            fingertip_mean_squared_error = torch.mean(
+                torch.sum(fingertip_delta.square(), dim=-1), dim=-1
+            )
+            fingertip_error = torch.sqrt(
+                fingertip_mean_squared_error.clamp_min(0.0)
+            )
+            fingertip_reward = torch.exp(
+                -self.fingertip_pose_reward_scale
+                * fingertip_mean_squared_error
+            )
 
         position_reward = torch.exp(
             -self.ee_position_reward_scale * position_error.square()
@@ -947,6 +1018,7 @@ class SimToolRealMotionImitation(SimToolReal):
             self.ee_position_reward_weight * position_reward
             + self.ee_rotation_reward_weight * rotation_reward
             + self.hand_pose_reward_weight * hand_reward
+            + self.fingertip_pose_reward_weight * fingertip_reward
         )
         imitation_reward = pose_imitation_reward
 
@@ -1216,6 +1288,12 @@ class SimToolRealMotionImitation(SimToolReal):
                 * self.hand_pose_reward_weight
                 * hand_reward
             ),
+            "fingertip_pose_reward": (
+                self.robot_imitation_reward_weight
+                * pose_component_scale
+                * self.fingertip_pose_reward_weight
+                * fingertip_reward
+            ),
             "imitation_reward": imitation_reward,
             "object_keypoint_reward": object_keypoint_reward,
             "object_lifting_reward": object_lifting_reward,
@@ -1256,6 +1334,10 @@ class SimToolRealMotionImitation(SimToolReal):
         self.extras["imitation/position_error_m"] = position_error.mean()
         self.extras["imitation/rotation_error_rad"] = rotation_error.mean()
         self.extras["imitation/hand_error_rad"] = hand_error.mean()
+        if self.fingertip_tracking_enabled:
+            self.extras["imitation/fingertip_rms_error_m"] = (
+                fingertip_error.mean()
+            )
         if self.object_tracking_enabled:
             self.extras["object_tracking/keypoint_mean_error_m"] = (
                 object_keypoint_mean_error.mean()

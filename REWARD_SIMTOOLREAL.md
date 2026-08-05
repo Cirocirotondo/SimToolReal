@@ -457,6 +457,17 @@ Motion imitation — lineage logica SAPG:
                     leggero dei target controller arm/hand (`0.8 / 0.8`). Bonus
                     massimo `0.30`, reward teorica massima `1.30`. Nessun limite
                     automatico.
+                    │
+                    └── SAPG10-FingertipTracking (preset preparato)
+                        Deriva da SAPG08 e mantiene observation 104D, RSI,
+                        smoothing, regolarizzazioni gaussiane e profilo SAPG.
+                        Il loader applica una sola volta la FK alla traiettoria
+                        articolare originale e ricava i cinque punti fingertip nel
+                        frame locale del palmo virtuale, senza modificare il file
+                        demonstration. La pose reward usa pesi `0.35 / 0.25 /
+                        0.25 / 0.15` per EE position, EE orientation, finger joints
+                        e fingertip; l'ultimo termine e' `exp(-500 * RMS_tip^2)`.
+                        Serve a premiare direttamente la geometria utile al grasp.
                 │
                 └── SAPG09-BroadPoseReward (preset preparato)
                     Esperimento causale da zero che modifica soltanto le kernel pose

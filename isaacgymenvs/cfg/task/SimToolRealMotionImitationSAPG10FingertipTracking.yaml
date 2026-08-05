@@ -1,0 +1,22 @@
+# SAPG10-FingertipTracking: SAPG08 with an explicit Cartesian fingertip term.
+# Reference fingertip positions are derived once by FK from the original
+# demonstration joint trajectory; the recording itself remains unchanged.
+defaults:
+  - SimToolRealMotionImitationSAPG08PositiveGaussianRegularization
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  fingertipTrackingEnabled: True
+
+  # Normalized pose-imitation mixture requested for this experiment.
+  eePositionRewardWeight: 0.35
+  eeRotationRewardWeight: 0.25
+  handPoseRewardWeight: 0.25
+  fingertipPoseRewardWeight: 0.15
+
+  # r_tip = exp(-500 * mean_i ||p_i - p_i*||^2), with positions expressed
+  # in the virtual palm frame. This gives r_tip ~= 0.82 at 2 cm RMS and
+  # r_tip ~= 0.45 at 4 cm RMS without creating an excessively narrow peak.
+  fingertipPoseRewardScale: 500.0

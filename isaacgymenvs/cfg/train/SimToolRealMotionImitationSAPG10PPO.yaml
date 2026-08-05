@@ -1,0 +1,9 @@
+# SAPG10 retains SAPG08's optimizer/network profile; only the task-side
+# imitation mixture gains Cartesian fingertip tracking.
+defaults:
+  - SimToolRealMotionImitationSAPG08PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG10PPO,${....experiment}}
