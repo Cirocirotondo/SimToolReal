@@ -366,8 +366,14 @@ def sim_worker(
             "task.env.enableCameraSensors": False,
             "task.env.useReferenceStateInitialization": False,
             "task.env.referenceStateInitProbability": 0.0,
-            "task.env.referenceInitAnchorProbability": 0.0,
         }
+        # The anchored-RSI option exists only in object/pre-grasp task
+        # configurations. create_env() overrides may update existing keys but
+        # cannot introduce a missing structured-config key, so add this
+        # override only when the saved training configuration defines it.
+        saved_env_cfg = _read_env_config(config_path)
+        if "referenceInitAnchorProbability" in saved_env_cfg:
+            env_overrides["task.env.referenceInitAnchorProbability"] = 0.0
         if hand_termination_error is not None:
             env_overrides["task.env.handTerminationError"] = (
                 hand_termination_error
