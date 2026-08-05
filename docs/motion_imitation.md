@@ -223,6 +223,23 @@ python isaacgymenvs/launch_training.py \
   --num-blocks 6
 ```
 
+### SAPG09-BroadPoseReward
+
+SAPG09 is the single-variable reward-sharpness comparison for SAPG07. It keeps
+SAPG07's 104D observation, triangular RSI, weak negative quadratic
+regularizers, unsmoothed controller targets and SAPG profile, changing only
+the pose kernels from `200 / 5.4772255751 / 1` to the broader SAPG01 values
+`100 / 2 / 0.5`. Velocity tracking remains disabled.
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_sapg09_broad_pose_reward \
+  --algorithm sapg \
+  --custom-experiment-name sapg09_broad_pose_reward \
+  --num-envs 4800 \
+  --num-blocks 6
+```
+
 ### SAPG-OBJ01-KeypointTracking
 
 SAPG-OBJ is the object-aware family derived from the robot-only SAPG lineage.
@@ -376,6 +393,7 @@ SAPG experiments use a separate chronological and logical namespace:
 | `SAPG05-StrongRegularization` | SAPG04 with stronger action/rate and arm-joint costs; hand acceleration disabled | 104D | `motion_imitation_sapg05_strong_regularization` |
 | `SAPG07-IntermediatePrecision` | SAPG04 regularization with intermediate pose kernels `200 / 5.477 / 1` | 104D | `motion_imitation_sapg07_intermediate_precision` |
 | `SAPG08-PositiveGaussianRegularization` | SAPG07 with broader orientation, six calibrated positive Gaussian regularizers, hand qdd disabled, and light controller-target smoothing | 104D | `motion_imitation_sapg08_positive_gaussian_regularization` |
+| `SAPG09-BroadPoseReward` | SAPG07 with only the pose kernels broadened to `100 / 2 / 0.5` | 104D | `motion_imitation_sapg09_broad_pose_reward` |
 
 Object-aware SAPG experiments use their own family:
 

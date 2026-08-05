@@ -1,0 +1,9 @@
+# SAPG09 changes only the task-side pose kernels and retains SAPG07's
+# optimizer, network and six-population SAPG profile.
+defaults:
+  - SimToolRealMotionImitationSAPG07PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG09PPO,${....experiment}}

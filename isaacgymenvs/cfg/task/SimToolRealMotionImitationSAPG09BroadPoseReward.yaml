@@ -1,0 +1,15 @@
+# SAPG09-BroadPoseReward: isolate reward-kernel sharpness from SAPG07.
+# All other task settings, including its weak negative quadratic regularizers,
+# controller behavior, 104D observation and triangular RSI, remain unchanged.
+defaults:
+  - SimToolRealMotionImitationSAPG07IntermediatePrecision
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Return to the broad SAPG01 pose kernels while retaining SAPG07's explicit
+  # target-palm input and SAPG04 regularization setup.
+  eePositionRewardScale: 100.0
+  eeRotationRewardScale: 2.0
+  handPoseRewardScale: 0.5

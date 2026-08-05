@@ -445,7 +445,7 @@ Motion imitation — lineage logica SAPG:
                 Obiettivo: mantenere piu' precisione di SAPG01 senza il bacino stretto
                 e le correzioni brusche osservate in SAPG04. Nessun limite automatico.
                 │
-                └── SAPG08-PositiveGaussianRegularization (preset preparato)
+                ├── SAPG08-PositiveGaussianRegularization (preset preparato)
                     Mantiene position/hand tracking, observation, RSI e profilo SAPG
                     di SAPG07; allarga orientation a `scale=2`. Usa sei bonus
                     `0.05 * exp(-||x||^2 / sigma)` con sigma `50 / 166.667 / 25 /
@@ -457,6 +457,15 @@ Motion imitation — lineage logica SAPG:
                     leggero dei target controller arm/hand (`0.8 / 0.8`). Bonus
                     massimo `0.30`, reward teorica massima `1.30`. Nessun limite
                     automatico.
+                │
+                └── SAPG09-BroadPoseReward (preset preparato)
+                    Esperimento causale da zero che modifica soltanto le kernel pose
+                    di SAPG07 da `200 / 5.4772255751 / 1` a `100 / 2 / 0.5`.
+                    Observation 104D, RSI triangolare, penalty quadratiche SAPG04,
+                    controller senza smoothing aggiuntivo e profilo SAPG restano
+                    identici a SAPG07. Velocity tracking disattivato e nessun limite
+                    automatico. Serve a isolare la rigidita' della reward come causa
+                    delle vibrazioni.
 
 
 
