@@ -8,7 +8,7 @@
     "disable_video": true,
     "wandb_tags": [
       "600m-frame-budget",
-      "mi08-gaussian-factorial"
+      "mi09-successor-comparison"
     ]
   },
   "runs": [
@@ -17,8 +17,8 @@
       "custom_experiment_name": "mi09_ppo_delta_gaussian_2x_600m"
     },
     {
-      "training_preset": "motion_imitation_mi10_arm_dynamics_gaussian_2x",
-      "custom_experiment_name": "mi10_ppo_arm_dynamics_gaussian_2x_600m"
+      "training_preset": "motion_imitation_mi10_target_input_smooth_gaussian",
+      "custom_experiment_name": "mi10_ppo_target_input_smooth_gaussian_600m"
     },
     {
       "training_preset": "motion_imitation_mi11_combined_gaussian_2x",

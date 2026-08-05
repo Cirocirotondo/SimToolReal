@@ -1,0 +1,15 @@
+# SAPG07-IntermediatePrecision: SAPG04 with broader, less corrective pose
+# kernels between SAPG01 (100 / 2 / 0.5) and SAPG02 (400 / 15 / 2).
+defaults:
+  - SimToolRealMotionImitationSAPG04JointRegularized
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Geometric midpoints of the SAPG01 and SAPG02 exponential scales. Since
+  # reward = weight * exp(-scale * error^2), this is the natural midpoint in
+  # log-scale while retaining the requested position scale of 200.
+  eePositionRewardScale: 200.0
+  eeRotationRewardScale: 5.4772255751
+  handPoseRewardScale: 1.0

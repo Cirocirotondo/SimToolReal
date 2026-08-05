@@ -26,6 +26,7 @@ from dextoolbench.eval_env_config import (
     motion_imitation_robot_urdf_path_for_hand,
     policy_config_hand_side,
 )
+from dextoolbench.motion_diagnostic_plotter import MotionDiagnosticPlotter
 from dextoolbench.reward_episode_plotter import RewardEpisodePlotter
 
 install_path_is_relative_to_backport()
@@ -247,6 +248,8 @@ def _run_episode(
     reward_plot_dir: Optional[Path],
     action_moving_average: bool,
     action_moving_average_window: int,
+    plot_motion_diagnostics: bool,
+    diagnostic_plot_dir: Optional[Path],
 ) -> bool:
     """Run one rollout; return True when the worker should exit."""
     control_dt = float(env.control_dt)
@@ -263,6 +266,23 @@ def _run_episode(
     if plot_rewards and reward_plot_dir is not None:
         plotter = RewardEpisodePlotter(reward_plot_dir, live=False)
         plotter.start_episode(f"imitation_phase_{initial_phase:.3f}")
+    diagnostic_plotter = None
+    if plot_motion_diagnostics and diagnostic_plot_dir is not None:
+        diagnostic_plotter = MotionDiagnosticPlotter(diagnostic_plot_dir)
+        action_mode = (
+            f"moving_average_w{action_moving_average_window}"
+            if action_moving_average
+            else "raw_actions"
+        )
+        diagnostic_plotter.start_episode(
+            f"imitation_phase_{initial_phase:.3f}_{action_mode}", env
+        )
+
+    def finalize_plotters(reason: str) -> Dict[str, str]:
+        paths = plotter.finalize(reason) if plotter else {}
+        if diagnostic_plotter:
+            paths.update(diagnostic_plotter.finalize(reason))
+        return paths
 
     step = 0
     total_reward = 0.0
@@ -275,11 +295,10 @@ def _run_episode(
             elif command == "resume":
                 paused = False
             elif command == "quit":
-                if plotter:
-                    plotter.finalize("quit")
+                finalize_plotters("quit")
                 return True
             elif command == "stop":
-                paths = plotter.finalize("stopped") if plotter else {}
+                paths = finalize_plotters("stopped")
                 conn.send(("stopped", paths))
                 return False
 
@@ -288,7 +307,8 @@ def _run_episode(
             continue
 
         started = time.time()
-        action = policy.get_normalized_action(obs, deterministic_actions=True)
+        raw_action = policy.get_normalized_action(obs, deterministic_actions=True)
+        action = raw_action
         if action_filter is not None:
             action = action_filter(action)
         obs_dict, reward, done, extras = env.step(action)
@@ -297,12 +317,14 @@ def _run_episode(
         total_reward += float(reward[0].item())
         if plotter is not None:
             plotter.record(extras, step)
+        if diagnostic_plotter is not None:
+            diagnostic_plotter.record(env, step, raw_action, action)
 
         state = _sim_state(env, extras)
         conn.send(("state", state, step, total_reward))
         if bool(done[0].item()):
             reason = _termination_reason(env, state)
-            paths = plotter.finalize(reason) if plotter else {}
+            paths = finalize_plotters(reason)
             conn.send(("done", reason, step, total_reward, paths))
             return False
 
@@ -322,6 +344,8 @@ def sim_worker(
     action_moving_average: bool,
     action_moving_average_window: int,
     hand_termination_error: Optional[float],
+    plot_motion_diagnostics: bool,
+    diagnostic_plot_dir: Optional[str],
 ) -> None:
     """Create one imitation environment and serve evaluation commands."""
     try:
@@ -405,6 +429,10 @@ def sim_worker(
                     ),
                     action_moving_average=action_moving_average,
                     action_moving_average_window=action_moving_average_window,
+                    plot_motion_diagnostics=plot_motion_diagnostics,
+                    diagnostic_plot_dir=(
+                        Path(diagnostic_plot_dir) if diagnostic_plot_dir else None
+                    ),
                 )
                 if should_quit:
                     return
@@ -429,6 +457,8 @@ class ImitationInteractiveDemo:
         action_moving_average: bool,
         action_moving_average_window: int,
         hand_termination_error: Optional[float],
+        plot_motion_diagnostics: bool,
+        diagnostic_plot_dir: Optional[str],
     ) -> None:
         self.config_path = str(Path(config_path).resolve())
         self.checkpoint_path = str(Path(checkpoint_path).resolve())
@@ -442,10 +472,16 @@ class ImitationInteractiveDemo:
             and self.hand_termination_error <= 0.0
         ):
             raise ValueError("hand_termination_error must be positive")
+        self.plot_motion_diagnostics = plot_motion_diagnostics
         self.reward_plot_dir = str(
             Path(reward_plot_dir).resolve()
             if reward_plot_dir
             else REPO_ROOT / "eval_reward_plots" / "motion_imitation"
+        )
+        self.diagnostic_plot_dir = str(
+            Path(diagnostic_plot_dir).resolve()
+            if diagnostic_plot_dir
+            else REPO_ROOT / "eval_diagnostic_plots" / "motion_imitation"
         )
         if not Path(self.config_path).is_file():
             raise FileNotFoundError(self.config_path)
@@ -628,6 +664,8 @@ class ImitationInteractiveDemo:
                 self.action_moving_average,
                 self.action_moving_average_window,
                 self.hand_termination_error,
+                self.plot_motion_diagnostics,
+                self.diagnostic_plot_dir,
             ),
             daemon=True,
         )
@@ -775,13 +813,9 @@ class ImitationInteractiveDemo:
             self._episodes += 1
             self._completed += int(reason == "completed")
             self._returns.append(float(episode_return))
-            self._status.content = (
-                f"**Status:** {reason} after {steps} steps"
-                + (
-                    f" — plots: `{paths.get('episode_dir')}`"
-                    if paths.get("episode_dir")
-                    else ""
-                )
+            plot_dir = paths.get("diagnostic_episode_dir") or paths.get("episode_dir")
+            self._status.content = f"**Status:** {reason} after {steps} steps" + (
+                f" — plots: `{plot_dir}`" if plot_dir else ""
             )
             self._stats.content = (
                 f"**Episodes:** {self._episodes} &nbsp;|&nbsp; "
@@ -790,7 +824,11 @@ class ImitationInteractiveDemo:
             )
         elif tag == "stopped":
             self._running = self._paused = False
-            self._status.content = "**Status:** Episode stopped"
+            paths = message[1] if len(message) > 1 else {}
+            plot_dir = paths.get("diagnostic_episode_dir") or paths.get("episode_dir")
+            self._status.content = "**Status:** Episode stopped" + (
+                f" — plots: `{plot_dir}`" if plot_dir else ""
+            )
         elif tag == "error":
             self._ready = self._running = self._paused = False
             self._status.content = f"**Status:** Error — {message[1][:240]}"
@@ -836,6 +874,21 @@ def main() -> None:
     parser.add_argument("--plot-rewards", action="store_true")
     parser.add_argument("--reward-plot-dir", default=None)
     parser.add_argument(
+        "--plot-motion-diagnostics",
+        action="store_true",
+        help=(
+            "Save synchronized target pose/velocity, policy-action delta, and "
+            "measured joint velocity/acceleration plots after each episode."
+        ),
+    )
+    parser.add_argument(
+        "--diagnostic-plot-dir",
+        default=None,
+        help=(
+            "Diagnostic output root (default: eval_diagnostic_plots/motion_imitation)."
+        ),
+    )
+    parser.add_argument(
         "--action-moving-average",
         action="store_true",
         help="Apply a causal moving average to policy actions before env.step().",
@@ -868,6 +921,8 @@ def main() -> None:
         action_moving_average=args.action_moving_average,
         action_moving_average_window=args.action_moving_average_window,
         hand_termination_error=args.hand_termination_error,
+        plot_motion_diagnostics=args.plot_motion_diagnostics,
+        diagnostic_plot_dir=args.diagnostic_plot_dir,
     ).run()
 
 

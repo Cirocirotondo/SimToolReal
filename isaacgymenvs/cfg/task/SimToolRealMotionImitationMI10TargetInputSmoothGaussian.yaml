@@ -1,0 +1,11 @@
+# MI10 is the controlled PPO counterpart of SAPG08.
+#
+# Inherit the complete task configuration so reward, observations, RSI,
+# controller smoothing and all environment dynamics remain identical. The
+# launcher supplies SimToolRealMotionImitationMI10PPO, making the optimizer the
+# only intended experimental variable.
+defaults:
+  - SimToolRealMotionImitationSAPG08PositiveGaussianRegularization
+  - _self_
+
+name: SimToolRealMotionImitation

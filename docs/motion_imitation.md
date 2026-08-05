@@ -166,6 +166,63 @@ SAPG05 uses EE action/rate `1e-3 / 1e-3`, hand action/rate
 `3e-4 / 1e-3`, measured arm-joint velocity `2e-3`, measured arm-joint
 acceleration `3e-6`, and measured hand-joint acceleration `0`.
 
+### SAPG07-IntermediatePrecision
+
+SAPG07 branches directly from SAPG04 and changes only the width of the pose
+imitation kernels. It uses the geometric midpoints between SAPG01's
+`100 / 2 / 0.5` and SAPG02's narrow `400 / 15 / 2` scales:
+
+```yaml
+eePositionRewardScale: 200.0
+eeRotationRewardScale: 5.4772255751
+handPoseRewardScale: 1.0
+```
+
+Launch it from zero with the same 4800-environment setup used for SAPG04 so
+the result remains directly comparable:
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_sapg07_intermediate_precision \
+  --algorithm sapg \
+  --custom-experiment-name sapg07_intermediate_precision \
+  --num-envs 4800 \
+  --num-blocks 6
+```
+
+No automatic frame limit is applied; stop it manually with `Ctrl+C` unless an
+explicit `--max-frames` value is added.
+
+### SAPG08-PositiveGaussianRegularization
+
+SAPG08 keeps SAPG07's intermediate position/hand kernels, broadens orientation
+to `200 / 2 / 1`, and replaces the negative quadratic regularizers with
+positive bounded terms:
+
+```text
+r_reg(x) = SCALE * exp(-||x||^2 / SIGMA)
+```
+
+Each active term uses `SCALE=0.05`; `SIGMA=SCALE/lambda` gives local
+coefficients `1e-3 / 3e-4` for arm/hand action magnitude, `2e-3 / 1e-3` for
+arm/hand action delta, and `2e-3 / 3e-6` for measured arm joint velocity and
+acceleration. Their sigmas are respectively `50`, `166.6667`, `25`, `50`,
+`25`, and `16666.6667`. Hand-joint acceleration regularization is disabled.
+The six active bonuses have a combined maximum of `0.30`, giving a theoretical
+total reward of `1.30`. These values make the oscillations measured in the
+SAPG07 phase-zero evaluation lose approximately `4.8%` of reward rather than
+roughly `1.7%`. Arm and hand controller targets also use a light blend with
+`armMovingAverage=handMovingAverage=0.8`; `1.0` would mean no smoothing.
+
+```bash
+python isaacgymenvs/launch_training.py \
+  --training-preset motion_imitation_sapg08_positive_gaussian_regularization \
+  --algorithm sapg \
+  --custom-experiment-name sapg08_positive_gaussian_regularization \
+  --num-envs 4800 \
+  --num-blocks 6
+```
+
 ### SAPG-OBJ01-KeypointTracking
 
 SAPG-OBJ is the object-aware family derived from the robot-only SAPG lineage.
@@ -264,8 +321,8 @@ A preset selects one of each.
 | `MI07` | MI06 without phase; adds desired palm linear/angular and finger-joint velocities (153D) | Same as MI02 | `motion_imitation_mi07` |
 | `MI08` | MI04 with bounded positive Gaussian regularization replacing negative quadratic costs | Same as MI04 | `motion_imitation_mi08_positive_gaussian_regularization` |
 | `MI09` | MI08 with 2x local arm/hand action-delta regularization | Same as MI08 | `motion_imitation_mi09_delta_gaussian_2x` |
-| `MI10` | MI08 with 2x local measured arm velocity/acceleration regularization | Same as MI08 | `motion_imitation_mi10_arm_dynamics_gaussian_2x` |
-| `MI11` | MI08 with both MI09 and MI10 changes | Same as MI08 | `motion_imitation_mi11_combined_gaussian_2x` |
+| `MI10` | Task exactly equal to SAPG08: same reward, 104D observation, RSI and controller smoothing | PPO profile inherited from MI09; train from zero | `motion_imitation_mi10_target_input_smooth_gaussian` |
+| `MI11` | Legacy MI08 factorial branch with both 2x delta and 2x measured-arm-dynamics changes; no target input | Same as MI08 | `motion_imitation_mi11_combined_gaussian_2x` |
 
 `MI0x` is reserved for the PPO robot-only lineage. Object-aware SAPG variants
 use the separate `SAPG-OBJxx` namespace. The launcher
@@ -300,13 +357,13 @@ frame counter from a checkpoint, so `max_frames` is an absolute limit rather
 than an additional fine-tuning budget. The top-level value applies to every run
 and cannot be overridden by an individual entry.
 
-MI08 is the common baseline. MI09 halves only the arm/hand action-delta
-sigmas, MI10 halves only the measured arm joint velocity/acceleration sigmas,
-and MI11 applies both changes. Since every affected `SCALE` stays at `0.05`,
-each term keeps the same bounded maximum while its local regularization
-coefficient `SCALE / SIGMA` doubles. This forms a 2-by-2 comparison with MI08
-without changing tracking rewards, action-magnitude regularization, RSI, or
-the PPO profile.
+MI09 halves only the MI08 arm/hand action-delta sigmas. MI10 directly inherits
+the complete SAPG08 task configuration, making reward, observation, RSI,
+controller smoothing and environment dynamics identical. Its launcher preset
+selects the MI09-derived PPO profile instead of the SAPG08 SAPG profile, so the
+optimizer is the only intended experimental variable. MI10 must start from
+zero because its 104D observation is incompatible with MI09's 101D network.
+MI11 is retained as the earlier factorial delta-plus-arm-dynamics comparison.
 
 SAPG experiments use a separate chronological and logical namespace:
 
@@ -317,6 +374,8 @@ SAPG experiments use a separate chronological and logical namespace:
 | `SAPG03-Triangular-TargetInput` | SAPG02 rewards, triangular RSI, desired palm position as policy input, no velocity objective | 104D | `motion_imitation_sapg03_triangular_target_input` |
 | `SAPG04-JointRegularized` | SAPG03 plus weak action/rate costs and measured arm-joint velocity/acceleration costs | 104D | `motion_imitation_sapg04_joint_regularized` |
 | `SAPG05-StrongRegularization` | SAPG04 with stronger action/rate and arm-joint costs; hand acceleration disabled | 104D | `motion_imitation_sapg05_strong_regularization` |
+| `SAPG07-IntermediatePrecision` | SAPG04 regularization with intermediate pose kernels `200 / 5.477 / 1` | 104D | `motion_imitation_sapg07_intermediate_precision` |
+| `SAPG08-PositiveGaussianRegularization` | SAPG07 with broader orientation, six calibrated positive Gaussian regularizers, hand qdd disabled, and light controller-target smoothing | 104D | `motion_imitation_sapg08_positive_gaussian_regularization` |
 
 Object-aware SAPG experiments use their own family:
 
@@ -512,3 +571,25 @@ For a diagnostic rollout with a more permissive hand-pose termination than
 the value stored in an older checkpoint config, pass for example
 `--hand-termination-error 2.2`. This changes only evaluation termination, not
 the policy or its rewards.
+
+For vibration diagnosis, record synchronized demonstration targets, raw and
+effective policy actions, and measured robot motion with:
+
+```bash
+  --plot-motion-diagnostics \
+  --diagnostic-plot-dir eval_diagnostic_plots/motion_imitation
+```
+
+At episode completion (or after pressing **Stop**) the evaluator writes
+`motion_diagnostics.npz` and five plots under
+`imitation_phase_<initial-phase>_raw_actions/` or
+`imitation_phase_<initial-phase>_moving_average_w<window>/`: an overview, palm
+target versus actual, arm joints, hand joints, and action diagnostics. This
+keeps an unfiltered and filtered rollout at the same phase in separate folders.
+Target velocities derived directly from consecutive target poses are plotted
+alongside the loader-provided velocities (filtered only when the task config
+sets a nonzero `demonstrationVelocityFilterWindowS`). Actions distinguish the raw
+policy output, the optional moving-average output submitted to the environment,
+and the effective post-delay action seen by the controller. Measured joint
+accelerations are finite differences of PhysX joint velocities at the control
+rate.

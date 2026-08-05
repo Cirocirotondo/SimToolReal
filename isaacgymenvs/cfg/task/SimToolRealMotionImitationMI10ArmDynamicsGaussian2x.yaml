@@ -1,12 +1,7 @@
-# MI10: MI08 with twice the local measured-arm-motion regularization strength.
+# Backward-compatible alias for the old MI10 preset name. MI10 now denotes
+# the PPO-controlled counterpart of the SAPG08 task.
 defaults:
-  - SimToolRealMotionImitationMI08PositiveGaussianRegularization
+  - SimToolRealMotionImitationMI10TargetInputSmoothGaussian
   - _self_
 
 name: SimToolRealMotionImitation
-
-env:
-  # Strengthen physical UR-joint velocity and acceleration regularization
-  # without changing command magnitude/rate rewards or their maxima.
-  armJointVelocityRegularizationSigma: 25.0
-  armJointAccelerationRegularizationSigma: 25000.0

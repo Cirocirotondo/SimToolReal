@@ -343,15 +343,17 @@ non fine-tuning, salvo indicazione esplicita):
                         │   delta action arm/hand: `500 -> 250`, `5000 -> 2500`.
                         │   Raddoppia quindi la regolarizzazione locale sui cambi di comando.
                         │
-                        ├── MI10-ArmDynamicsGaussian2x (preset 600M preparato)
-                        │   Mantiene tutte le SCALE di MI08 e dimezza solo le SIGMA di
-                        │   arm joint velocity/acceleration: `50 -> 25`,
-                        │   `50000 -> 25000`. Isola la regolarizzazione del moto fisico UR.
+                        ├── MI10-TargetInputSmoothGaussian (preset 600M preparato)
+                        │   Controparte PPO controllata di SAPG08: eredita direttamente
+                        │   il suo task, quindi reward, observation 104D, RSI triangolare,
+                        │   smoothing e dinamica dell'environment coincidono. Cambia
+                        │   soltanto il profilo di ottimizzazione, da SAPG a PPO.
+                        │   Richiede training da zero.
                         │
                         └── MI11-CombinedGaussian2x (preset 600M preparato)
-                            Combina MI09 e MI10: delta action e dinamica misurata del
-                            braccio hanno coefficiente locale 2x, mentre action magnitude,
-                            reward di tracking, RSI e profilo PPO restano uguali a MI08.
+                            Resta il precedente ramo fattoriale da MI09: delta action e
+                            dinamica misurata del braccio hanno coefficiente locale 2x,
+                            senza il nuovo target input o smoothing introdotto da MI10.
 
 
 Motion imitation — lineage logica SAPG:
@@ -427,7 +429,7 @@ Motion imitation — lineage logica SAPG:
             │               position/orientation/hand `100 / 2 / 0.5`, evitando i
             │               valori precision `400 / 15 / 2` ereditati da SAPG02.
             │
-            └── SAPG06-RegularizationCurriculum (preset preparato)
+            ├── SAPG06-RegularizationCurriculum (preset preparato)
                 Fine-tuning obbligatorio dal checkpoint SAPG04, con LR fisso `1e-5`.
                 Mantiene esattamente le scale SAPG04 per 8000 control step (500 epoch),
                 poi usa una rampa smoothstep di 96000 step (6000 epoch) e continua
@@ -435,6 +437,26 @@ Motion imitation — lineage logica SAPG:
                 `2e-4 / 5e-5`, arm joint velocity a `1.25e-3` e arm joint acceleration
                 a `1.5e-6`; action magnitude invariata e hand joint acceleration a zero.
                 Obiettivo: ridurre le vibrazioni preservando il comportamento SAPG04.
+            │
+            └── SAPG07-IntermediatePrecision (preset preparato)
+                Training da zero con observation, RSI, SAPG e regolarizzazioni di
+                SAPG04. Sostituisce soltanto le kernel pose precision `400 / 15 / 2`
+                con i valori geometricamente intermedi `200 / 5.4772255751 / 1.0`.
+                Obiettivo: mantenere piu' precisione di SAPG01 senza il bacino stretto
+                e le correzioni brusche osservate in SAPG04. Nessun limite automatico.
+                │
+                └── SAPG08-PositiveGaussianRegularization (preset preparato)
+                    Mantiene position/hand tracking, observation, RSI e profilo SAPG
+                    di SAPG07; allarga orientation a `scale=2`. Usa sei bonus
+                    `0.05 * exp(-||x||^2 / sigma)` con sigma `50 / 166.667 / 25 /
+                    50 / 25 / 16666.667` per action arm/hand, delta arm/hand e arm
+                    qd/qdd. I coefficienti locali sono `1e-3 / 3e-4 / 2e-3 /
+                    1e-3 / 2e-3 / 3e-6`; hand qdd e' disattivato. La calibrazione
+                    sulla eval SAPG07 porta la perdita di bonus associata alle
+                    oscillazioni osservate da ~`1.7%` a ~`4.8%`. Aggiunge smoothing
+                    leggero dei target controller arm/hand (`0.8 / 0.8`). Bonus
+                    massimo `0.30`, reward teorica massima `1.30`. Nessun limite
+                    automatico.
 
 
 
@@ -457,8 +479,8 @@ reward object-manipulation descritta nella tabella iniziale del documento.
 | `MI07` | come MI02 | come MI02 | come MI04; target pose + target velocities, senza phase (153D) | `0 / 0` | `0.003 / 0.0003` | Preset preparato; training da zero richiesto |
 | `MI08` | come MI04 | come MI04 | come MI04 | Gaussiani action arm/hand: `S=.05`, `sigma=500/5000` | Gaussiani delta arm/hand: `S=.05`, `sigma=500/5000`; anche arm qd/qdd gaussiani | Coefficienti locali SAPG04; hand qdd disattivato; video disattivabile |
 | `MI09` | come MI08 | come MI08 | come MI08 | come MI08 | Delta gaussiani arm/hand: `sigma=250/2500`; arm qd/qdd come MI08 | Isola delta-action 2x; run da zero, limite 600M |
-| `MI10` | come MI08 | come MI08 | come MI08 | come MI08 | Delta come MI08; arm qd/qdd: `sigma=25/25000` | Isola dinamica fisica UR 2x; run da zero, limite 600M |
-| `MI11` | come MI08 | come MI08 | come MI08 | come MI08 | Delta `sigma=250/2500`; arm qd/qdd `sigma=25/25000` | Combinazione fattoriale MI09+MI10; run da zero, limite 600M |
+| `MI10` | triangolare come SAPG08 | PPO lineare `5e-5 -> 1e-6` | disattivata; `reference_palm_pos` nell'observation (104D) | Gaussiani arm/hand: `sigma=50/166.67` | Delta `sigma=25/50`; arm qd/qdd `sigma=25/16666.67`; smoothing arm/hand `0.8` | Task identico a SAPG08; cambia soltanto SAPG → PPO; run da zero, limite 600M |
+| `MI11` | come MI08 | come MI08 | come MI08 | come MI08 | Delta `sigma=250/2500`; arm qd/qdd `sigma=25/25000` | Precedente ramo fattoriale delta+dynamics, senza target input; run da zero, limite 600M |
 
 ### Tabella storico: **colonne = training** (+ colonna di riferimento), **righe = parametri**
 

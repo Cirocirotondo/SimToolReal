@@ -1,0 +1,9 @@
+# SAPG08 retains the SAPG07 optimizer/network profile; task-side tracking,
+# regularization, and controller smoothing are configured in its task YAML.
+defaults:
+  - SimToolRealMotionImitationSAPG07PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG08PPO,${....experiment}}

@@ -1,6 +1,7 @@
-# MI10 changes only MI08's measured-arm-motion Gaussian sigmas.
+# PPO optimization profile for the SAPG08-controlled comparison. The task is
+# identical to SAPG08; only the optimizer/network profile differs.
 defaults:
-  - SimToolRealMotionImitationMI08PPO
+  - SimToolRealMotionImitationMI09PPO
   - _self_
 
 params:

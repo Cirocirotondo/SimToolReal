@@ -46,6 +46,7 @@ _TRAINING_PRESETS = (
     "motion_imitation_mi07",
     "motion_imitation_mi08_positive_gaussian_regularization",
     "motion_imitation_mi09_delta_gaussian_2x",
+    "motion_imitation_mi10_target_input_smooth_gaussian",
     "motion_imitation_mi10_arm_dynamics_gaussian_2x",
     "motion_imitation_mi11_combined_gaussian_2x",
     "motion_imitation_sapg02_precision",
@@ -53,6 +54,8 @@ _TRAINING_PRESETS = (
     "motion_imitation_sapg04_joint_regularized",
     "motion_imitation_sapg05_strong_regularization",
     "motion_imitation_sapg06_regularization_curriculum",
+    "motion_imitation_sapg07_intermediate_precision",
+    "motion_imitation_sapg08_positive_gaussian_regularization",
     "motion_imitation_sapg_obj01_keypoint_tracking",
     "motion_imitation_sapg_obj02_pregrasp_object_priority",
     "motion_imitation_sapg_obj03_object66_imitation33",
@@ -130,6 +133,7 @@ class LaunchTrainingArgs:
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
         "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_target_input_smooth_gaussian",
         "motion_imitation_mi10_arm_dynamics_gaussian_2x",
         "motion_imitation_mi11_combined_gaussian_2x",
         "motion_imitation_sapg02_precision",
@@ -137,6 +141,8 @@ class LaunchTrainingArgs:
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
         "motion_imitation_sapg06_regularization_curriculum",
+        "motion_imitation_sapg07_intermediate_precision",
+        "motion_imitation_sapg08_positive_gaussian_regularization",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
         "motion_imitation_sapg_obj03_object66_imitation33",
@@ -159,9 +165,11 @@ class LaunchTrainingArgs:
     MI07 removes phase from MI06 and adds target palm and finger velocities.
     MI08 branches from MI04 and replaces negative quadratic regularizers with
     bounded positive Gaussian rewards using explicit scale/sigma pairs.
-    MI09 doubles only action-delta Gaussian strength, MI10 doubles only
-    measured arm velocity/acceleration Gaussian strength, and MI11 combines
-    both changes while retaining MI08's maximum per-term bonuses.
+    MI09 doubles only action-delta Gaussian strength. MI10 uses exactly the
+    SAPG08 task configuration with PPO, isolating the optimization algorithm
+    as the intended experimental variable. The old MI10 arm dynamics preset
+    name remains as a compatibility alias. MI11 retains the earlier factorial
+    delta-plus-arm-dynamics experiment.
     SAPG02Precision applies tighter pose rewards to the SAPG01 baseline.
     SAPG03TriangularTargetInput trains from zero with those precision rewards,
     triangular RSI, and the desired palm position in the policy observation.
@@ -171,6 +179,11 @@ class LaunchTrainingArgs:
     and temporarily disables measured hand-joint acceleration regularization.
     SAPG06RegularizationCurriculum fine-tunes SAPG04 with a warm-up and a
     smooth gradual increase of only the vibration-related regularizers.
+    SAPG07 returns to SAPG04's regularization setup but uses intermediate
+    pose-reward kernels between SAPG01 and SAPG02 Precision.
+    SAPG08 broadens SAPG07 orientation tracking, replaces the negative
+    quadratic regularizers with calibrated bounded positive Gaussians, and
+    lightly smooths controller targets to suppress bang-bang vibration.
     SAPG-OBJ01 derives from SAPG05 and adds the recorded physical object,
     four-keypoint object tracking reward, and object-aware observations.
     SAPG-OBJ02 makes object tracking dominant, terminates beyond 6 cm, and
@@ -352,13 +365,16 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi07": "SimToolRealMotionImitationMI07",
         "motion_imitation_mi08_positive_gaussian_regularization": "SimToolRealMotionImitationMI08PositiveGaussianRegularization",
         "motion_imitation_mi09_delta_gaussian_2x": "SimToolRealMotionImitationMI09DeltaGaussian2x",
-        "motion_imitation_mi10_arm_dynamics_gaussian_2x": "SimToolRealMotionImitationMI10ArmDynamicsGaussian2x",
+        "motion_imitation_mi10_target_input_smooth_gaussian": "SimToolRealMotionImitationMI10TargetInputSmoothGaussian",
+        "motion_imitation_mi10_arm_dynamics_gaussian_2x": "SimToolRealMotionImitationMI10TargetInputSmoothGaussian",
         "motion_imitation_mi11_combined_gaussian_2x": "SimToolRealMotionImitationMI11CombinedGaussian2x",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationSAPG02Precision",
         "motion_imitation_sapg03_triangular_target_input": "SimToolRealMotionImitationSAPG03TriangularTargetInput",
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04JointRegularized",
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05StrongRegularization",
         "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06RegularizationCurriculum",
+        "motion_imitation_sapg07_intermediate_precision": "SimToolRealMotionImitationSAPG07IntermediatePrecision",
+        "motion_imitation_sapg08_positive_gaussian_regularization": "SimToolRealMotionImitationSAPG08PositiveGaussianRegularization",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01KeypointTracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PregraspObjectPriority",
         "motion_imitation_sapg_obj03_object66_imitation33": "SimToolRealMotionImitationSAPGOBJ03Object66Imitation33",
@@ -408,6 +424,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
         "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_target_input_smooth_gaussian",
         "motion_imitation_mi10_arm_dynamics_gaussian_2x",
         "motion_imitation_mi11_combined_gaussian_2x",
         "motion_imitation_sapg02_precision",
@@ -415,6 +432,8 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
         "motion_imitation_sapg06_regularization_curriculum",
+        "motion_imitation_sapg07_intermediate_precision",
+        "motion_imitation_sapg08_positive_gaussian_regularization",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
         "motion_imitation_sapg_obj03_object66_imitation33",
@@ -442,6 +461,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
         "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_target_input_smooth_gaussian",
         "motion_imitation_mi10_arm_dynamics_gaussian_2x",
         "motion_imitation_mi11_combined_gaussian_2x",
         "motion_imitation_sapg02_precision",
@@ -449,6 +469,8 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg04_joint_regularized",
         "motion_imitation_sapg05_strong_regularization",
         "motion_imitation_sapg06_regularization_curriculum",
+        "motion_imitation_sapg07_intermediate_precision",
+        "motion_imitation_sapg08_positive_gaussian_regularization",
         "motion_imitation_sapg_obj01_keypoint_tracking",
         "motion_imitation_sapg_obj02_pregrasp_object_priority",
         "motion_imitation_sapg_obj03_object66_imitation33",
@@ -467,6 +489,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi07",
         "motion_imitation_mi08_positive_gaussian_regularization",
         "motion_imitation_mi09_delta_gaussian_2x",
+        "motion_imitation_mi10_target_input_smooth_gaussian",
         "motion_imitation_mi10_arm_dynamics_gaussian_2x",
         "motion_imitation_mi11_combined_gaussian_2x",
     }
@@ -522,6 +545,7 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_mi07": "SimToolRealMotionImitationMI07PPO",
         "motion_imitation_mi08_positive_gaussian_regularization": "SimToolRealMotionImitationMI08PPO",
         "motion_imitation_mi09_delta_gaussian_2x": "SimToolRealMotionImitationMI09PPO",
+        "motion_imitation_mi10_target_input_smooth_gaussian": "SimToolRealMotionImitationMI10PPO",
         "motion_imitation_mi10_arm_dynamics_gaussian_2x": "SimToolRealMotionImitationMI10PPO",
         "motion_imitation_mi11_combined_gaussian_2x": "SimToolRealMotionImitationMI11PPO",
         "motion_imitation_sapg02_precision": "SimToolRealMotionImitationPPO",
@@ -531,6 +555,8 @@ def launch_training(args: LaunchTrainingArgs) -> None:
         "motion_imitation_sapg04_joint_regularized": "SimToolRealMotionImitationSAPG04PPO",
         "motion_imitation_sapg05_strong_regularization": "SimToolRealMotionImitationSAPG05PPO",
         "motion_imitation_sapg06_regularization_curriculum": "SimToolRealMotionImitationSAPG06PPO",
+        "motion_imitation_sapg07_intermediate_precision": "SimToolRealMotionImitationSAPG07PPO",
+        "motion_imitation_sapg08_positive_gaussian_regularization": "SimToolRealMotionImitationSAPG08PPO",
         "motion_imitation_sapg_obj01_keypoint_tracking": "SimToolRealMotionImitationSAPGOBJ01PPO",
         "motion_imitation_sapg_obj02_pregrasp_object_priority": "SimToolRealMotionImitationSAPGOBJ02PPO",
         "motion_imitation_sapg_obj03_object66_imitation33": "SimToolRealMotionImitationSAPGOBJ03PPO",

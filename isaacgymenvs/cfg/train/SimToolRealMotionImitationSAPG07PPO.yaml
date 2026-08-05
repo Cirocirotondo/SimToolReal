@@ -1,0 +1,8 @@
+# SAPG07 changes only SAPG04's imitation kernels and keeps its SAPG profile.
+defaults:
+  - SimToolRealMotionImitationSAPG04PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG07PPO,${....experiment}}

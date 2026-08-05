@@ -1,0 +1,64 @@
+# SAPG08-PositiveGaussianRegularization: SAPG07 tracking with bounded,
+# strictly positive Gaussian regularization calibrated against the bang-bang
+# actions measured in the SAPG07 phase-zero evaluation.
+defaults:
+  - SimToolRealMotionImitationSAPG07IntermediatePrecision
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Keep the intermediate SAPG07 position/hand precision. Orientation uses the
+  # broader SAPG01 kernel to avoid sharp corrective rotations.
+  eePositionRewardScale: 200.0
+  eeRotationRewardScale: 2.0
+  handPoseRewardScale: 1.0
+
+  # Apply a light low-pass blend to the joint-position targets produced by the
+  # OSC/hand controllers. In this convention 1.0 means no smoothing; 0.8 keeps
+  # 80% of the new target and 20% of the previous target.
+  armMovingAverage: 0.8
+  handMovingAverage: 0.8
+
+  positiveGaussianRegularizationEnabled: True
+
+  # Disable the inherited negative quadratic terms. Each is replaced below by
+  # SCALE * exp(-||x||^2 / SIGMA), added positively to the total reward.
+  kukaActionsPenaltyScale: 0.0
+  handActionsPenaltyScale: 0.0
+  armActionDeltaPenaltyScale: 0.0
+  handActionDeltaPenaltyScale: 0.0
+  armJointVelocityPenaltyScale: 0.0
+  armJointAccelerationPenaltyScale: 0.0
+  handJointAccelerationPenaltyScale: 0.0
+
+  # Each active term is capped at SCALE=0.05. Near zero,
+  #   SCALE * exp(-||x||^2 / SIGMA)
+  #     = SCALE - lambda * ||x||^2 + O(||x||^4),
+  # where lambda=SCALE/SIGMA. The lambdas below are calibrated so the SAPG07
+  # oscillatory rollout loses about 4.8% reward from its ideal smooth-motion
+  # bonus, instead of roughly 1.7% with the original SAPG07 coefficients.
+
+  # Discourage saturated OSC/hand actions: lambda=1e-3 / 3e-4.
+  kukaActionsRegularizationScale: 0.05
+  kukaActionsRegularizationSigma: 50.0
+  handActionsRegularizationScale: 0.05
+  handActionsRegularizationSigma: 166.6666666667
+
+  # Make 60 Hz sign reversals materially expensive: lambda=2e-3 / 1e-3.
+  armActionDeltaRegularizationScale: 0.05
+  armActionDeltaRegularizationSigma: 25.0
+  handActionDeltaRegularizationScale: 0.05
+  handActionDeltaRegularizationSigma: 50.0
+
+  # Penalize the physical consequence on the six UR joints, not only the OSC
+  # command: lambda=2e-3 for qd and 3e-6 for qdd.
+  armJointVelocityRegularizationScale: 0.05
+  armJointVelocityRegularizationSigma: 25.0
+  armJointAccelerationRegularizationScale: 0.05
+  armJointAccelerationRegularizationSigma: 16666.6666666667
+
+  # Finger acceleration is intentionally disabled; hand smoothness is governed
+  # by action magnitude/rate, which is easier to interpret and tune.
+  handJointAccelerationRegularizationScale: 0.0
+  handJointAccelerationRegularizationSigma: 1.0
