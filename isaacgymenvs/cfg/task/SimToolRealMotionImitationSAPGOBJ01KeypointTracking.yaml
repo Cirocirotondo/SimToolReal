@@ -7,6 +7,10 @@ defaults:
 name: SimToolRealMotionImitation
 
 env:
+  # Slightly relax the 20-joint hand-pose L2 termination inherited from the
+  # robot-only lineage (2.0 rad), without changing its reward scale.
+  handTerminationError: 2.2
+
   # Regularization coefficients:
   # EE command magnitude and rate: target roughly 0.5% and 1%+ of reward.
   kukaActionsPenaltyScale: 0.0005

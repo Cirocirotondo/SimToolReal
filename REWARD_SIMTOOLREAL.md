@@ -402,6 +402,8 @@ Motion imitation — lineage logica SAPG:
             │       quaternion; il piano del tavolo e' a `z=-0.03 m`. Risultato:
             │       il robot non ha imparato a sollevare l'oggetto; il termine object
             │       massimo `0.25` era troppo debole rispetto al robot reward `1.0`.
+            │       La soglia early termination hand L2 della famiglia object-aware
+            │       e' rilassata da `2.0` a `2.2 rad`.
             │       │
             │       └── SAPG-OBJ02-PregraspObjectPriority (preset preparato)
             │           Stessa observation/rete 138D. Porta il massimo object reward

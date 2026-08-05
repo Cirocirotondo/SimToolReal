@@ -482,7 +482,10 @@ Open the URL printed in the terminal (by default
 robot is the deterministic policy rollout; the translucent green robot is the
 interpolated demonstration reference at the same phase. The panel shows phase,
 reference time, tracking errors, reward components, episode return, and the
-termination reason.
+termination reason. For object-aware SAPG configs, the evaluator also renders
+the physical simulated cuboid in solid blue and the demonstration cuboid in
+translucent green. It reports object-center and four-keypoint errors, the
+object reward contribution, and object-position early termination.
 
 The initial phase can be chosen with the slider or sampled randomly from the
 configured RSI interval. Disable **Run at 60 Hz** to evaluate as fast as the
@@ -504,3 +507,8 @@ The filter is disabled by default and its history is cleared at the beginning
 of every episode. During the first steps it averages only the samples already
 available rather than padding the history with zeros. This output filter is in
 addition to any arm/hand target smoothing configured inside the environment.
+
+For a diagnostic rollout with a more permissive hand-pose termination than
+the value stored in an older checkpoint config, pass for example
+`--hand-termination-error 2.2`. This changes only evaluation termination, not
+the policy or its rewards.

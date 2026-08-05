@@ -20,6 +20,7 @@ import yaml
 from dextoolbench.interactive_eval_common import (
     checkpoint_payload,
     install_path_is_relative_to_backport,
+    quat_xyzw_to_wxyz,
 )
 from dextoolbench.eval_env_config import (
     motion_imitation_robot_urdf_path_for_hand,
@@ -111,6 +112,26 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     velocity_tracking_enabled = bool(
         getattr(env, "velocity_tracking_enabled", False)
     )
+    object_tracking_enabled = bool(
+        getattr(env, "object_tracking_enabled", False)
+    )
+    actual_object_pose = None
+    reference_object_pose = None
+    if object_tracking_enabled:
+        if reference.object_pos is None or reference.object_quat_xyzw is None:
+            raise RuntimeError("Object-aware evaluation requires a reference pose")
+        actual_object_pose = np.concatenate(
+            (
+                env.object_pos[0].detach().cpu().numpy(),
+                env.object_rot[0].detach().cpu().numpy(),
+            )
+        )
+        reference_object_pose = np.concatenate(
+            (
+                reference.object_pos[0].detach().cpu().numpy(),
+                reference.object_quat_xyzw[0].detach().cpu().numpy(),
+            )
+        )
     metrics = {
         "position_error_m": _scalar(
             extras.get("imitation/position_error_m", 0.0)
@@ -154,6 +175,9 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "object_keypoint_max_error_m": _scalar(
             extras.get("object_tracking/keypoint_max_error_m", 0.0)
         ),
+        "object_position_error_m": _scalar(
+            extras.get("object_tracking/position_error_m", 0.0)
+        ),
         "action_penalty": sum(
             _component(extras, key)
             for key in (
@@ -175,6 +199,9 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "time_s": phase * env.reference.duration_s,
         "duration_s": env.reference.duration_s,
         "velocity_tracking_enabled": velocity_tracking_enabled,
+        "object_tracking_enabled": object_tracking_enabled,
+        "actual_object_pose": actual_object_pose,
+        "reference_object_pose": reference_object_pose,
         "metrics": metrics,
     }
 
@@ -200,6 +227,12 @@ def _termination_reason(env, state: Dict[str, Any]) -> str:
         reasons.append("EE orientation")
     if metrics["hand_error_rad"] > env.hand_termination_error:
         reasons.append("hand pose")
+    if (
+        getattr(env, "object_early_termination_enabled", False)
+        and metrics["object_position_error_m"]
+        > env.object_position_termination_distance
+    ):
+        reasons.append("object position")
     return "early termination: " + ", ".join(reasons or ["unknown"])
 
 
@@ -288,6 +321,7 @@ def sim_worker(
     reward_plot_dir: Optional[str],
     action_moving_average: bool,
     action_moving_average_window: int,
+    hand_termination_error: Optional[float],
 ) -> None:
     """Create one imitation environment and serve evaluation commands."""
     try:
@@ -303,16 +337,22 @@ def sim_worker(
         device = (
             "cpu" if use_cpu else ("cuda" if torch.cuda.is_available() else "cpu")
         )
+        env_overrides = {
+            "task.env.capture_video": False,
+            "task.env.enableCameraSensors": False,
+            "task.env.useReferenceStateInitialization": False,
+            "task.env.referenceStateInitProbability": 0.0,
+            "task.env.referenceInitAnchorProbability": 0.0,
+        }
+        if hand_termination_error is not None:
+            env_overrides["task.env.handTerminationError"] = (
+                hand_termination_error
+            )
         env = create_env(
             config_path=config_path,
             headless=True,
             device=device,
-            overrides={
-                "task.env.capture_video": False,
-                "task.env.enableCameraSensors": False,
-                "task.env.useReferenceStateInitialization": False,
-                "task.env.referenceStateInitProbability": 0.0,
-            },
+            overrides=env_overrides,
         )
         if not isinstance(env, SimToolRealMotionImitation):
             raise TypeError(
@@ -388,6 +428,7 @@ class ImitationInteractiveDemo:
         reward_plot_dir: Optional[str],
         action_moving_average: bool,
         action_moving_average_window: int,
+        hand_termination_error: Optional[float],
     ) -> None:
         self.config_path = str(Path(config_path).resolve())
         self.checkpoint_path = str(Path(checkpoint_path).resolve())
@@ -395,6 +436,12 @@ class ImitationInteractiveDemo:
         self.plot_rewards = plot_rewards
         self.action_moving_average = action_moving_average
         self.action_moving_average_window = action_moving_average_window
+        self.hand_termination_error = hand_termination_error
+        if (
+            self.hand_termination_error is not None
+            and self.hand_termination_error <= 0.0
+        ):
+            raise ValueError("hand_termination_error must be positive")
         self.reward_plot_dir = str(
             Path(reward_plot_dir).resolve()
             if reward_plot_dir
@@ -408,16 +455,37 @@ class ImitationInteractiveDemo:
         env_cfg = _read_env_config(self.config_path)
         self.hand_side = policy_config_hand_side(self.config_path) or "right"
         self.demonstration = str(env_cfg.get("demonstration", "unknown"))
+        self.object_tracking_enabled = bool(
+            env_cfg.get("objectTrackingEnabled", False)
+        )
+        self.object_dimensions = None
+        if self.object_tracking_enabled:
+            dimensions = np.asarray(
+                env_cfg.get("cuboidSize", env_cfg.get("fixedSize")),
+                dtype=np.float64,
+            )
+            if dimensions.shape != (3,) or not np.all(dimensions > 0.0):
+                raise ValueError(
+                    "Object-aware evaluation requires positive cuboidSize or "
+                    f"fixedSize dimensions, got {dimensions}"
+                )
+            self.object_dimensions = tuple(float(value) for value in dimensions)
         self.robot_base = (
             0.0,
             float(env_cfg.get("robotBaseY", 0.6)),
             0.0,
         )
-        table_surface_z = float(env_cfg.get("tableSurfaceZ", -0.05))
+        table_reset_z = env_cfg.get("tableResetZ")
+        table_center_z = (
+            float(table_reset_z)
+            if table_reset_z is not None
+            else float(env_cfg.get("tableSurfaceZ", -0.05))
+            - TABLE_SIZE[2] / 2.0
+        )
         self.table_center = (
             0.0,
             self.robot_base[1] + float(env_cfg.get("tablePoseDy", -0.6)),
-            table_surface_z - TABLE_SIZE[2] / 2.0,
+            table_center_z,
         )
 
         self.server = viser.ViserServer(host="0.0.0.0", port=port)
@@ -469,6 +537,27 @@ class ImitationInteractiveDemo:
         zeros = np.zeros(26, dtype=np.float32)
         self.actual_robot.update_cfg(zeros)
         self.reference_robot.update_cfg(zeros)
+        self.actual_object = None
+        self.reference_object = None
+        if self.object_tracking_enabled:
+            assert self.object_dimensions is not None
+            hidden_position = (0.0, 0.0, -10.0)
+            self.actual_object = self.server.scene.add_box(
+                "/actual_object",
+                dimensions=self.object_dimensions,
+                position=hidden_position,
+                color=(65, 115, 210),
+                opacity=0.95,
+                side="double",
+            )
+            self.reference_object = self.server.scene.add_box(
+                "/reference_object",
+                dimensions=self.object_dimensions,
+                position=hidden_position,
+                color=(40, 210, 90),
+                opacity=0.35,
+                side="double",
+            )
 
     def _build_gui(self) -> None:
         action_filter_description = (
@@ -476,10 +565,16 @@ class ImitationInteractiveDemo:
             if self.action_moving_average
             else "disabled"
         )
+        legend = "**Solid:** policy robot &nbsp; **Green:** reference motion"
+        if self.object_tracking_enabled:
+            legend += (
+                "  \n**Blue cuboid:** simulated object &nbsp; "
+                "**Green cuboid:** demonstration object"
+            )
         self.server.gui.add_markdown(
             "# Motion Imitation\n"
             "Interactive policy evaluation\n\n"
-            "**Solid:** policy robot &nbsp; **Green:** reference motion\n\n"
+            f"{legend}\n\n"
             f"**Demonstration:** `{Path(self.demonstration).name}`\n\n"
             f"**Policy action moving average:** {action_filter_description}"
         )
@@ -532,6 +627,7 @@ class ImitationInteractiveDemo:
                 self.reward_plot_dir,
                 self.action_moving_average,
                 self.action_moving_average_window,
+                self.hand_termination_error,
             ),
             daemon=True,
         )
@@ -592,6 +688,17 @@ class ImitationInteractiveDemo:
     ) -> None:
         self.actual_robot.update_cfg(state["actual_q"])
         self.reference_robot.update_cfg(state["reference_q"])
+        if state["object_tracking_enabled"]:
+            if self.actual_object is None or self.reference_object is None:
+                raise RuntimeError("Object state received without Viser object handles")
+            actual_object_pose = state["actual_object_pose"]
+            reference_object_pose = state["reference_object_pose"]
+            self.actual_object.position = tuple(actual_object_pose[:3])
+            self.actual_object.wxyz = quat_xyzw_to_wxyz(actual_object_pose[3:7])
+            self.reference_object.position = tuple(reference_object_pose[:3])
+            self.reference_object.wxyz = quat_xyzw_to_wxyz(
+                reference_object_pose[3:7]
+            )
         metrics = state["metrics"]
         self._progress.content = (
             f"**Phase:** {state['phase']:.3f} &nbsp;|&nbsp; "
@@ -612,6 +719,15 @@ class ImitationInteractiveDemo:
                 f"{metrics['angular_velocity_error_radps']:.3f} rad/s  \n"
                 f"**Hand velocity L2:** "
                 f"{metrics['hand_velocity_error_radps']:.3f} rad/s"
+            )
+        if state["object_tracking_enabled"]:
+            self._errors.content += (
+                "  \n"
+                f"**Object position:** "
+                f"{100.0 * metrics['object_position_error_m']:.2f} cm  \n"
+                f"**Object keypoints mean/max:** "
+                f"{100.0 * metrics['object_keypoint_mean_error_m']:.2f} / "
+                f"{100.0 * metrics['object_keypoint_max_error_m']:.2f} cm"
             )
         self._rewards.content = (
             f"**Step reward:** {metrics['total_reward']:.4f} "
@@ -637,6 +753,10 @@ class ImitationInteractiveDemo:
                 f"Pose contribution {metrics['pose_imitation_reward']:.4f} "
                 f"&nbsp;|&nbsp; Velocity contribution "
                 f"{velocity_contribution:.4f}  \n"
+            )
+        if state["object_tracking_enabled"]:
+            self._rewards.content += (
+                f"Object keypoints {metrics['object_keypoint_reward']:.4f}  \n"
             )
         self._rewards.content += f"**Episode return:** {episode_return:.2f}"
 
@@ -726,6 +846,15 @@ def main() -> None:
         default=5,
         help="Number of policy actions in the moving-average window (default: 5).",
     )
+    parser.add_argument(
+        "--hand-termination-error",
+        type=float,
+        default=None,
+        help=(
+            "override the saved 20-joint hand-pose L2 termination threshold "
+            "in radians"
+        ),
+    )
     args = parser.parse_args()
     if args.action_moving_average_window < 2:
         parser.error("--action-moving-average-window must be at least 2")
@@ -738,6 +867,7 @@ def main() -> None:
         reward_plot_dir=args.reward_plot_dir,
         action_moving_average=args.action_moving_average,
         action_moving_average_window=args.action_moving_average_window,
+        hand_termination_error=args.hand_termination_error,
     ).run()
 
 
