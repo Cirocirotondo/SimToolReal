@@ -120,6 +120,45 @@ def sample_reset_dof_position_delta(
     return delta
 
 
+def disable_actor_self_collision_pair(
+    gym,
+    env,
+    actor: int,
+    body_name_a: str,
+    body_name_b: str,
+) -> int:
+    """Disable collision only between two rigid bodies of one actor."""
+    body_names = tuple(gym.get_actor_rigid_body_names(env, actor))
+    missing = [
+        name for name in (body_name_a, body_name_b) if name not in body_names
+    ]
+    if missing:
+        raise ValueError(f"Actor is missing rigid bodies required for filtering: {missing}")
+
+    shape_ranges = gym.get_actor_rigid_body_shape_indices(env, actor)
+    shape_properties = gym.get_actor_rigid_shape_properties(env, actor)
+
+    used_filter_bits = 0
+    for properties in shape_properties:
+        used_filter_bits |= int(properties.filter)
+    filter_bit = 1
+    while used_filter_bits & filter_bit:
+        filter_bit <<= 1
+    if filter_bit >= (1 << 31):
+        raise RuntimeError("No unused rigid-shape collision-filter bit is available")
+
+    for body_name in (body_name_a, body_name_b):
+        shape_range = shape_ranges[body_names.index(body_name)]
+        for shape_index in range(
+            shape_range.start,
+            shape_range.start + shape_range.count,
+        ):
+            shape_properties[shape_index].filter |= filter_bit
+
+    gym.set_actor_rigid_shape_properties(env, actor, shape_properties)
+    return filter_bit
+
+
 def populate_dof_properties(hand_arm_dof_props, arm_dofs: int, hand_dofs: int) -> None:
     assert len(hand_arm_dof_props["stiffness"]) == arm_dofs + hand_dofs
 
@@ -305,6 +344,56 @@ def populate_dof_properties(hand_arm_dof_props, arm_dofs: int, hand_dofs: int) -
         hand_arm_dof_props["damping"][arm_dofs:] = hand_dampings
         hand_arm_dof_props["armature"][arm_dofs:] = hand_armatures
         hand_arm_dof_props["friction"][arm_dofs:] = hand_frictions
+    elif hand_dofs == 20:
+        # Tesollo Delto DG5F (20 DoF). Without this branch hand_dofs never
+        # matches the 22-DoF Sharpa table above, so these DOFs silently kept
+        # Isaac Gym's asset defaults (stiffness ~= float32 max, damping = 0),
+        # which is an effectively undamped, torque-saturated position drive.
+        #
+        # The real hand's ros2_control config (dg5f_right_controller.yaml)
+        # gives p=1.5, i=0.0, d=0.0 uniformly for every joint, but that "p"
+        # is not a Newton-metre/radian gain: system_interface.cpp feeds it
+        # through a closed-source CurrentControl()/ConvertDuty() pipeline
+        # (libdelto_gripper_helper.so) that outputs a raw PWM duty cycle, so
+        # there is no publicly documented Nm/rad value for these joints.
+        #
+        # Estimated instead from URDF mass/inertia data (assets/urdf/
+        # ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf), same
+        # method as the KUKA arm gains above: pick a stiffness and damping
+        # ratio, derive damping from each joint's own reflected inertia
+        # (link + downstream chain inertia about that joint's axis, rigid
+        # chain at the URDF zero pose) via critical-damping.
+        #   - stiffness: uniform 42.97 Nm/rad for 19 of the 20 joints, sized
+        #     so the joint's 7.5 Nm URDF effort limit saturates at a 10 deg
+        #     position error. That 10 deg target is a judgment call, not a
+        #     sourced number - tighten it if fingertips still sag too much
+        #     under grasp contact, loosen it if the lightest joints (joint
+        #     4, the smallest reflected inertia) start ringing again.
+        #   - damping: critically damped (zeta=1) per joint, i.e.
+        #     2*sqrt(stiffness * I_joint), using each joint's own reflected
+        #     inertia so lighter and heavier joints are equally well damped
+        #     despite sharing one stiffness value.
+        #   - rj_dg_1_1 uses a slightly lower empirical damping (0.1). Its
+        #     former large tracking error was caused by a collision between
+        #     rl_dg_1_2 and wrist_3_link, not insufficient stiffness. That
+        #     pair is filtered when the DG5F actor is created in env.py.
+        #   - rj_dg_1_2 retains the empirically tuned 400 Nm/rad stiffness.
+        # Order matches HAND_JOINT_NAMES: rj_dg_{finger}_{joint} for
+        # finger in 1..5, joint in 1..4.
+        hand_arm_dof_props["stiffness"][arm_dofs:] = [
+            42.9718, 400.0, 42.9718, 42.9718,
+            42.9718, 42.9718, 42.9718, 42.9718,
+            42.9718, 42.9718, 42.9718, 42.9718,
+            42.9718, 42.9718, 42.9718, 42.9718,
+            42.9718, 42.9718, 42.9718, 42.9718,
+        ]
+        hand_arm_dof_props["damping"][arm_dofs:] = [
+            0.1, 0.9475, 0.3012, 0.1821,
+            0.7523, 0.4126, 0.2856, 0.1365,
+            0.7587, 0.4126, 0.2856, 0.1365,
+            0.7274, 0.4126, 0.2856, 0.1365,
+            0.2662, 0.4796, 0.3012, 0.1821,
+        ]
 
 
 def tolerance_curriculum(

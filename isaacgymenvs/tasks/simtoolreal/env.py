@@ -59,6 +59,7 @@ from pytorch3d.transforms import (
 from dextoolbench.objects import NAME_TO_OBJECT
 from isaacgymenvs.tasks.base.vec_task import VecTask
 from isaacgymenvs.tasks.simtoolreal.utils import (
+    disable_actor_self_collision_pair,
     populate_dof_properties,
     sample_reset_dof_position_delta,
     tolerance_curriculum,
@@ -2387,6 +2388,16 @@ class SimToolReal(VecTask):
                 collision_filter,
                 segmentation_id,
             )
+            if self.use_delto:
+                # Preserve all other self-collisions while removing a known
+                # non-physical intersection in the combined UR5e+DG5F model.
+                disable_actor_self_collision_pair(
+                    self.gym,
+                    env_ptr,
+                    robot_actor,
+                    "wrist_3_link",
+                    "rl_dg_1_2",
+                )
             populate_dof_properties(
                 robot_dof_props, self.num_arm_dofs, self.num_hand_dofs
             )
