@@ -1,0 +1,51 @@
+# SAPG13-NoRSI-JointSmoothness: train only on the SAPG12 demonstration
+# segment, always starting at phase 0.55, with a deliberately minimal reward.
+defaults:
+  - SimToolRealMotionImitationSAPG12Phase055To085UniformRSI
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Disable RSI completely. The generic clipped-reference reset therefore
+  # places every episode at referencePhaseStart=0.55 and completes at 0.85.
+  useReferenceStateInitialization: True
+  referenceInitDistribution: uniform
+  referenceStateInitProbability: 1.0
+  referenceInitAnchorProbability: 0.0
+
+  # Retain SAPG08's three normalized pose terms.
+  eePositionRewardWeight: 0.4
+  eeRotationRewardWeight: 0.3
+  handPoseRewardWeight: 0.3
+  fingertipPoseRewardWeight: 0.0
+  velocityTrackingEnabled: False
+
+  # Keep every negative cost disabled.
+  kukaActionsPenaltyScale: 0.0
+  handActionsPenaltyScale: 0.0
+  armActionDeltaPenaltyScale: 0.0
+  handActionDeltaPenaltyScale: 0.0
+  armJointVelocityPenaltyScale: 0.0
+  armJointAccelerationPenaltyScale: 0.0
+  handJointAccelerationPenaltyScale: 0.0
+
+  # The only additional reward terms are bounded positive rewards for smooth
+  # physical joint motion: SCALE * exp(-||qdd||^2 / SIGMA). All command/action
+  # and arm-velocity Gaussian terms inherited from SAPG08 are disabled.
+  positiveGaussianRegularizationEnabled: True
+  kukaActionsRegularizationScale: 0.0
+  handActionsRegularizationScale: 0.0
+  armActionDeltaRegularizationScale: 0.0
+  handActionDeltaRegularizationScale: 0.0
+  armJointVelocityRegularizationScale: 0.0
+
+  # Preserve SAPG08's calibrated arm-acceleration kernel.
+  armJointAccelerationRegularizationScale: 0.05
+  armJointAccelerationRegularizationSigma: 16666.6666666667
+
+  # Twenty finger joints produce a substantially larger acceleration norm.
+  # This sigma gives a useful bounded signal without making the hand term
+  # collapse to zero for ordinary motion.
+  handJointAccelerationRegularizationScale: 0.05
+  handJointAccelerationRegularizationSigma: 5000000.0

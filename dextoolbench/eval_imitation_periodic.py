@@ -47,6 +47,22 @@ def _component(extras: Dict[str, Any], name: str) -> float:
     return _scalar(value[0])
 
 
+def _reference_phase_bounds(env) -> tuple[float, float]:
+    return (
+        float(getattr(env, "reference_phase_start", 0.0)),
+        float(getattr(env, "reference_phase_end", 1.0)),
+    )
+
+
+def _current_reference_sample(env):
+    indices = getattr(env, "reference_index", None)
+    return env.reference.sample(indices if indices is not None else env.phase)
+
+
+def _is_joint_only_imitation(env) -> bool:
+    return hasattr(env, "arm_position_termination_threshold")
+
+
 def _reset_at_phase_zero(env):
     import torch
     from isaacgym import gymtorch
@@ -57,7 +73,8 @@ def _reset_at_phase_zero(env):
     # steps. Queue the main and reference actors, then apply both DOF states in
     # one indexed call; otherwise the second setter (green robot) replaces the
     # pending phase-zero reset of the controlled robot.
-    env.set_reference_phase(env_ids, 0.0, flush=False)
+    phase_start, _ = _reference_phase_bounds(env)
+    env.set_reference_phase(env_ids, phase_start, flush=False)
     env.set_actor_root_state_tensor_indexed()
     env._set_reference_visualization_robot(
         env.current_reference,
@@ -76,7 +93,7 @@ def _reset_at_phase_zero(env):
     env.gym.simulate(env.sim)
     env.gym.fetch_results(env.sim, True)
     env.populate_sim_buffers()
-    env.current_reference = env.reference.sample(env.phase)
+    env.current_reference = _current_reference_sample(env)
     env.populate_obs_and_states_buffers()
     env.clamp_obs()
     return env.obs_buf.to(env.rl_device)
@@ -112,6 +129,18 @@ def _termination_reason(env, completed: bool, final_errors: Dict[str, float]) ->
     if completed:
         return "completed"
     reasons = []
+    if _is_joint_only_imitation(env):
+        if (
+            final_errors["arm_max_error_rad"]
+            > env.arm_position_termination_threshold
+        ):
+            reasons.append("arm_joint_position")
+        if (
+            final_errors["hand_max_error_rad"]
+            > env.hand_position_termination_threshold
+        ):
+            reasons.append("hand_joint_position")
+        return "+".join(reasons) if reasons else "unknown"
     if final_errors["position_error_m"] > env.ee_position_termination_distance:
         reasons.append("position")
     if final_errors["rotation_error_rad"] > env.ee_rotation_termination_angle:
@@ -137,6 +166,9 @@ def evaluate(
     from deployment.rl_player import RlPlayer
     from isaacgymenvs.tasks.simtoolreal.env_motion_imitation import (
         SimToolRealMotionImitation,
+    )
+    from isaacgymenvs.tasks.simtoolreal.env_motion_imitation_llcfix import (
+        SimToolRealMotionImitationLLCFix00,
     )
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -165,9 +197,12 @@ def evaluate(
             "task.env.imitationEarlyTermination": False,
         },
     )
-    if not isinstance(env, SimToolRealMotionImitation):
+    if not isinstance(
+        env,
+        (SimToolRealMotionImitation, SimToolRealMotionImitationLLCFix00),
+    ):
         raise TypeError(
-            "Periodic evaluation requires SimToolRealMotionImitation, got "
+            "Periodic evaluation requires a supported motion-imitation task, got "
             f"{type(env).__name__}"
         )
 
@@ -201,18 +236,30 @@ def evaluate(
     if visualize_reference:
         env._update_reference_visualization_robot()
 
-    initial_reference = env.reference.sample(env.phase)
-    initial_position_error = torch.linalg.vector_norm(
-        env.palm_center_pos - initial_reference.palm_pos, dim=-1
-    )[0]
-    initial_rotation_error = env._quaternion_angle(
-        env._palm_rot, initial_reference.palm_quat_xyzw
-    )[0]
-    initial_hand_error = torch.linalg.vector_norm(
-        env.arm_hand_dof_pos[:, env.num_arm_dofs :]
-        - initial_reference.hand_q,
-        dim=-1,
-    )[0]
+    joint_only = _is_joint_only_imitation(env)
+    initial_reference = _current_reference_sample(env)
+    if joint_only:
+        initial_reference_q_tensor = torch.cat(
+            [initial_reference.arm_q, initial_reference.hand_q], dim=-1
+        )
+        initial_joint_delta = env.arm_hand_dof_pos - initial_reference_q_tensor
+        initial_position_error = torch.zeros((), device=env.device)
+        initial_rotation_error = torch.zeros((), device=env.device)
+        initial_hand_error = torch.linalg.vector_norm(
+            initial_joint_delta[:, env.num_arm_dofs :], dim=-1
+        )[0]
+    else:
+        initial_position_error = torch.linalg.vector_norm(
+            env.palm_center_pos - initial_reference.palm_pos, dim=-1
+        )[0]
+        initial_rotation_error = env._quaternion_angle(
+            env._palm_rot, initial_reference.palm_quat_xyzw
+        )[0]
+        initial_hand_error = torch.linalg.vector_norm(
+            env.arm_hand_dof_pos[:, env.num_arm_dofs :]
+            - initial_reference.hand_q,
+            dim=-1,
+        )[0]
     initial_robot_q = env.arm_hand_dof_pos[0].detach().cpu().tolist()
     initial_reference_q = torch.cat(
         [initial_reference.arm_q[0], initial_reference.hand_q[0]], dim=-1
@@ -238,6 +285,12 @@ def evaluate(
         "hand_joint_acceleration_penalty",
         "total_reward",
     ]
+    if joint_only:
+        component_names = [
+            "joint_position_reward",
+            "joint_velocity_reward",
+            "total_reward",
+        ]
     if env.velocity_tracking_enabled:
         component_names.extend(
             [
@@ -254,6 +307,13 @@ def evaluate(
         "rotation_error_rad": [],
         "hand_error_rad": [],
     }
+    if joint_only:
+        errors = {
+            "joint_position_mse": [],
+            "joint_velocity_mse": [],
+            "arm_max_error_rad": [],
+            "hand_max_error_rad": [],
+        }
     if env.fingertip_tracking_enabled:
         errors["fingertip_rms_error_m"] = []
     initial_object_errors: Dict[str, float] = {}
@@ -325,15 +385,24 @@ def evaluate(
 
         for name in component_names:
             component_sums[name] += _component(extras, name)
-        errors["position_error_m"].append(
-            _scalar(extras["imitation/position_error_m"])
-        )
-        errors["rotation_error_rad"].append(
-            _scalar(extras["imitation/rotation_error_rad"])
-        )
-        errors["hand_error_rad"].append(
-            _scalar(extras["imitation/hand_error_rad"])
-        )
+        if joint_only:
+            for name in (
+                "joint_position_mse",
+                "joint_velocity_mse",
+                "arm_max_error_rad",
+                "hand_max_error_rad",
+            ):
+                errors[name].append(_scalar(extras[f"imitation/{name}"]))
+        else:
+            errors["position_error_m"].append(
+                _scalar(extras["imitation/position_error_m"])
+            )
+            errors["rotation_error_rad"].append(
+                _scalar(extras["imitation/rotation_error_rad"])
+            )
+            errors["hand_error_rad"].append(
+                _scalar(extras["imitation/hand_error_rad"])
+            )
         if env.fingertip_tracking_enabled:
             errors["fingertip_rms_error_m"].append(
                 _scalar(extras["imitation/fingertip_rms_error_m"])
@@ -354,18 +423,30 @@ def evaluate(
                 errors[name].append(_scalar(extras[f"imitation/{name}"]))
         if first_threshold_violation_step is None:
             threshold_reasons = []
-            if (
-                errors["position_error_m"][-1]
-                > env.ee_position_termination_distance
-            ):
-                threshold_reasons.append("position")
-            if (
-                errors["rotation_error_rad"][-1]
-                > env.ee_rotation_termination_angle
-            ):
-                threshold_reasons.append("orientation")
-            if errors["hand_error_rad"][-1] > env.hand_termination_error:
-                threshold_reasons.append("hand")
+            if joint_only:
+                if (
+                    errors["arm_max_error_rad"][-1]
+                    > env.arm_position_termination_threshold
+                ):
+                    threshold_reasons.append("arm_joint_position")
+                if (
+                    errors["hand_max_error_rad"][-1]
+                    > env.hand_position_termination_threshold
+                ):
+                    threshold_reasons.append("hand_joint_position")
+            else:
+                if (
+                    errors["position_error_m"][-1]
+                    > env.ee_position_termination_distance
+                ):
+                    threshold_reasons.append("position")
+                if (
+                    errors["rotation_error_rad"][-1]
+                    > env.ee_rotation_termination_angle
+                ):
+                    threshold_reasons.append("orientation")
+                if errors["hand_error_rad"][-1] > env.hand_termination_error:
+                    threshold_reasons.append("hand")
             if threshold_reasons:
                 first_threshold_violation_step = step
                 first_threshold_violation_reason = "+".join(
@@ -374,7 +455,10 @@ def evaluate(
         frames.append(_capture_frame(env))
 
         if bool(done[0].item()):
-            completed = bool(env.phase[0].item() >= 1.0)
+            _, phase_end = _reference_phase_bounds(env)
+            completed = bool(
+                env.phase[0].item() >= phase_end
+            )
             break
     else:
         step = max_steps
@@ -430,23 +514,27 @@ def evaluate(
         metrics[f"{name}_max"] = float(np.max(values)) if values else 0.0
         metrics[f"{name}_final"] = values[-1] if values else 0.0
 
-    metrics["arm_action_cost_sum"] = -component_sums["kuka_actions_penalty"]
-    metrics["hand_action_cost_sum"] = -component_sums["hand_actions_penalty"]
-    metrics["arm_delta_action_cost_sum"] = -component_sums[
-        "arm_action_delta_penalty"
-    ]
-    metrics["hand_delta_action_cost_sum"] = -component_sums[
-        "hand_action_delta_penalty"
-    ]
-    metrics["arm_joint_velocity_cost_sum"] = -component_sums[
-        "arm_joint_velocity_penalty"
-    ]
-    metrics["arm_joint_acceleration_cost_sum"] = -component_sums[
-        "arm_joint_acceleration_penalty"
-    ]
-    metrics["hand_joint_acceleration_cost_sum"] = -component_sums[
-        "hand_joint_acceleration_penalty"
-    ]
+    metrics["arm_action_cost_sum"] = -component_sums.get(
+        "kuka_actions_penalty", 0.0
+    )
+    metrics["hand_action_cost_sum"] = -component_sums.get(
+        "hand_actions_penalty", 0.0
+    )
+    metrics["arm_delta_action_cost_sum"] = -component_sums.get(
+        "arm_action_delta_penalty", 0.0
+    )
+    metrics["hand_delta_action_cost_sum"] = -component_sums.get(
+        "hand_action_delta_penalty", 0.0
+    )
+    metrics["arm_joint_velocity_cost_sum"] = -component_sums.get(
+        "arm_joint_velocity_penalty", 0.0
+    )
+    metrics["arm_joint_acceleration_cost_sum"] = -component_sums.get(
+        "arm_joint_acceleration_penalty", 0.0
+    )
+    metrics["hand_joint_acceleration_cost_sum"] = -component_sums.get(
+        "hand_joint_acceleration_penalty", 0.0
+    )
     return metrics
 
 

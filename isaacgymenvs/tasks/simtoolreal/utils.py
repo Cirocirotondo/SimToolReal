@@ -159,6 +159,35 @@ def disable_actor_self_collision_pair(
     return filter_bit
 
 
+DG5F_WRIST_COLLISION_BODY_NAMES = (
+    "rl_dg_1_2",
+    "rl_dg_4_2",
+)
+
+
+def disable_dg5f_wrist_self_collisions(
+    gym,
+    env,
+    actor: int,
+    wrist_body_name: str = "wrist_3_link",
+) -> Tuple[int, ...]:
+    """Disable known wrist/hand mesh intersections only.
+
+    Each wrist/body pair receives a distinct filter bit. Reusing one bit for
+    every hand body would also suppress collisions between the fingers.
+    """
+    return tuple(
+        disable_actor_self_collision_pair(
+            gym,
+            env,
+            actor,
+            wrist_body_name,
+            hand_body_name,
+        )
+        for hand_body_name in DG5F_WRIST_COLLISION_BODY_NAMES
+    )
+
+
 def populate_dof_properties(hand_arm_dof_props, arm_dofs: int, hand_dofs: int) -> None:
     assert len(hand_arm_dof_props["stiffness"]) == arm_dofs + hand_dofs
 
@@ -374,9 +403,10 @@ def populate_dof_properties(hand_arm_dof_props, arm_dofs: int, hand_dofs: int) -
         #     inertia so lighter and heavier joints are equally well damped
         #     despite sharing one stiffness value.
         #   - rj_dg_1_1 uses a slightly lower empirical damping (0.1). Its
-        #     former large tracking error was caused by a collision between
-        #     rl_dg_1_2 and wrist_3_link, not insufficient stiffness. That
-        #     pair is filtered when the DG5F actor is created in env.py.
+        #     former large tracking error exposed non-physical collisions
+        #     between the wrist and DG5F meshes. The two observed intersecting
+        #     pairs are filtered when the actor is created in env.py;
+        #     finger/finger collisions remain enabled.
         #   - rj_dg_1_2 retains the empirically tuned 400 Nm/rad stiffness.
         # Order matches HAND_JOINT_NAMES: rj_dg_{finger}_{joint} for
         # finger in 1..5, joint in 1..4.

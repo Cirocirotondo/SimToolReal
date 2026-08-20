@@ -99,6 +99,13 @@ def _component(extras: Dict[str, Any], name: str) -> float:
     return _scalar(values[0])
 
 
+def _reference_phase_bounds(env) -> tuple[float, float, float]:
+    start = float(getattr(env, "reference_phase_start", 0.0))
+    end = float(getattr(env, "reference_phase_end", 1.0))
+    span = float(getattr(env, "reference_phase_span", end - start))
+    return start, end, span
+
+
 def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     extras = extras or {}
     actual_q = env.arm_hand_dof_pos[0, : env.num_hand_arm_dofs]
@@ -158,6 +165,18 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         "hand_velocity_error_radps": _scalar(
             extras.get("imitation/hand_velocity_error_radps", 0.0)
         ),
+        "joint_position_mse": _scalar(
+            extras.get("imitation/joint_position_mse", 0.0)
+        ),
+        "joint_velocity_mse": _scalar(
+            extras.get("imitation/joint_velocity_mse", 0.0)
+        ),
+        "arm_max_error_rad": _scalar(
+            extras.get("imitation/arm_max_error_rad", 0.0)
+        ),
+        "hand_max_error_rad": _scalar(
+            extras.get("imitation/hand_max_error_rad", 0.0)
+        ),
         "ee_position_reward": _component(extras, "ee_position_reward"),
         "ee_rotation_reward": _component(extras, "ee_rotation_reward"),
         "hand_pose_reward": _component(extras, "hand_pose_reward"),
@@ -176,6 +195,12 @@ def _sim_state(env, extras: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
             extras, "velocity_imitation_reward"
         ),
         "imitation_reward": _component(extras, "imitation_reward"),
+        "joint_position_reward": _component(
+            extras, "joint_position_reward"
+        ),
+        "joint_velocity_reward": _component(
+            extras, "joint_velocity_reward"
+        ),
         "object_keypoint_reward": _component(
             extras, "object_keypoint_reward"
         ),
@@ -228,10 +253,23 @@ def _reset_at_phase(env, phase: float):
 
 
 def _termination_reason(env, state: Dict[str, Any]) -> str:
-    if state["phase"] >= 1.0:
+    _, phase_end, _ = _reference_phase_bounds(env)
+    if state["phase"] >= phase_end:
         return "completed"
     metrics = state["metrics"]
     reasons = []
+    if hasattr(env, "arm_position_termination_threshold"):
+        if (
+            metrics["arm_max_error_rad"]
+            > env.arm_position_termination_threshold
+        ):
+            reasons.append("arm joint position")
+        if (
+            metrics["hand_max_error_rad"]
+            > env.hand_position_termination_threshold
+        ):
+            reasons.append("hand joint position")
+        return "early termination: " + ", ".join(reasons or ["unknown"])
     if metrics["position_error_m"] > env.ee_position_termination_distance:
         reasons.append("EE position")
     if metrics["rotation_error_rad"] > env.ee_rotation_termination_angle:
@@ -367,6 +405,9 @@ def sim_worker(
         from isaacgymenvs.tasks.simtoolreal.env_motion_imitation import (
             SimToolRealMotionImitation,
         )
+        from isaacgymenvs.tasks.simtoolreal.env_motion_imitation_llcfix import (
+            SimToolRealMotionImitationLLCFix00,
+        )
 
         device = (
             "cpu" if use_cpu else ("cuda" if torch.cuda.is_available() else "cpu")
@@ -394,10 +435,13 @@ def sim_worker(
             device=device,
             overrides=env_overrides,
         )
-        if not isinstance(env, SimToolRealMotionImitation):
+        if not isinstance(
+            env,
+            (SimToolRealMotionImitation, SimToolRealMotionImitationLLCFix00),
+        ):
             raise TypeError(
-                "The supplied config does not create "
-                f"SimToolRealMotionImitation (got {type(env).__name__})"
+                "The supplied config does not create a supported motion-"
+                f"imitation task (got {type(env).__name__})"
             )
 
         checkpoint = torch.load(
@@ -418,7 +462,8 @@ def sim_worker(
                 _uses_sapg_exploration_observation(config_path)
             ),
         )
-        obs = _reset_at_phase(env, 0.0)
+        phase_start, _, _ = _reference_phase_bounds(env)
+        obs = _reset_at_phase(env, phase_start)
         del obs
         conn.send(("ready", _sim_state(env)))
 
@@ -430,8 +475,16 @@ def sim_worker(
                 options = command[1]
                 phase = options.get("phase")
                 if phase is None:
+                    phase_start, _, phase_span = _reference_phase_bounds(env)
+                    random_phase_end = (
+                        phase_start
+                        + phase_span
+                        * float(getattr(env, "reference_init_max_phase", 1.0))
+                    )
                     phase = float(
-                        np.random.uniform(0.0, env.reference_init_max_phase)
+                        np.random.uniform(
+                            phase_start, random_phase_end
+                        )
                     )
                 should_quit = _run_episode(
                     conn,
@@ -628,6 +681,7 @@ class ImitationInteractiveDemo:
             "Interactive policy evaluation\n\n"
             f"{legend}\n\n"
             f"**Demonstration:** `{Path(self.demonstration).name}`\n\n"
+            f"**Checkpoint:** `{self.checkpoint_path}`\n\n"
             f"**Policy action moving average:** {action_filter_description}"
         )
         with self.server.gui.add_folder("Environment", expand_by_default=True):

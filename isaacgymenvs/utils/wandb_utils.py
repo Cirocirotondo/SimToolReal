@@ -78,9 +78,13 @@ class WandbAlgoObserver(AlgoObserver):
         if self.algo is None:
             return False
         env_cfg = self.cfg.task.env
+        supported_tasks = {
+            "SimToolRealMotionImitation",
+            "SimToolRealMotionImitationLLCFix00",
+        }
         return bool(
             env_cfg.get("periodicEvaluation", False)
-            and str(self.cfg.task_name) == "SimToolRealMotionImitation"
+            and str(self.cfg.task_name) in supported_tasks
         )
 
     def after_print_stats(self, frame, epoch_num, total_time):

@@ -8,7 +8,7 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 import sys
-from typing import Optional
+from typing import Dict, Optional, Tuple
 
 
 def _configure_isaac_gym_graphics_environment() -> None:
@@ -92,7 +92,7 @@ HAND_LOWER_LIMIT_TOLERANCE_RAD = 0.02
 ENV_SPACING = 1.2
 GROUND_PLANE_Z = 0.0
 ROBOT_BASE_Y = 0.6
-ROBOT_BASE_Z = 0.05
+ROBOT_BASE_Z = 0.55
 ROBOT_ASSET_ROOT = REPO_ROOT / "assets"
 ROBOT_ASSET_FILE = (
     "urdf/ur5e_delto_description/ur5e_right_dg5f_mount_60deg.urdf"
@@ -121,7 +121,7 @@ TARGET_JOINT_NAMES = ARM_JOINT_NAMES + HAND_JOINT_NAMES
 # mass/inertia data with a uniform stiffness (sized for 10 deg of sag at the
 # 7.5 Nm effort limit - a judgment call, tune if needed) and per-joint
 # critical damping, except the first two thumb joints, whose gains were tuned
-# after removing a spurious wrist/thumb self-collision (see create_scene()).
+# after removing spurious wrist/hand self-collisions (see create_scene()).
 HAND_PD_STIFFNESS = (
     42.9718, 400.0, 42.9718, 42.9718,
     42.9718, 42.9718, 42.9718, 42.9718,
@@ -137,7 +137,11 @@ HAND_PD_DAMPING = (
     0.2662, 0.4796, 0.3012, 0.1821,
 )
 
-THUMB_WRIST_COLLISION_PAIR = ("wrist_3_link", "rl_dg_1_2")
+WRIST_BODY_NAME = "wrist_3_link"
+WRIST_COLLISION_HAND_BODY_NAMES = (
+    "rl_dg_1_2",
+    "rl_dg_4_2",
+)
 
 
 @dataclass(frozen=True)
@@ -208,6 +212,17 @@ class ReplayDiagnostics:
     times_s: np.ndarray
     target_positions: np.ndarray
     actual_positions: np.ndarray
+
+
+@dataclass
+class CollisionStats:
+    """Aggregated active PhysX contacts for one rigid-body pair."""
+
+    active_frames: int = 0
+    contact_records: int = 0
+    first_time_s: float = float("inf")
+    last_time_s: float = float("-inf")
+    max_impulse: float = 0.0
 
 
 def load_demo(path: Path, *, hand_source: str = "measured") -> DemoTrajectory:
@@ -281,6 +296,7 @@ def create_sim(
     graphics_device_id: int = 0,
     use_gpu_physx: bool = True,
     use_gpu_pipeline: bool = False,
+    collect_contacts: bool = False,
 ) -> tuple[object, object]:
     """Create a PhysX simulation with the training-time physics settings."""
     print(
@@ -314,7 +330,7 @@ def create_sim(
     sim_params.physx.max_depenetration_velocity = 2.0
     sim_params.physx.default_buffer_size_multiplier = 25.0
     sim_params.physx.contact_collection = gymapi.ContactCollection(
-        gymapi.CC_NEVER
+        gymapi.CC_ALL_SUBSTEPS if collect_contacts else gymapi.CC_NEVER
     )
 
     sim = gym.create_sim(
@@ -494,6 +510,20 @@ def disable_actor_self_collision_pair(
     return filter_bit
 
 
+def disable_wrist_hand_self_collisions(gym, env, actor: int) -> tuple[int, ...]:
+    """Filter known wrist/hand intersections but preserve finger collisions."""
+    return tuple(
+        disable_actor_self_collision_pair(
+            gym,
+            env,
+            actor,
+            WRIST_BODY_NAME,
+            hand_body_name,
+        )
+        for hand_body_name in WRIST_COLLISION_HAND_BODY_NAMES
+    )
+
+
 def create_scene(
     gym,
     sim,
@@ -530,16 +560,9 @@ def create_scene(
     if robot_actor < 0:
         raise RuntimeError("Isaac Gym failed to create the robot actor")
 
-    # The combined URDF makes the proximal thumb collision mesh intersect the
-    # wrist while the recorded grasp closes. That contact prevents rj_dg_1_1
-    # from reaching an otherwise feasible target. Preserve every other robot
-    # self-collision and suppress only this known non-physical pair.
-    disable_actor_self_collision_pair(
-        gym,
-        env,
-        robot_actor,
-        *THUMB_WRIST_COLLISION_PAIR,
-    )
+    # Filter the two observed non-physical wrist/hand mesh intersections. Use
+    # one bit per pair so all finger/finger collisions stay active.
+    disable_wrist_hand_self_collisions(gym, env, robot_actor)
 
     gym.set_actor_dof_properties(
         env,
@@ -715,6 +738,68 @@ def initialize_robot_from_demo(
     return target_positions
 
 
+def _rigid_body_name(body_index: int, body_names: tuple[str, ...]) -> str:
+    if body_index < 0:
+        return "ground"
+    if body_index < len(body_names):
+        return body_names[body_index]
+    return f"rigid_body_{body_index}"
+
+
+def _update_collision_report(
+    scene: IsaacGymScene,
+    playback_time_s: float,
+    body_names: tuple[str, ...],
+    collision_stats: Dict[Tuple[str, str], CollisionStats],
+    *,
+    minimum_impulse: float = 1.0e-8,
+) -> None:
+    """Accumulate contacts that produced a nonzero solver impulse this frame."""
+    active_pairs_this_frame = set()
+    for contact in scene.gym.get_env_rigid_contacts(scene.env):
+        impulse = abs(float(contact["lambda"]))
+        if not np.isfinite(impulse) or impulse <= minimum_impulse:
+            continue
+
+        body_a = _rigid_body_name(int(contact["body0"]), body_names)
+        body_b = _rigid_body_name(int(contact["body1"]), body_names)
+        pair = tuple(sorted((body_a, body_b)))
+        stats = collision_stats.setdefault(pair, CollisionStats())
+        stats.contact_records += 1
+        stats.first_time_s = min(stats.first_time_s, playback_time_s)
+        stats.last_time_s = max(stats.last_time_s, playback_time_s)
+        stats.max_impulse = max(stats.max_impulse, impulse)
+        active_pairs_this_frame.add(pair)
+
+    for pair in active_pairs_this_frame:
+        collision_stats[pair].active_frames += 1
+
+
+def print_collision_report(
+    collision_stats: Dict[Tuple[str, str], CollisionStats],
+) -> None:
+    """Print active rigid-body contacts ordered by number of affected frames."""
+    print("\nCollision report (contacts with impulse > 1e-8):", flush=True)
+    if not collision_stats:
+        print("  No active collisions detected.", flush=True)
+        return
+
+    ordered_pairs = sorted(
+        collision_stats.items(),
+        key=lambda item: (item[1].active_frames, item[1].max_impulse),
+        reverse=True,
+    )
+    for (body_a, body_b), stats in ordered_pairs:
+        print(
+            f"  {body_a} <-> {body_b}: "
+            f"active_frames={stats.active_frames}, "
+            f"records={stats.contact_records}, "
+            f"time=[{stats.first_time_s:.3f}, {stats.last_time_s:.3f}] s, "
+            f"max_impulse={stats.max_impulse:.6g}",
+            flush=True,
+        )
+
+
 def replay_demo(
     scene: IsaacGymScene,
     demo: DemoTrajectory,
@@ -726,6 +811,7 @@ def replay_demo(
     debug_render: bool = False,
     render_mode: str = "full",
     collect_diagnostics: bool = True,
+    report_collisions: bool = False,
 ) -> tuple[int, Optional[ReplayDiagnostics]]:
     """Replay timestamped positions at Isaac Gym's fixed 60 Hz timestep."""
     if start_idx < 0 or start_idx >= demo.sample_count:
@@ -773,6 +859,17 @@ def replay_demo(
         if diagnostics_enabled
         else None
     )
+    body_names = (
+        tuple(
+            scene.gym.get_actor_rigid_body_names(
+                scene.env,
+                scene.robot_actor,
+            )
+        )
+        if report_collisions
+        else ()
+    )
+    collision_stats = {}  # type: Dict[Tuple[str, str], CollisionStats]
 
     prepare_scene(scene)
     played_samples = 0
@@ -805,6 +902,14 @@ def replay_demo(
         if debug_render:
             print(f"[render-debug] frame {frame_idx}: fetch results", flush=True)
         scene.gym.fetch_results(scene.sim, True)
+
+        if report_collisions:
+            _update_collision_report(
+                scene,
+                float(playback_time_s),
+                body_names,
+                collision_stats,
+            )
 
         if diagnostics_enabled:
             actual_positions = scene.gym.get_actor_dof_states(
@@ -869,6 +974,9 @@ def replay_demo(
                     f"max_abs_error={np.max(np.abs(position_error)):.5f} rad",
                     flush=True,
                 )
+
+    if report_collisions:
+        print_collision_report(collision_stats)
 
     diagnostics = None
     if diagnostics_enabled:
@@ -1171,6 +1279,14 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip collecting and plotting the PD target-vs-measured tracking plot.",
     )
+    parser.add_argument(
+        "--report-collisions",
+        action="store_true",
+        help=(
+            "Collect active PhysX contacts during replay and print a rigid-body "
+            "pair summary at the end."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -1212,6 +1328,7 @@ def main() -> None:
         graphics_device_id=graphics_device_id,
         use_gpu_physx=not args.cpu,
         use_gpu_pipeline=args.gpu_pipeline,
+        collect_contacts=args.report_collisions,
     )
     robot_asset = load_robot_asset(gym, sim)
     pd_controller = configure_pd_controller(gym, robot_asset)
@@ -1243,6 +1360,7 @@ def main() -> None:
             debug_render=args.debug_render,
             render_mode=args.render_mode,
             collect_diagnostics=not args.no_diagnostics_plot,
+            report_collisions=args.report_collisions,
         )
         print(f"Played {played_samples} simulation frames", flush=True)
     finally:

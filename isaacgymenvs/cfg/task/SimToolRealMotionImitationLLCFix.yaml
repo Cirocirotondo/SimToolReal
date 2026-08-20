@@ -1,0 +1,68 @@
+# Shared configuration for joint-space imitation runs performed after the
+# DG5F low-level-controller fix.
+defaults:
+  - SimToolRealMotionImitation
+  - _self_
+
+env:
+  demonstration: deployment/teleoperation/demonstrations_good/demo_20260727_152551_335339_60hz.npz
+
+  # Discrete RSI: uniform over all usable 60 Hz reference indices.
+  referenceInitDistribution: uniform
+  referenceInitMaxPhase: 1.0
+  useReferenceStateInitialization: True
+  referenceStateInitProbability: 1.0
+
+  # The 26 normalized policy outputs are mapped directly from [-1, 1] to the
+  # corresponding URDF joint limits. No joint-delta or OSC action is used.
+  useOperationalSpaceArmControl: False
+  useRelativeControl: False
+  useRelativeHandControl: False
+  armMovingAverage: 1.0
+  handMovingAverage: 1.0
+
+  # Joint-only Gaussian imitation reward. There are deliberately no action,
+  # acceleration, smoothness, EE-pose, or other regularization terms.
+  jointPositionRewardWeight: 0.8
+  jointVelocityRewardWeight: 0.2
+  # Broad enough to provide PPO a non-zero signal from its initial absolute
+  # joint targets; still approaches one sharply as tracking converges.
+  jointPositionRewardScale: 10.0
+  jointVelocityRewardScale: 0.01
+
+  kukaActionsPenaltyScale: 0.0
+  handActionsPenaltyScale: 0.0
+  armActionDeltaPenaltyScale: 0.0
+  handActionDeltaPenaltyScale: 0.0
+  armJointVelocityPenaltyScale: 0.0
+  armJointAccelerationPenaltyScale: 0.0
+  handJointAccelerationPenaltyScale: 0.0
+
+  imitationEarlyTermination: True
+  armJointPositionTerminationThresholdRad: 0.35
+  handJointPositionTerminationThresholdRad: 0.50
+  jointPositionTerminationGraceSteps: 5
+
+  # One physics/control step corresponds to one demonstration sample.
+  controlFrequencyInv: 1
+  episodeLength: 1108
+
+  # This family does not use an EE/object reference or a green reference actor.
+  objectTrackingEnabled: False
+  fingertipTrackingEnabled: False
+  objectGraspShapingEnabled: False
+  visualizeReferenceRobotInVideo: False
+  referenceVisualizationActorEnabled: False
+
+  # run evaluation every 500 epochs, with a 10-minute timeout
+  periodicEvaluation: True
+  evaluationFrequencyEpochs: 500
+  evaluationTimeoutSeconds: 600
+
+
+  # capture_video_len: 600
+  # capture_video: True
+  # enableCameraSensors: True
+  # visualizeReferenceRobotInVideo: True
+  # referenceVisualizationActorEnabled: True
+  # capture_video_freq: 100

@@ -184,6 +184,133 @@ class ReferenceSample:
     object_ang_vel: Optional[torch.Tensor] = None
 
 
+@dataclass(frozen=True)
+class JointReferenceSample:
+    """One discrete 60 Hz joint-space reference sample per environment."""
+
+    arm_q: torch.Tensor
+    arm_dq: torch.Tensor
+    hand_q: torch.Tensor
+    hand_dq: torch.Tensor
+
+
+class JointDemonstrationReference60Hz:
+    """Joint-only demonstration loaded without temporal interpolation.
+
+    The simulation and the processed demonstration both advance at exactly
+    60 Hz. Runtime lookup is therefore integer indexing: RSI chooses a sample
+    index and every control step advances it by one.
+    """
+
+    REQUIRED_FIELDS = {
+        "timestamp",
+        "monotonic_timestamp",
+        "arm_q",
+        "arm_dq",
+        "hand_q_measured",
+        "hand_dq_measured",
+    }
+
+    def __init__(
+        self,
+        path_or_name: str,
+        *,
+        device: str | torch.device,
+        frequency_hz: float = 60.0,
+        timestamp_tolerance_s: float = 1e-6,
+    ) -> None:
+        self.path = resolve_demonstration(path_or_name)
+        self.frequency_hz = float(frequency_hz)
+        if self.frequency_hz <= 0.0:
+            raise ValueError("frequency_hz must be positive")
+
+        with np.load(self.path, allow_pickle=False) as data:
+            missing = self.REQUIRED_FIELDS.difference(data.files)
+            if missing:
+                raise ValueError(
+                    f"{self.path.name} is missing required fields: "
+                    f"{sorted(missing)}"
+                )
+            timestamp = np.asarray(data["timestamp"], dtype=np.float64)
+            monotonic_timestamp = np.asarray(
+                data["monotonic_timestamp"], dtype=np.float64
+            )
+            arm_q = np.asarray(data["arm_q"], dtype=np.float32)
+            arm_dq = np.asarray(data["arm_dq"], dtype=np.float32)
+            hand_q = np.asarray(data["hand_q_measured"], dtype=np.float32)
+            hand_dq = np.asarray(data["hand_dq_measured"], dtype=np.float32)
+
+        count = len(timestamp)
+        if count < 2:
+            raise ValueError("The 60 Hz demonstration must contain at least 2 samples")
+        expected_shapes = {
+            "timestamp": (count,),
+            "monotonic_timestamp": (count,),
+            "arm_q": (count, 6),
+            "arm_dq": (count, 6),
+            "hand_q_measured": (count, 20),
+            "hand_dq_measured": (count, 20),
+        }
+        arrays = {
+            "timestamp": timestamp,
+            "monotonic_timestamp": monotonic_timestamp,
+            "arm_q": arm_q,
+            "arm_dq": arm_dq,
+            "hand_q_measured": hand_q,
+            "hand_dq_measured": hand_dq,
+        }
+        for name, array in arrays.items():
+            expected = expected_shapes[name]
+            if array.shape != expected or not np.all(np.isfinite(array)):
+                raise ValueError(
+                    f"Invalid {name}: expected finite {expected}, got {array.shape}"
+                )
+
+        expected_dt = 1.0 / self.frequency_hz
+        for name, time_values in (
+            ("timestamp", timestamp),
+            ("monotonic_timestamp", monotonic_timestamp),
+        ):
+            deltas = np.diff(time_values)
+            if np.any(deltas <= 0.0):
+                raise ValueError(f"{name} must be strictly increasing")
+            if not np.allclose(
+                deltas, expected_dt, rtol=0.0, atol=timestamp_tolerance_s
+            ):
+                max_error = float(np.max(np.abs(deltas - expected_dt)))
+                raise ValueError(
+                    f"{self.path.name} is not uniformly {self.frequency_hz:g} Hz: "
+                    f"maximum {name} step error is {max_error:.3g} s"
+                )
+
+        self.sample_count = count
+        self.last_index = count - 1
+        self.duration_s = self.last_index / self.frequency_hz
+        self.time = torch.arange(count, dtype=torch.float32, device=device) / (
+            self.frequency_hz
+        )
+        self.arm_q = torch.as_tensor(arm_q, device=device)
+        self.arm_dq = torch.as_tensor(arm_dq, device=device)
+        self.hand_q = torch.as_tensor(hand_q, device=device)
+        self.hand_dq = torch.as_tensor(hand_dq, device=device)
+
+    def sample(self, indices: torch.Tensor) -> JointReferenceSample:
+        indices = torch.as_tensor(indices, dtype=torch.long, device=self.arm_q.device)
+        # Do not reduce the index tensor here: this method runs every GPU
+        # control step, and a min/max check would force a device sync. PyTorch
+        # still rejects positive out-of-range indices; task-owned indices are
+        # clamped before lookup.
+        return JointReferenceSample(
+            arm_q=self.arm_q[indices],
+            arm_dq=self.arm_dq[indices],
+            hand_q=self.hand_q[indices],
+            hand_dq=self.hand_dq[indices],
+        )
+
+    def phase(self, indices: torch.Tensor) -> torch.Tensor:
+        return indices.to(dtype=torch.float32) / float(self.last_index)
+
+
 class DemonstrationReference:
     """One motion clip resident on the training device."""
 

@@ -1,0 +1,9 @@
+# SAPG11 retains exactly SAPG08's optimizer and network profile. The launcher
+# activates the normal SAPG exploration settings.
+defaults:
+  - SimToolRealMotionImitationSAPG08PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG11PPO,${....experiment}}

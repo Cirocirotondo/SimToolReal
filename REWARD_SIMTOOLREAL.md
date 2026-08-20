@@ -458,7 +458,7 @@ Motion imitation — lineage logica SAPG:
                     massimo `0.30`, reward teorica massima `1.30`. Nessun limite
                     automatico.
                     │
-                    └── SAPG10-FingertipTracking (preset preparato)
+                    ├── SAPG10-FingertipTracking (preset preparato)
                         Deriva da SAPG08 e mantiene observation 104D, RSI,
                         smoothing, regolarizzazioni gaussiane e profilo SAPG.
                         Il loader applica una sola volta la FK alla traiettoria
@@ -468,6 +468,33 @@ Motion imitation — lineage logica SAPG:
                         0.25 / 0.15` per EE position, EE orientation, finger joints
                         e fingertip; l'ultimo termine e' `exp(-500 * RMS_tip^2)`.
                         Serve a premiare direttamente la geometria utile al grasp.
+                    │
+                    ├── SAPG11-Phase055To085 (preset preparato)
+                        Confronto controllato che eredita integralmente SAPG08 e
+                        cambia soltanto i limiti temporali. La fase resta globale:
+                        gli episodi partono da `0.55`, terminano a `0.85` e durano
+                        quindi il 30% della demonstration. La RSI triangolare viene
+                        rimappata su `[0.55, 0.85]`, con mode a `0.55`; reward,
+                        observation 104D, smoothing, regolarizzazioni e SAPG non
+                        cambiano.
+                    │   │
+                    │   ├── SAPG12-Phase055To085-UniformRSI (preset preparato)
+                    │       Deriva integralmente da SAPG11 e modifica soltanto la
+                    │       distribuzione RSI: le fasi iniziali sono uniformi su
+                    │       `[0.55, 0.85]` anziche' triangolari con mode a `0.55`.
+                    │       Segmento, reward, observation, smoothing,
+                    │       regolarizzazioni e profilo SAPG restano identici.
+                    │       │
+                    │       └── SAPG13-NoRSI-JointSmoothness (preset preparato)
+                    │           Mantiene il segmento globale `[0.55, 0.85]` ma
+                    │           disabilita completamente RSI, quindi ogni episodio
+                    │           parte esattamente da `0.55`. La reward contiene solo
+                    │           EE position/orientation e hand joint pose con pesi
+                    │           `0.4 / 0.3 / 0.3`, piu' due bonus gaussiani bounded
+                    │           da `0.05` per la smoothness delle accelerazioni fisiche
+                    │           di arm e hand (`sigma=16666.67 / 5000000`). Tutti i
+                    │           termini action, action-delta e arm velocity sono
+                    │           disattivati. Reward massima teorica `1.10`.
                 │
                 └── SAPG09-BroadPoseReward (preset preparato)
                     Esperimento causale da zero che modifica soltanto le kernel pose

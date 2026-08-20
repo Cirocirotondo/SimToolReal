@@ -284,6 +284,12 @@ class RewardEpisodePlotter:
 
     def _save_combined_plots(self, episode_dir: Path) -> Dict[str, str]:
         try:
+            import matplotlib
+
+            if not self._live_enabled:
+                # Post-episode plots do not need a GUI.  Avoid Qt/OpenCV plugin
+                # conflicts in Isaac Gym evaluation subprocesses.
+                matplotlib.use("Agg", force=True)
             import matplotlib.pyplot as plt
         except ImportError:
             print("[reward-plot] matplotlib missing; saved .npz only.")
@@ -370,6 +376,10 @@ class RewardEpisodePlotter:
     def _save_per_term_plots(self, per_term_dir: Path) -> Dict[str, str]:
         """One PNG per reward term (per-step + cumulative) under per_term/."""
         try:
+            import matplotlib
+
+            if not self._live_enabled:
+                matplotlib.use("Agg", force=True)
             import matplotlib.pyplot as plt
         except ImportError:
             return {}

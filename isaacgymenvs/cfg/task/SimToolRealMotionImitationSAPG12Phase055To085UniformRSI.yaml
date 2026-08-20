@@ -1,0 +1,10 @@
+# SAPG12-Phase055To085-UniformRSI: controlled SAPG11 comparison where the
+# only change is uniform rather than triangular RSI inside the clipped segment.
+defaults:
+  - SimToolRealMotionImitationSAPG11Phase055To085
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  referenceInitDistribution: uniform

@@ -1,0 +1,7 @@
+defaults:
+  - SimToolRealMotionImitationLLCFixPPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationLLCFixPPO,${....experiment}}

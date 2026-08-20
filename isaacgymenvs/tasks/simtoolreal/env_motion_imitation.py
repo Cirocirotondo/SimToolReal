@@ -15,7 +15,12 @@ from isaacgymenvs.tasks.simtoolreal.demonstration_reference import (
     ReferenceSample,
     sample_reference_phases,
 )
-from isaacgymenvs.tasks.simtoolreal.env import SimToolReal
+from isaacgymenvs.tasks.simtoolreal.env import (
+    DEBUG_RSI,
+    DEBUG_RSI_MAX_RESETS,
+    DEBUG_RSI_STEPS_PER_RESET,
+    SimToolReal,
+)
 from isaacgymenvs.utils.torch_jit_utils import (
     quat_conjugate,
     quat_mul,
@@ -179,6 +184,9 @@ class SimToolRealMotionImitation(SimToolReal):
                 f"Clamped {clamped_count} demonstration joint samples "
                 "to the simulation URDF limits"
             )
+        if DEBUG_RSI:
+            self._debug_rsi_log(f"demonstration      : {self.reference.path}")
+            self._debug_rsi_log_reference_limits(reference_q, clamped_count)
         if self.fingertip_tracking_enabled:
             fingertip_offsets = self.fingertip_offsets
             if isinstance(fingertip_offsets, torch.Tensor):
@@ -203,7 +211,30 @@ class SimToolRealMotionImitation(SimToolReal):
                     self.palm_orientation_offset_xyzw
                 ),
             )
-        self.phase = torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
+        self.reference_phase_start = float(
+            env_cfg.get("referencePhaseStart", 0.0)
+        )
+        self.reference_phase_end = float(
+            env_cfg.get("referencePhaseEnd", 1.0)
+        )
+        if not (
+            0.0 <= self.reference_phase_start
+            < self.reference_phase_end
+            <= 1.0
+        ):
+            raise ValueError(
+                "referencePhaseStart/referencePhaseEnd must satisfy "
+                "0 <= start < end <= 1"
+            )
+        self.reference_phase_span = (
+            self.reference_phase_end - self.reference_phase_start
+        )
+        self.phase = torch.full(
+            (self.num_envs,),
+            self.reference_phase_start,
+            dtype=torch.float,
+            device=self.device,
+        )
         self.phase_delta = self.dt / self.reference.duration_s
         self.reference_init_max_phase = float(
             env_cfg.get("referenceInitMaxPhase", 1.0)
@@ -608,11 +639,15 @@ class SimToolRealMotionImitation(SimToolReal):
                 torch.rand(len(env_ids), device=self.device)
                 < self.reference_state_init_probability
             )
-        sampled_phase = sample_reference_phases(
+        sampled_normalized_phase = sample_reference_phases(
             len(env_ids),
             self.reference_init_max_phase,
             self.reference_init_distribution,
             self.device,
+        )
+        sampled_phase = (
+            self.reference_phase_start
+            + self.reference_phase_span * sampled_normalized_phase
         )
         use_anchor_phase = torch.zeros_like(use_random_phase)
         if self.reference_init_anchor_probability > 0.0:
@@ -627,12 +662,16 @@ class SimToolRealMotionImitation(SimToolReal):
                 anchor_phase += (
                     2.0 * torch.rand_like(anchor_phase) - 1.0
                 ) * self.reference_init_anchor_jitter
-            anchor_phase.clamp_(0.0, 1.0)
+            anchor_phase.clamp_(
+                self.reference_phase_start, self.reference_phase_end
+            )
             sampled_phase = torch.where(
                 use_anchor_phase, anchor_phase, sampled_phase
             )
         self.phase[env_ids] = torch.where(
-            use_random_phase, sampled_phase, torch.zeros_like(sampled_phase)
+            use_random_phase,
+            sampled_phase,
+            torch.full_like(sampled_phase, self.reference_phase_start),
         )
         self.reference_state_reset_mask[env_ids] = use_random_phase
         self.reference_state_reset_count += int(use_random_phase.sum().item())
@@ -688,7 +727,9 @@ class SimToolRealMotionImitation(SimToolReal):
             raise ValueError(
                 f"Expected {len(env_ids)} phase values, got {len(phase_tensor)}"
             )
-        phase_tensor = phase_tensor.clamp(0.0, 1.0)
+        phase_tensor = phase_tensor.clamp(
+            self.reference_phase_start, self.reference_phase_end
+        )
         self.phase[env_ids] = phase_tensor
 
         reference = self.reference.sample(phase_tensor)
@@ -742,6 +783,31 @@ class SimToolRealMotionImitation(SimToolReal):
         )
         self.deferred_set_dof_state_tensor_indexed([robot_indices])
         self.current_reference = self.reference.sample(self.phase)
+        if (
+            DEBUG_RSI
+            and bool((env_ids == 0).any())
+            and getattr(self, "_debug_rsi_resets", 0) < DEBUG_RSI_MAX_RESETS
+        ):
+            row = int((env_ids == 0).nonzero()[0].item())
+            reference_q = torch.cat(
+                [reference.arm_q[row], reference.hand_q[row]], dim=-1
+            )
+            error = (self.arm_hand_dof_pos[0] - reference_q).abs()
+            self._debug_rsi_resets = getattr(self, "_debug_rsi_resets", 0) + 1
+            self._debug_rsi_step = 0
+            self._debug_rsi_log(
+                f"[RSI #{self._debug_rsi_resets}] phase={float(phase_tensor[row]):.4f}"
+                f"  tensor_arm_err={float(error[: self.num_arm_dofs].max()):.6f}"
+                f"  tensor_hand_err={float(error[self.num_arm_dofs :].max()):.6f}"
+            )
+            self._debug_rsi_log(
+                "    ref_arm = "
+                f"{[round(v, 3) for v in reference_q[: self.num_arm_dofs].tolist()]}"
+            )
+            self._debug_rsi_log(
+                "    dof_arm = "
+                f"{[round(v, 3) for v in self.arm_hand_dof_pos[0, : self.num_arm_dofs].tolist()]}"
+            )
         if flush:
             self.set_dof_state_tensor_indexed()
             self.set_actor_root_state_tensor_indexed()
@@ -919,7 +985,7 @@ class SimToolRealMotionImitation(SimToolReal):
         previous_phase = (
             self.phase
             - interval_steps.to(dtype=self.phase.dtype) * self.phase_delta
-        ).clamp(min=0.0)
+        ).clamp(min=self.reference_phase_start)
         previous_ref = self.reference.sample(previous_phase)
         reference_linear_velocity = (
             ref.palm_pos - previous_ref.palm_pos
@@ -1242,7 +1308,7 @@ class SimToolRealMotionImitation(SimToolReal):
         )
         self.rew_buf[:] = reward
 
-        finished = self.phase >= 1.0
+        finished = self.phase >= self.reference_phase_end
         position_diverged = (
             position_error > self.ee_position_termination_distance
         )
@@ -1671,7 +1737,9 @@ class SimToolRealMotionImitation(SimToolReal):
         if self.VISUALIZE_REFERENCE_ROBOT:
             # post_physics_step advances phase before rendering, so place the
             # green actor at that same upcoming reference before PhysX runs.
-            next_phase = (self.phase + self.phase_delta).clamp(max=1.0)
+            next_phase = (self.phase + self.phase_delta).clamp(
+                max=self.reference_phase_end
+            )
             next_reference = self.reference.sample(next_phase)
             self._set_reference_visualization_robot(next_reference)
             self._set_reference_visualization_object(next_reference)
@@ -1683,9 +1751,43 @@ class SimToolRealMotionImitation(SimToolReal):
             self._update_regularization_curriculum_scales()
         self.progress_buf += 1
         self.randomize_buf += 1
-        self.phase.add_(self.phase_delta).clamp_(max=1.0)
+        self.phase.add_(self.phase_delta).clamp_(
+            max=self.reference_phase_end
+        )
         self.populate_sim_buffers()
         self.current_reference = self.reference.sample(self.phase)
+        if (
+            DEBUG_RSI
+            and getattr(self, "_debug_rsi_step", DEBUG_RSI_STEPS_PER_RESET)
+            < DEBUG_RSI_STEPS_PER_RESET
+        ):
+            # populate_sim_buffers has just refreshed the buffers, so this reads
+            # the state PhysX actually holds, not the one we wrote at reset.
+            reference_q = torch.cat(
+                [self.current_reference.arm_q[0], self.current_reference.hand_q[0]],
+                dim=-1,
+            )
+            error = (self.arm_hand_dof_pos[0] - reference_q).abs()
+            target_error = (
+                self.prev_targets[0, : self.num_hand_arm_dofs] - reference_q
+            ).abs()
+            green = ""
+            if self.VISUALIZE_REFERENCE_ROBOT:
+                green_error = (
+                    self.visualization_robot_arm_hand_dof_pos[0] - reference_q
+                ).abs()
+                green = (
+                    "  green_arm_err="
+                    f"{float(green_error[: self.num_arm_dofs].max()):.4f}"
+                )
+            self._debug_rsi_log(
+                f"  [+{self._debug_rsi_step}] phase={float(self.phase[0]):.4f}"
+                f"  arm_err={[round(v, 3) for v in error[: self.num_arm_dofs].tolist()]}"
+                f"  hand_err_max={float(error[self.num_arm_dofs :].max()):.3f}"
+                f"  arm_tgt_err_max={float(target_error[: self.num_arm_dofs].max()):.4f}"
+                f"{green}"
+            )
+            self._debug_rsi_step += 1
         _, finished = self.compute_imitation_reward()
         self.populate_obs_and_states_buffers()
         self.clamp_obs()

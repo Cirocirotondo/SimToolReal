@@ -1,0 +1,9 @@
+defaults:
+  - SimToolRealMotionImitationPPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:SimToolRealMotionImitationLLCFixPPO,${....experiment}}
+    learning_rate: 1e-5
+    lr_schedule: constant

@@ -103,12 +103,16 @@ opening sockets or commanding hardware.
 ## Demonstration viewer
 
 Replay a saved demonstration in a MuJoCo window by passing its name, stem, or
-full `.npz`/`.json` path:
+full `.npz`/`.json` path. With no argument, the viewer opens
+`demonstrations_good/demo_20260727_152551_335339.npz`:
 
 ```bash
 cd /home/duplo/simone/SimToolReal/deployment/teleoperation
 
-../../.venv/bin/python demo_viewer.py \
+../../.venv/bin/python demo_viewer_mujoco.py
+
+# Or select another recording:
+../../.venv/bin/python demo_viewer_mujoco.py \
   demo_20260727_152316_454926
 ```
 

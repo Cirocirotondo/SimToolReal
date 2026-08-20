@@ -1,0 +1,9 @@
+# SAPG13 retains the SAPG12 optimizer/network profile; only task reset and
+# reward composition change.
+defaults:
+  - SimToolRealMotionImitationSAPG12PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG13PPO,${....experiment}}

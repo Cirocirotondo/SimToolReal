@@ -1,0 +1,8 @@
+# SAPG12 has the same SAPG optimizer/network profile as SAPG11.
+defaults:
+  - SimToolRealMotionImitationSAPG11PPO
+  - _self_
+
+params:
+  config:
+    name: ${resolve_default:00_SimToolRealMotionImitationSAPG12PPO,${....experiment}}

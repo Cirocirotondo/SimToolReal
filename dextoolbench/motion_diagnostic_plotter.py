@@ -117,7 +117,6 @@ class MotionDiagnosticPlotter:
         """Record the post-step state and the action responsible for it."""
         env_idx = self.env_idx
         reference = env.current_reference
-        palm_linear_velocity, palm_angular_velocity = env._palm_center_velocity()
 
         self._append("steps", int(step))
         self._append("time_s", float(env.phase[env_idx]) * env.reference.duration_s)
@@ -134,23 +133,47 @@ class MotionDiagnosticPlotter:
         self._append("reference_hand_q", _env_vector(reference.hand_q, env_idx))
         self._append("reference_hand_qd", _env_vector(reference.hand_dq, env_idx))
 
-        self._append("actual_palm_pos", _env_vector(env.palm_center_pos, env_idx))
-        self._append("actual_palm_quat_xyzw", _env_vector(env._palm_rot, env_idx))
-        self._append("actual_palm_lin_vel", _env_vector(palm_linear_velocity, env_idx))
-        self._append("actual_palm_ang_vel", _env_vector(palm_angular_velocity, env_idx))
-        self._append("reference_palm_pos", _env_vector(reference.palm_pos, env_idx))
-        self._append(
-            "reference_palm_quat_xyzw",
-            _env_vector(reference.palm_quat_xyzw, env_idx),
+        # LLCFix demonstrations intentionally contain joint-space references only.
+        # Keep the Cartesian diagnostics for the older motion-imitation tasks, but
+        # do not require their private palm helpers or reference fields here.
+        has_palm_reference = all(
+            hasattr(reference, name)
+            for name in (
+                "palm_pos",
+                "palm_quat_xyzw",
+                "palm_lin_vel",
+                "palm_ang_vel",
+            )
         )
-        self._append(
-            "reference_palm_lin_vel",
-            _env_vector(reference.palm_lin_vel, env_idx),
-        )
-        self._append(
-            "reference_palm_ang_vel",
-            _env_vector(reference.palm_ang_vel, env_idx),
-        )
+        if has_palm_reference:
+            palm_linear_velocity, palm_angular_velocity = (
+                env._palm_center_velocity()
+            )
+            self._append("actual_palm_pos", _env_vector(env.palm_center_pos, env_idx))
+            self._append(
+                "actual_palm_quat_xyzw", _env_vector(env._palm_rot, env_idx)
+            )
+            self._append(
+                "actual_palm_lin_vel", _env_vector(palm_linear_velocity, env_idx)
+            )
+            self._append(
+                "actual_palm_ang_vel", _env_vector(palm_angular_velocity, env_idx)
+            )
+            self._append(
+                "reference_palm_pos", _env_vector(reference.palm_pos, env_idx)
+            )
+            self._append(
+                "reference_palm_quat_xyzw",
+                _env_vector(reference.palm_quat_xyzw, env_idx),
+            )
+            self._append(
+                "reference_palm_lin_vel",
+                _env_vector(reference.palm_lin_vel, env_idx),
+            )
+            self._append(
+                "reference_palm_ang_vel",
+                _env_vector(reference.palm_ang_vel, env_idx),
+            )
 
     def _arrays(self) -> Dict[str, np.ndarray]:
         arrays = {key: np.asarray(values) for key, values in self._records.items()}
@@ -160,25 +183,49 @@ class MotionDiagnosticPlotter:
         arrays["raw_policy_action_delta"] = _difference(arrays["raw_policy_action"])
         arrays["submitted_action_delta"] = _difference(arrays["submitted_action"])
         arrays["actual_joint_qdd"] = _finite_difference(arrays["actual_joint_qd"], dt)
-        arrays["reference_palm_lin_vel_discrete"] = _finite_difference(
-            arrays["reference_palm_pos"], dt
-        )
-        arrays["reference_palm_ang_vel_discrete"] = _quaternion_angular_velocity_xyzw(
-            arrays["reference_palm_quat_xyzw"], dt
-        )
         arrays["reference_arm_qd_discrete"] = _finite_difference(
             arrays["reference_arm_q"], dt
         )
         arrays["reference_hand_qd_discrete"] = _finite_difference(
             arrays["reference_hand_q"], dt
         )
-        arrays["palm_position_error_m"] = _norm(
-            arrays["actual_palm_pos"] - arrays["reference_palm_pos"]
+        split = self._num_arm_dofs
+        reference_joint_q = np.concatenate(
+            (arrays["reference_arm_q"], arrays["reference_hand_q"]), axis=1
         )
-        arrays["palm_orientation_error_rad"] = _quaternion_error_rad(
-            arrays["actual_palm_quat_xyzw"],
-            arrays["reference_palm_quat_xyzw"],
+        reference_joint_qd = np.concatenate(
+            (arrays["reference_arm_qd"], arrays["reference_hand_qd"]), axis=1
         )
+        joint_q_error = arrays["actual_joint_q"] - reference_joint_q
+        joint_qd_error = arrays["actual_joint_qd"] - reference_joint_qd
+        arrays["arm_joint_position_error_rms"] = np.sqrt(
+            np.mean(np.square(joint_q_error[:, :split]), axis=1)
+        )
+        arrays["hand_joint_position_error_rms"] = np.sqrt(
+            np.mean(np.square(joint_q_error[:, split:]), axis=1)
+        )
+        arrays["arm_joint_velocity_error_rms"] = np.sqrt(
+            np.mean(np.square(joint_qd_error[:, :split]), axis=1)
+        )
+        arrays["hand_joint_velocity_error_rms"] = np.sqrt(
+            np.mean(np.square(joint_qd_error[:, split:]), axis=1)
+        )
+        if "reference_palm_pos" in arrays:
+            arrays["reference_palm_lin_vel_discrete"] = _finite_difference(
+                arrays["reference_palm_pos"], dt
+            )
+            arrays["reference_palm_ang_vel_discrete"] = (
+                _quaternion_angular_velocity_xyzw(
+                    arrays["reference_palm_quat_xyzw"], dt
+                )
+            )
+            arrays["palm_position_error_m"] = _norm(
+                arrays["actual_palm_pos"] - arrays["reference_palm_pos"]
+            )
+            arrays["palm_orientation_error_rad"] = _quaternion_error_rad(
+                arrays["actual_palm_quat_xyzw"],
+                arrays["reference_palm_quat_xyzw"],
+            )
         return arrays
 
     def finalize(self, reason: str = "done") -> Dict[str, str]:
@@ -229,6 +276,12 @@ class MotionDiagnosticPlotter:
         self, episode_dir: Path, data: Dict[str, np.ndarray]
     ) -> Dict[str, str]:
         try:
+            import matplotlib
+
+            # These diagnostics are saved to disk and never shown live.  Force a
+            # non-GUI backend because importing OpenCV in the evaluation worker
+            # can point Qt at cv2's incompatible bundled xcb plugin.
+            matplotlib.use("Agg", force=True)
             import matplotlib.pyplot as plt
         except ImportError:
             print("[motion-diagnostics] matplotlib missing; saved .npz only.")
@@ -238,29 +291,54 @@ class MotionDiagnosticPlotter:
         split = self._num_arm_dofs
         paths: Dict[str, str] = {}
 
+        has_palm_diagnostics = "reference_palm_pos" in data
         fig, axes = plt.subplots(4, 1, figsize=(14, 13), sharex=True)
-        axes[0].plot(
-            time_s,
-            _norm(data["reference_palm_lin_vel_discrete"]),
-            label="target palm linear (pose finite diff)",
-        )
-        axes[0].plot(
-            time_s,
-            _norm(data["reference_palm_lin_vel"]),
-            label="target palm linear (loader filtered)",
-        )
-        self._finish_axis(axes[0], "m/s")
-        axes[1].plot(
-            time_s,
-            _norm(data["reference_palm_ang_vel_discrete"]),
-            label="target palm angular (pose finite diff)",
-        )
-        axes[1].plot(
-            time_s,
-            _norm(data["reference_palm_ang_vel"]),
-            label="target palm angular (loader filtered)",
-        )
-        self._finish_axis(axes[1], "rad/s")
+        if has_palm_diagnostics:
+            axes[0].plot(
+                time_s,
+                _norm(data["reference_palm_lin_vel_discrete"]),
+                label="target palm linear (pose finite diff)",
+            )
+            axes[0].plot(
+                time_s,
+                _norm(data["reference_palm_lin_vel"]),
+                label="target palm linear (loader filtered)",
+            )
+            self._finish_axis(axes[0], "m/s")
+            axes[1].plot(
+                time_s,
+                _norm(data["reference_palm_ang_vel_discrete"]),
+                label="target palm angular (pose finite diff)",
+            )
+            axes[1].plot(
+                time_s,
+                _norm(data["reference_palm_ang_vel"]),
+                label="target palm angular (loader filtered)",
+            )
+            self._finish_axis(axes[1], "rad/s")
+        else:
+            axes[0].plot(
+                time_s,
+                data["arm_joint_position_error_rms"],
+                label="arm position error RMS",
+            )
+            axes[0].plot(
+                time_s,
+                data["hand_joint_position_error_rms"],
+                label="hand position error RMS",
+            )
+            self._finish_axis(axes[0], "rad")
+            axes[1].plot(
+                time_s,
+                data["arm_joint_velocity_error_rms"],
+                label="arm velocity error RMS",
+            )
+            axes[1].plot(
+                time_s,
+                data["hand_joint_velocity_error_rms"],
+                label="hand velocity error RMS",
+            )
+            self._finish_axis(axes[1], "rad/s")
         for key, label, style in (
             ("raw_policy_action_delta", "raw policy", "-"),
             ("submitted_action_delta", "submitted/filtered", "--"),
@@ -299,76 +377,77 @@ class MotionDiagnosticPlotter:
         plt.close(fig)
         paths["diagnostic_overview_png"] = str(path)
 
-        fig, axes = plt.subplots(4, 1, figsize=(14, 13), sharex=True)
-        self._plot_components(
-            axes[0],
-            time_s,
-            data["reference_palm_pos"],
-            "target",
-            component_names=("x", "y", "z"),
-            linewidth=1.4,
-        )
-        self._plot_components(
-            axes[0],
-            time_s,
-            data["actual_palm_pos"],
-            "actual",
-            component_names=("x", "y", "z"),
-            linestyle="--",
-        )
-        self._finish_axis(axes[0], "Palm position [m]")
-        axes[1].plot(
-            time_s,
-            100.0 * data["palm_position_error_m"],
-            label="position error [cm]",
-        )
-        axes[1].plot(
-            time_s,
-            np.degrees(data["palm_orientation_error_rad"]),
-            label="orientation error [degree]",
-        )
-        self._finish_axis(axes[1], "cm / degree")
-        self._plot_components(
-            axes[2],
-            time_s,
-            data["reference_palm_lin_vel"],
-            "target",
-            component_names=("x", "y", "z"),
-            linewidth=1.4,
-        )
-        self._plot_components(
-            axes[2],
-            time_s,
-            data["actual_palm_lin_vel"],
-            "actual",
-            component_names=("x", "y", "z"),
-            linestyle="--",
-        )
-        self._finish_axis(axes[2], "Linear velocity [m/s]")
-        self._plot_components(
-            axes[3],
-            time_s,
-            data["reference_palm_ang_vel"],
-            "target",
-            component_names=("x", "y", "z"),
-            linewidth=1.4,
-        )
-        self._plot_components(
-            axes[3],
-            time_s,
-            data["actual_palm_ang_vel"],
-            "actual",
-            component_names=("x", "y", "z"),
-            linestyle="--",
-        )
-        self._finish_axis(axes[3], "Angular velocity [rad/s]")
-        axes[3].set_xlabel("Demonstration time [s]")
-        fig.suptitle("Palm target versus simulated motion")
-        fig.tight_layout()
-        path = episode_dir / "palm_target_vs_actual.png"
-        fig.savefig(path, dpi=160)
-        plt.close(fig)
-        paths["diagnostic_palm_png"] = str(path)
+        if has_palm_diagnostics:
+            fig, axes = plt.subplots(4, 1, figsize=(14, 13), sharex=True)
+            self._plot_components(
+                axes[0],
+                time_s,
+                data["reference_palm_pos"],
+                "target",
+                component_names=("x", "y", "z"),
+                linewidth=1.4,
+            )
+            self._plot_components(
+                axes[0],
+                time_s,
+                data["actual_palm_pos"],
+                "actual",
+                component_names=("x", "y", "z"),
+                linestyle="--",
+            )
+            self._finish_axis(axes[0], "Palm position [m]")
+            axes[1].plot(
+                time_s,
+                100.0 * data["palm_position_error_m"],
+                label="position error [cm]",
+            )
+            axes[1].plot(
+                time_s,
+                np.degrees(data["palm_orientation_error_rad"]),
+                label="orientation error [degree]",
+            )
+            self._finish_axis(axes[1], "cm / degree")
+            self._plot_components(
+                axes[2],
+                time_s,
+                data["reference_palm_lin_vel"],
+                "target",
+                component_names=("x", "y", "z"),
+                linewidth=1.4,
+            )
+            self._plot_components(
+                axes[2],
+                time_s,
+                data["actual_palm_lin_vel"],
+                "actual",
+                component_names=("x", "y", "z"),
+                linestyle="--",
+            )
+            self._finish_axis(axes[2], "Linear velocity [m/s]")
+            self._plot_components(
+                axes[3],
+                time_s,
+                data["reference_palm_ang_vel"],
+                "target",
+                component_names=("x", "y", "z"),
+                linewidth=1.4,
+            )
+            self._plot_components(
+                axes[3],
+                time_s,
+                data["actual_palm_ang_vel"],
+                "actual",
+                component_names=("x", "y", "z"),
+                linestyle="--",
+            )
+            self._finish_axis(axes[3], "Angular velocity [rad/s]")
+            axes[3].set_xlabel("Demonstration time [s]")
+            fig.suptitle("Palm target versus simulated motion")
+            fig.tight_layout()
+            path = episode_dir / "palm_target_vs_actual.png"
+            fig.savefig(path, dpi=160)
+            plt.close(fig)
+            paths["diagnostic_palm_png"] = str(path)
 
         paths.update(
             self._save_joint_plot(

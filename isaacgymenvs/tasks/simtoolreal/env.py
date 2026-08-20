@@ -59,7 +59,7 @@ from pytorch3d.transforms import (
 from dextoolbench.objects import NAME_TO_OBJECT
 from isaacgymenvs.tasks.base.vec_task import VecTask
 from isaacgymenvs.tasks.simtoolreal.utils import (
-    disable_actor_self_collision_pair,
+    disable_dg5f_wrist_self_collisions,
     populate_dof_properties,
     sample_reset_dof_position_delta,
     tolerance_curriculum,
@@ -83,6 +83,17 @@ from isaacgymenvs.utils.torch_jit_utils import (
 )
 
 DATETIME_STR = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+
+
+# --- Temporary reset diagnostics -------------------------------------------
+# Traces how far environment 0 sits from the reference right after a reset and
+# over the first steps that follow. Written to its own file because the
+# training terminal is too noisy to read. Set DEBUG_RSI = False to disable.
+DEBUG_RSI = False
+DEBUG_RSI_LOG_PATH = Path(__file__).resolve().parents[3] / "rsi_reset_debug.log"
+DEBUG_RSI_MAX_RESETS = 5
+DEBUG_RSI_STEPS_PER_RESET = 8
+# ---------------------------------------------------------------------------
 
 
 def assert_equals(a, b):
@@ -2389,14 +2400,12 @@ class SimToolReal(VecTask):
                 segmentation_id,
             )
             if self.use_delto:
-                # Preserve all other self-collisions while removing a known
-                # non-physical intersection in the combined UR5e+DG5F model.
-                disable_actor_self_collision_pair(
+                # Filter the known non-physical wrist/hand mesh intersections.
+                # Each pair has its own bit, preserving finger collisions.
+                disable_dg5f_wrist_self_collisions(
                     self.gym,
                     env_ptr,
                     robot_actor,
-                    "wrist_3_link",
-                    "rl_dg_1_2",
                 )
             populate_dof_properties(
                 robot_dof_props, self.num_arm_dofs, self.num_hand_dofs
@@ -4241,6 +4250,31 @@ class SimToolReal(VecTask):
         )
 
         self.set_actor_root_state_object_indices = []
+
+    def _debug_rsi_log(self, line: str) -> None:
+        """Append one reset-diagnostic line to its own file."""
+        handle = getattr(self, "_debug_rsi_handle", None)
+        if handle is None:
+            handle = open(DEBUG_RSI_LOG_PATH, "w")
+            self._debug_rsi_handle = handle
+        handle.write(line + "\n")
+        handle.flush()
+
+    def _debug_rsi_log_reference_limits(self, reference_q: Tensor, clamped: int) -> None:
+        """Record the joint order and how the demonstration sits inside the limits."""
+        self._debug_rsi_log(f"clamped_samples    : {clamped}")
+        self._debug_rsi_log(
+            "arm dof order, recorded range BEFORE clamping, URDF limits:"
+        )
+        for j in range(self.num_arm_dofs):
+            self._debug_rsi_log(
+                f"  [{j}] {self.robot_dof_names[j]:<18}"
+                f" ref[{float(reference_q[:, j].min()):+.3f},"
+                f" {float(reference_q[:, j].max()):+.3f}]"
+                f"  limits[{float(self.arm_hand_dof_lower_limits[j]):+.3f},"
+                f" {float(self.arm_hand_dof_upper_limits[j]):+.3f}]"
+            )
+        self._debug_rsi_log("")
 
     def deferred_set_dof_state_tensor_indexed(self, dof_indices: List[Tensor]) -> None:
         self.set_dof_state_object_indices.extend(dof_indices)

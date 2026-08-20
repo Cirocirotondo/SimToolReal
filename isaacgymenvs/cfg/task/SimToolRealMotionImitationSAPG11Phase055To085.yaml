@@ -1,0 +1,15 @@
+# SAPG11-Phase055To085: controlled SAPG08 comparison trained only on the
+# central demonstration segment. All task settings other than phase bounds are
+# inherited unchanged from SAPG08.
+defaults:
+  - SimToolRealMotionImitationSAPG08PositiveGaussianRegularization
+  - _self_
+
+name: SimToolRealMotionImitation
+
+env:
+  # Keep phase in the original demonstration coordinate system. Episodes and
+  # non-RSI resets start at 0.55; triangular RSI is remapped over this interval
+  # with its mode at 0.55; reaching 0.85 completes the episode.
+  referencePhaseStart: 0.55
+  referencePhaseEnd: 0.85
